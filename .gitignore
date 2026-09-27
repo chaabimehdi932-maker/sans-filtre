@@ -1,0 +1,12 @@
+# Fichiers générés par `rojo build`
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+!assets/**
+
+# Fichiers de verrouillage de Studio
+*.rbxl.lock
+*.rbxlx.lock
+
+sourcemap.json

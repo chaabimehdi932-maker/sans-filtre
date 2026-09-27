@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Rojo, Selene et StyLua
+        run: |
+          mkdir -p "$HOME/bin"
+          cd "$HOME/bin"
+          curl -sSL -o rojo.zip https://github.com/rojo-rbx/rojo/releases/download/v7.4.4/rojo-7.4.4-linux-x86_64.zip
+          curl -sSL -o selene.zip https://github.com/Kampfkarren/selene/releases/download/0.27.1/selene-0.27.1-linux.zip
+          curl -sSL -o stylua.zip https://github.com/JohnnyMorganz/StyLua/releases/download/v0.20.0/stylua-linux-x86_64.zip
+          for f in *.zip; do unzip -o -q "$f"; done
+          chmod +x rojo selene stylua
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Vérifier le formatage (StyLua)
+        run: stylua --check src
+
+      - name: Analyser le code (Selene)
+        run: selene src
+
+      - name: Construire le jeu (Rojo)
+        run: rojo build default.project.json -o sans-filtre.rbxl
+
+      - name: Publier le fichier .rbxl
+        uses: actions/upload-artifact@v4
+        with:
+          name: sans-filtre
+          path: sans-filtre.rbxl
