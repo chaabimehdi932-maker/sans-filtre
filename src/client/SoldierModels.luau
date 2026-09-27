@@ -1,20 +1,29 @@
 --[[
 	SoldierModels
-	Builds the (placeholder, part-based) soldier, horse and cannon models drawn by SquadRenderer.
-	A model is a list of pieces { part, bone, offset }: every frame the renderer computes one
-	CFrame per bone (root, legs, arms, gun…) and places each part at bone * offset.
+	Full-size R6 soldiers (same proportions as a Roblox R6 character: 2×2×1 torso, 1×2×1 limbs,
+	classic head mesh + face) with Napoleonic uniforms, plus horses and cannons.
 
-	Bones:
-	  Infantry / crew : root, legL, legR, armL, armR, gun
-	  Cavalry         : horse, legFL, legFR, legBL, legBR, neck, rider, armL, armR
-	  Cannon (extras) : carriage, barrel
+	Every model is an anchored root part moved by SquadRenderer with BulkMoveTo; the rest hangs
+	on Motor6D joints. Animation is procedural: the renderer writes each joint's Transform.
+	Joints use simple, readable frames (not Roblox's rotated R6 defaults):
+	  Transform = CFrame.Angles(x, 0, z)  → +x swings a limb forward, z spreads it sideways.
+
+	Rig table: { model, root, motors = { name = Motor6D }, parts = { visible BaseParts }, kind }
+	  Infantry/Crew motors : root, neck, armL, armR, legL, legR, gun (infantry only)
+	  Cavalry motors       : legFL, legFR, legBL, legBR, neck, tail, rider, armL, armR, legL, legR
+	  Cannon motors        : barrel
 ]]
 
 local SoldierModels = {}
 
+-- Height of an R6 torso centre above the feet
+SoldierModels.TORSO_HEIGHT = 3
+-- Height of the horse body centre above the ground
+SoldierModels.HORSE_HEIGHT = 4.2
+
 local UNIFORMS = {
 	Blue = { -- French line infantry
-		coat = Color3.fromRGB(32, 52, 135),
+		coat = Color3.fromRGB(34, 54, 140),
 		facing = Color3.fromRGB(200, 35, 35),
 		trousers = Color3.fromRGB(236, 236, 230),
 		plume = Color3.fromRGB(210, 35, 35),
@@ -22,7 +31,7 @@ local UNIFORMS = {
 	},
 	Red = { -- British redcoats
 		coat = Color3.fromRGB(185, 32, 32),
-		facing = Color3.fromRGB(30, 40, 90),
+		facing = Color3.fromRGB(28, 38, 90),
 		trousers = Color3.fromRGB(215, 215, 210),
 		plume = Color3.fromRGB(240, 240, 240),
 		saddlecloth = Color3.fromRGB(150, 30, 30),
@@ -50,25 +59,36 @@ local LEATHER = Color3.fromRGB(80, 52, 30)
 local WHITE = Color3.fromRGB(242, 242, 236)
 local IRON = Color3.fromRGB(45, 45, 50)
 
--- Joint positions relative to the soldier's feet (shared with SquadRenderer)
-SoldierModels.HIP_L = CFrame.new(-0.24, 0.85, 0)
-SoldierModels.HIP_R = CFrame.new(0.24, 0.85, 0)
-SoldierModels.SHOULDER_L = CFrame.new(-0.66, 1.9, 0)
-SoldierModels.SHOULDER_R = CFrame.new(0.66, 1.9, 0)
--- Horse joints relative to the horse bone (body centre)
-SoldierModels.HORSE_HEIGHT = 1.95
-SoldierModels.HORSE_HIPS = {
-	legFL = CFrame.new(-0.4, -0.45, -1.2),
-	legFR = CFrame.new(0.4, -0.45, -1.2),
-	legBL = CFrame.new(-0.4, -0.45, 1.2),
-	legBR = CFrame.new(0.4, -0.45, 1.2),
-}
-SoldierModels.NECK = CFrame.new(0, 0.45, -1.55)
-SoldierModels.SADDLE = CFrame.new(0, 0.72, 0.15)
-SoldierModels.RIDER_SHOULDER_L = CFrame.new(-0.55, 1.0, 0)
-SoldierModels.RIDER_SHOULDER_R = CFrame.new(0.55, 1.0, 0)
+local VERTICAL = CFrame.Angles(0, 0, math.rad(90)) -- cylinders point along X: stand them up
+local ALONG_Z = CFrame.Angles(0, math.rad(90), 0) -- cylinders along Z
 
-local function part(name: string, size: Vector3, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
+local function newRig(parent: Instance, kind: string, rootSize: Vector3, rootVisible: Part?): any
+	local model = Instance.new("Model")
+	model.Name = kind
+	local root = rootVisible or Instance.new("Part")
+	if not rootVisible then
+		root.Name = "HumanoidRootPart"
+		root.Size = rootSize
+		root.Transparency = 1
+	end
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanQuery = false
+	root.CanTouch = false
+	root.Parent = model
+	model.PrimaryPart = root
+	model.Parent = parent
+	return { model = model, root = root, motors = {}, parts = {}, kind = kind }
+end
+
+local function part(
+	rig: any,
+	name: string,
+	size: Vector3,
+	color: Color3,
+	material: Enum.Material?,
+	shape: Enum.PartType?
+): Part
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = size
@@ -77,203 +97,276 @@ local function part(name: string, size: Vector3, color: Color3, material: Enum.M
 	if shape then
 		p.Shape = shape
 	end
-	p.Anchored = true
+	p.Anchored = false
+	p.Massless = true
 	p.CanCollide = false
 	p.CanQuery = false
 	p.CanTouch = false
 	p.CastShadow = false
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = rig.model
+	table.insert(rig.parts, p)
 	return p
 end
 
-local VERTICAL = CFrame.Angles(0, 0, math.rad(90)) -- cylinders point along X: stand them up
-
-local function builder(parent: Instance)
-	local pieces = {}
-	local function add(bone: string, p: Part, offset: CFrame): Part
-		p.Parent = parent
-		table.insert(pieces, { part = p, bone = bone, offset = offset })
-		return p
-	end
-	return pieces, add
+local function motor(rig: any, name: string, part0: BasePart, part1: BasePart, c0: CFrame, c1: CFrame): Motor6D
+	local m = Instance.new("Motor6D")
+	m.Name = name
+	m.Part0 = part0
+	m.Part1 = part1
+	m.C0 = c0
+	m.C1 = c1
+	m.Parent = part0
+	rig.motors[name] = m
+	return m
 end
 
-local function head(add: any, bone: string, at: CFrame, skin: Color3, def: any, uniform: any, cavalry: boolean)
-	add(bone, part("Head", Vector3.new(0.55, 0.58, 0.55), skin), at)
-	local hatHeight = def.hatHeight or 0.7
-	if cavalry then
-		-- brass helmet with a black horsehair crest
-		add(
-			bone,
-			part("Helmet", Vector3.new(0.64, 0.45, 0.66), def.hatColor or BRASS, Enum.Material.Metal),
-			at * CFrame.new(0, 0.38, 0)
+local function attach(part0: BasePart, part1: BasePart, c0: CFrame)
+	local w = Instance.new("Weld")
+	w.Part0 = part0
+	w.Part1 = part1
+	w.C0 = c0
+	w.Parent = part1
+end
+
+-- R6 body: torso on the root, head, arms, legs + uniform details. Returns torso, head, armR.
+local function body(rig: any, team: string, def: any, torsoParent: BasePart, torsoC0: CFrame, cavalry: boolean)
+	local uniform = UNIFORMS[team]
+	local skin = SKINS[math.random(1, #SKINS)]
+	local coat = def.coatColor or uniform.coat
+
+	local torso = part(rig, "Torso", Vector3.new(2, 2, 1), coat)
+	torso.CastShadow = true
+	motor(rig, if cavalry then "rider" else "root", torsoParent, torso, torsoC0, CFrame.new())
+
+	local head = part(rig, "Head", Vector3.new(2, 1, 1), skin)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Head
+	mesh.Scale = Vector3.new(1.25, 1.25, 1.25)
+	mesh.Parent = head
+	local face = Instance.new("Decal")
+	face.Name = "face"
+	face.Texture = "rbxasset://textures/face.png"
+	face.Face = Enum.NormalId.Front
+	face.Parent = head
+	motor(rig, "neck", torso, head, CFrame.new(0, 1, 0), CFrame.new(0, -0.5, 0))
+
+	for _, side in { "L", "R" } do
+		local x = if side == "L" then -1.5 else 1.5
+		local arm = part(rig, "Arm" .. side, Vector3.new(1, 2, 1), coat)
+		motor(rig, "arm" .. side, torso, arm, CFrame.new(x, 0.5, 0), CFrame.new(0, 0.5, 0))
+		attach(arm, part(rig, "Hand", Vector3.new(1.04, 0.45, 1.04), skin), CFrame.new(0, -0.8, 0))
+		attach(arm, part(rig, "Cuff", Vector3.new(1.06, 0.2, 1.06), uniform.facing), CFrame.new(0, -0.5, 0))
+		attach(
+			arm,
+			part(rig, "Epaulette", Vector3.new(1.1, 0.25, 1.1), uniform.facing, Enum.Material.Fabric),
+			CFrame.new(0, 0.9, 0)
 		)
-		add(
-			bone,
-			part("Crest", Vector3.new(0.14, 0.35, 0.75), BLACK, Enum.Material.Fabric),
-			at * CFrame.new(0, 0.72, 0.08)
+		local leg = part(rig, "Leg" .. side, Vector3.new(1, 2, 1), uniform.trousers)
+		motor(rig, "leg" .. side, torso, leg, CFrame.new(x / 3, -1, 0), CFrame.new(0, 1, 0))
+		local bootHeight = if cavalry then 1.3 else 0.7
+		attach(
+			leg,
+			part(rig, "Boot", Vector3.new(1.04, bootHeight, 1.08), BLACK),
+			CFrame.new(0, -1 + bootHeight / 2, -0.02)
+		)
+	end
+
+	-- crossbelt, collar, buttons, backpack
+	attach(torso, part(rig, "Belt", Vector3.new(0.32, 2.7, 1.06), WHITE), CFrame.Angles(0, 0, math.rad(-40)))
+	attach(torso, part(rig, "Collar", Vector3.new(2.04, 0.3, 1.04), uniform.facing), CFrame.new(0, 0.85, 0))
+	attach(
+		torso,
+		part(rig, "Buttons", Vector3.new(0.18, 1.5, 1.06), BRASS, Enum.Material.Metal),
+		CFrame.new(0.45, 0, 0)
+	)
+	if not cavalry then
+		attach(
+			torso,
+			part(rig, "Backpack", Vector3.new(1.6, 1.4, 0.6), LEATHER, Enum.Material.Fabric),
+			CFrame.new(0, 0.1, 0.8)
+		)
+		attach(
+			torso,
+			part(
+				rig,
+				"Bedroll",
+				Vector3.new(1.8, 0.45, 0.45),
+				Color3.fromRGB(120, 110, 95),
+				Enum.Material.Fabric,
+				Enum.PartType.Cylinder
+			),
+			CFrame.new(0, 0.95, 0.8)
+		)
+	end
+
+	-- headgear
+	if cavalry then
+		attach(
+			head,
+			part(rig, "Helmet", Vector3.new(1.3, 0.85, 1.3), def.hatColor or BRASS, Enum.Material.Metal),
+			CFrame.new(0, 0.55, 0)
+		)
+		attach(
+			head,
+			part(rig, "Crest", Vector3.new(0.3, 0.6, 1.5), BLACK, Enum.Material.Fabric),
+			CFrame.new(0, 1.1, 0.1)
 		)
 	else
+		local hatHeight = (def.hatHeight or 0.7) * 1.4
 		local hat = part(
-			"Hat",
-			Vector3.new(hatHeight, 0.62, 0.62),
+			rig,
+			"Shako",
+			Vector3.new(hatHeight, 1.2, 1.2),
 			def.hatColor or BLACK,
 			Enum.Material.SmoothPlastic,
 			Enum.PartType.Cylinder
 		)
-		add(bone, hat, at * CFrame.new(0, 0.27 + hatHeight / 2, 0) * VERTICAL)
-		add(
-			bone,
-			part("Plate", Vector3.new(0.24, 0.22, 0.06), BRASS, Enum.Material.Metal),
-			at * CFrame.new(0, 0.27 + hatHeight * 0.45, -0.31)
+		attach(head, hat, CFrame.new(0, 0.55 + hatHeight / 2, 0) * VERTICAL)
+		attach(head, part(rig, "Peak", Vector3.new(1.15, 0.12, 0.45), BLACK), CFrame.new(0, 0.58, -0.62))
+		attach(
+			head,
+			part(rig, "Plate", Vector3.new(0.45, 0.45, 0.1), BRASS, Enum.Material.Metal),
+			CFrame.new(0, 0.55 + hatHeight * 0.45, -0.6)
 		)
-		add(
-			bone,
-			part("Plume", Vector3.new(0.13, 0.42, 0.13), def.plumeColor or uniform.plume, Enum.Material.Fabric),
-			at * CFrame.new(0, 0.5 + hatHeight, -0.1)
+		attach(
+			head,
+			part(rig, "Plume", Vector3.new(0.28, 0.75, 0.28), def.plumeColor or uniform.plume, Enum.Material.Fabric),
+			CFrame.new(0, 0.9 + hatHeight, -0.2)
 		)
 	end
+	return torso
 end
 
--- Line infantry, skirmishers, grenadiers, artillery crew (withGun = false)
+-- Line infantry, skirmishers, grenadiers; artillery crew with withGun = false
 function SoldierModels.infantry(parent: Instance, team: string, def: any, withGun: boolean): any
-	local uniform = UNIFORMS[team]
-	local skin = SKINS[math.random(1, #SKINS)]
-	local coat = if def.coatColor then def.coatColor else uniform.coat
-	local pieces, add = builder(parent)
-
-	for _, side in { "L", "R" } do
-		add("leg" .. side, part("Leg", Vector3.new(0.42, 0.85, 0.45), uniform.trousers), CFrame.new(0, -0.42, 0))
-	end
-	add("root", part("Torso", Vector3.new(1.0, 1.05, 0.55), coat), CFrame.new(0, 1.45, 0))
-	add(
-		"root",
-		part("Belt", Vector3.new(0.16, 1.25, 0.58), WHITE),
-		CFrame.new(0, 1.45, 0) * CFrame.Angles(0, 0, math.rad(-38))
-	)
-	add("root", part("Backpack", Vector3.new(0.75, 0.72, 0.32), LEATHER), CFrame.new(0, 1.5, 0.42))
-	head(add, "root", CFrame.new(0, 2.3, 0), skin, def, uniform, false)
-	for _, side in { "L", "R" } do
-		add("arm" .. side, part("Arm", Vector3.new(0.3, 0.9, 0.32), coat), CFrame.new(0, -0.42, 0))
-		add("arm" .. side, part("Hand", Vector3.new(0.24, 0.22, 0.24), skin), CFrame.new(0, -0.95, 0))
-	end
+	local rig = newRig(parent, if withGun then "Infantry" else "Crew", Vector3.new(2, 2, 1), nil)
+	local torso = body(rig, team, def, rig.root, CFrame.new(), false)
 	if withGun then
-		-- musket along the gun bone's +Y, origin at the butt
-		add("gun", part("Musket", Vector3.new(0.13, 2.5, 0.15), WOOD, Enum.Material.Wood), CFrame.new(0, 1.25, 0))
-		add("gun", part("Bayonet", Vector3.new(0.05, 0.6, 0.05), STEEL, Enum.Material.Metal), CFrame.new(0, 2.8, -0.05))
+		-- musket lies along its own +Y; the "gun" joint's Transform is the pose (butt position)
+		local musket = part(rig, "Musket", Vector3.new(0.22, 4.4, 0.3), WOOD, Enum.Material.Wood)
+		motor(rig, "gun", torso, musket, CFrame.new(), CFrame.new(0, -2.2, 0))
+		attach(
+			musket,
+			part(rig, "Barrel", Vector3.new(0.16, 2.2, 0.16), STEEL, Enum.Material.Metal),
+			CFrame.new(0, 1.1, -0.1)
+		)
+		attach(
+			musket,
+			part(rig, "Bayonet", Vector3.new(0.08, 1.1, 0.08), STEEL, Enum.Material.Metal),
+			CFrame.new(0, 2.75, -0.12)
+		)
 	end
-	return { pieces = pieces, kind = "Infantry" }
+	return rig
 end
 
 function SoldierModels.cavalry(parent: Instance, team: string, def: any): any
 	local uniform = UNIFORMS[team]
-	local skin = SKINS[math.random(1, #SKINS)]
-	local horse = HORSES[math.random(1, #HORSES)]
-	local coat, dark = horse[1], horse[2]
-	local pieces, add = builder(parent)
+	local coatColors = HORSES[math.random(1, #HORSES)]
+	local coat, dark = coatColors[1], coatColors[2]
 
-	-- horse
-	local body = add("horse", part("Body", Vector3.new(1.3, 1.2, 3.1), coat), CFrame.new())
-	body.CastShadow = true
-	add("horse", part("Chest", Vector3.new(1.2, 1.15, 0.9), coat), CFrame.new(0, 0.05, -1.45))
-	add(
-		"horse",
-		part("Saddlecloth", Vector3.new(1.4, 0.75, 1.3), uniform.saddlecloth, Enum.Material.Fabric),
-		CFrame.new(0, 0.3, 0.15)
+	local horseBody = Instance.new("Part")
+	horseBody.Name = "HorseBody"
+	horseBody.Size = Vector3.new(2.2, 2.2, 5.6)
+	horseBody.Color = coat
+	horseBody.Material = Enum.Material.SmoothPlastic
+	horseBody.CastShadow = true
+	local rig = newRig(parent, "Cavalry", Vector3.one, horseBody)
+	table.insert(rig.parts, horseBody)
+
+	attach(horseBody, part(rig, "Chest", Vector3.new(2.1, 2.1, 1.6), coat), CFrame.new(0, 0.1, -2.6))
+	attach(horseBody, part(rig, "Rump", Vector3.new(2.25, 2.15, 1.7), coat), CFrame.new(0, 0.12, 2.4))
+	attach(
+		horseBody,
+		part(rig, "Saddlecloth", Vector3.new(2.4, 1.4, 2.4), uniform.saddlecloth, Enum.Material.Fabric),
+		CFrame.new(0, 0.45, 0.2)
 	)
-	add(
-		"horse",
-		part("Tail", Vector3.new(0.25, 1.2, 0.25), dark, Enum.Material.Fabric),
-		CFrame.new(0, -0.1, 1.75) * CFrame.Angles(math.rad(-20), 0, 0)
-	)
-	for bone in SoldierModels.HORSE_HIPS do
-		add(bone, part("Leg", Vector3.new(0.3, 1.45, 0.32), coat), CFrame.new(0, -0.7, 0))
-		add(bone, part("Hoof", Vector3.new(0.34, 0.22, 0.36), dark), CFrame.new(0, -1.4, -0.02))
+	attach(horseBody, part(rig, "Saddle", Vector3.new(2.3, 0.35, 1.8), LEATHER), CFrame.new(0, 1.15, 0.2))
+
+	local legLength = SoldierModels.HORSE_HEIGHT - 1.1
+	for _, spot in
+		{ { "legFL", -0.65, -2.4 }, { "legFR", 0.65, -2.4 }, { "legBL", -0.65, 2.4 }, { "legBR", 0.65, 2.4 } }
+	do
+		local leg = part(rig, "Leg", Vector3.new(0.6, legLength, 0.65), coat)
+		motor(rig, spot[1], horseBody, leg, CFrame.new(spot[2], -1.1, spot[3]), CFrame.new(0, legLength / 2, 0))
+		attach(leg, part(rig, "Hoof", Vector3.new(0.66, 0.4, 0.72), dark), CFrame.new(0, -legLength / 2 + 0.2, -0.03))
 	end
-	add(
+	local neck = part(rig, "Neck", Vector3.new(1.0, 2.8, 1.3), coat)
+	motor(
+		rig,
 		"neck",
-		part("Neck", Vector3.new(0.55, 1.3, 0.7), coat),
-		CFrame.new(0, 0.45, -0.25) * CFrame.Angles(math.rad(-35), 0, 0)
+		horseBody,
+		neck,
+		CFrame.new(0, 0.8, -3.0) * CFrame.Angles(math.rad(-35), 0, 0),
+		CFrame.new(0, -1.2, 0)
 	)
-	add(
-		"neck",
-		part("Mane", Vector3.new(0.14, 1.2, 0.25), dark, Enum.Material.Fabric),
-		CFrame.new(0, 0.5, 0.05) * CFrame.Angles(math.rad(-35), 0, 0)
-	)
-	add(
-		"neck",
-		part("HorseHead", Vector3.new(0.5, 0.55, 1.1), coat),
-		CFrame.new(0, 1.05, -0.75) * CFrame.Angles(math.rad(-25), 0, 0)
-	)
-	add(
-		"neck",
-		part("Muzzle", Vector3.new(0.42, 0.42, 0.35), dark),
-		CFrame.new(0, 0.85, -1.25) * CFrame.Angles(math.rad(-25), 0, 0)
+	attach(neck, part(rig, "Mane", Vector3.new(0.3, 2.6, 0.45), dark, Enum.Material.Fabric), CFrame.new(0, 0.1, 0.7))
+	local horseHead = part(rig, "HorseHead", Vector3.new(0.95, 1.05, 2.1), coat)
+	attach(neck, horseHead, CFrame.new(0, 1.35, -0.3) * CFrame.Angles(math.rad(5), 0, 0) * CFrame.new(0, 0, -0.7))
+	attach(horseHead, part(rig, "Muzzle", Vector3.new(0.8, 0.8, 0.7), dark), CFrame.new(0, -0.15, -1.1))
+	attach(horseHead, part(rig, "EarL", Vector3.new(0.2, 0.5, 0.2), coat), CFrame.new(-0.3, 0.7, 0.6))
+	attach(horseHead, part(rig, "EarR", Vector3.new(0.2, 0.5, 0.2), coat), CFrame.new(0.3, 0.7, 0.6))
+	local tail = part(rig, "Tail", Vector3.new(0.4, 2.4, 0.4), dark, Enum.Material.Fabric)
+	motor(
+		rig,
+		"tail",
+		horseBody,
+		tail,
+		CFrame.new(0, 0.7, 3.2) * CFrame.Angles(math.rad(-25), 0, 0),
+		CFrame.new(0, 1.1, 0)
 	)
 
-	-- rider
-	add("rider", part("Torso", Vector3.new(0.9, 1.0, 0.5), uniform.coat), CFrame.new(0, 0.55, 0))
-	add(
-		"rider",
-		part("Belt", Vector3.new(0.14, 1.15, 0.52), WHITE),
-		CFrame.new(0, 0.55, 0) * CFrame.Angles(0, 0, math.rad(38))
+	-- R6 rider sitting in the saddle (the "rider" joint)
+	body(rig, team, def, horseBody, CFrame.new(0, 2.35, 0.2), true)
+	-- sabre continues the line of the right arm, so raising the arm raises the blade
+	local armR = rig.motors.armR.Part1
+	attach(
+		armR,
+		part(rig, "Sabre", Vector3.new(0.12, 3.4, 0.3), STEEL, Enum.Material.Metal),
+		CFrame.new(0, -2.75, -0.1)
 	)
-	for _, x in { -0.7, 0.7 } do
-		add(
-			"rider",
-			part("Boot", Vector3.new(0.32, 1.05, 0.38), BLACK),
-			CFrame.new(x, -0.25, -0.15) * CFrame.Angles(math.rad(-20), 0, 0)
-		)
-	end
-	head(add, "rider", CFrame.new(0, 1.35, 0), skin, def, uniform, true)
-	add("armL", part("Arm", Vector3.new(0.28, 0.85, 0.3), uniform.coat), CFrame.new(0, -0.4, 0))
-	add("armR", part("Arm", Vector3.new(0.28, 0.85, 0.3), uniform.coat), CFrame.new(0, -0.4, 0))
-	add("armR", part("Hand", Vector3.new(0.22, 0.22, 0.22), skin), CFrame.new(0, -0.88, 0))
-	-- the sabre continues the line of the arm, so raising the arm raises the blade
-	add("armR", part("Sabre", Vector3.new(0.06, 2.1, 0.14), STEEL, Enum.Material.Metal), CFrame.new(0, -2.0, -0.05))
-	add("armR", part("Guard", Vector3.new(0.3, 0.08, 0.2), BRASS, Enum.Material.Metal), CFrame.new(0, -0.98, 0))
-	return { pieces = pieces, kind = "Cavalry" }
+	attach(armR, part(rig, "Guard", Vector3.new(0.55, 0.14, 0.4), BRASS, Enum.Material.Metal), CFrame.new(0, -1.05, 0))
+	return rig
 end
 
--- Cannon + limber drawn at the front of an artillery squad
-function SoldierModels.cannon(parent: Instance): { any }
-	local pieces, add = builder(parent)
-	add("carriage", part("Carriage", Vector3.new(0.9, 0.55, 2.6), WOOD, Enum.Material.Wood), CFrame.new(0, 1.05, 0.2))
-	add(
-		"carriage",
-		part("Trail", Vector3.new(0.55, 0.4, 2.6), WOOD, Enum.Material.Wood),
-		CFrame.new(0, 0.55, 2.2) * CFrame.Angles(math.rad(18), 0, 0)
+-- Field gun drawn in front of an artillery squad (root = axle at wheel-centre height)
+SoldierModels.CANNON_AXLE_HEIGHT = 1.8
+function SoldierModels.cannon(parent: Instance): any
+	local rig = newRig(parent, "Cannon", Vector3.new(0.5, 0.5, 0.5), nil)
+	local root = rig.root
+	attach(root, part(rig, "Carriage", Vector3.new(1.4, 0.8, 4), WOOD, Enum.Material.Wood), CFrame.new(0, 0.1, 0.4))
+	attach(
+		root,
+		part(rig, "Trail", Vector3.new(0.8, 0.6, 4.2), WOOD, Enum.Material.Wood),
+		CFrame.new(0, -0.7, 3.6) * CFrame.Angles(math.rad(25), 0, 0)
 	)
-	for _, x in { -0.8, 0.8 } do
-		add(
-			"carriage",
-			part("Wheel", Vector3.new(0.22, 2.1, 2.1), WOOD, Enum.Material.Wood, Enum.PartType.Cylinder),
-			CFrame.new(x, 1.05, 0)
+	for _, x in { -1.25, 1.25 } do
+		attach(
+			root,
+			part(rig, "Wheel", Vector3.new(0.35, 3.6, 3.6), WOOD, Enum.Material.Wood, Enum.PartType.Cylinder),
+			CFrame.new(x, 0, 0)
 		)
-		add(
-			"carriage",
-			part("Hub", Vector3.new(0.3, 0.5, 0.5), IRON, Enum.Material.Metal, Enum.PartType.Cylinder),
-			CFrame.new(x, 1.05, 0)
+		attach(
+			root,
+			part(rig, "Hub", Vector3.new(0.5, 0.8, 0.8), IRON, Enum.Material.Metal, Enum.PartType.Cylinder),
+			CFrame.new(x, 0, 0)
 		)
 	end
-	-- barrel points to -Z (cylinders point along X → rotate 90° around Y)
-	add(
-		"barrel",
-		part("Barrel", Vector3.new(3.2, 0.62, 0.62), IRON, Enum.Material.Metal, Enum.PartType.Cylinder),
-		CFrame.new(0, 0, -0.6) * CFrame.Angles(0, math.rad(90), 0)
+	local barrel = part(rig, "Barrel", Vector3.new(5.4, 1.05, 1.05), IRON, Enum.Material.Metal, Enum.PartType.Cylinder)
+	motor(rig, "barrel", root, barrel, CFrame.new(0, 0.85, -0.6), ALONG_Z:Inverse())
+	attach(
+		barrel,
+		part(rig, "Breech", Vector3.new(0.8, 1.35, 1.35), IRON, Enum.Material.Metal, Enum.PartType.Cylinder),
+		CFrame.new(-2.6, 0, 0)
 	)
-	add(
-		"barrel",
-		part("Breech", Vector3.new(0.5, 0.8, 0.8), IRON, Enum.Material.Metal, Enum.PartType.Cylinder),
-		CFrame.new(0, 0, 1.0) * CFrame.Angles(0, math.rad(90), 0)
+	-- the barrel's +X points forward
+	attach(
+		barrel,
+		part(rig, "Muzzle", Vector3.new(0.4, 1.3, 1.3), BRASS, Enum.Material.Metal, Enum.PartType.Cylinder),
+		CFrame.new(2.6, 0, 0)
 	)
-	add(
-		"barrel",
-		part("Muzzle", Vector3.new(0.25, 0.75, 0.75), BRASS, Enum.Material.Metal, Enum.PartType.Cylinder),
-		CFrame.new(0, 0, -2.15) * CFrame.Angles(0, math.rad(90), 0)
-	)
-	return pieces
+	return rig
 end
 
 return SoldierModels

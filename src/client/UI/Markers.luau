@@ -1,7 +1,7 @@
 --[[
-	ObjectiveMarkers: circular "+" icons with the distance in metres, pinned over each capture
-	zone and clamped to the screen edge when the zone is off-screen.
-	Minimap (top-right): north-up map of zones, squads and the commander.
+	ObjectiveMarkers: lettered diamonds (A, B, C…) coloured by owner with the distance in metres,
+	pinned over each capture zone and clamped to the screen edge when it is off-screen.
+	Minimap (top-right, press M): north-up map of zones, squads and the commander.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -35,37 +35,55 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 	})
 	local markers: { [string]: any } = {}
 
-	local function markerFor(name: string): any
+	local function markerFor(name: string, letter: string): any
 		local marker = markers[name]
 		if marker then
 			return marker
 		end
 		local frame = create("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.fromOffset(44, 60),
+			Size = UDim2.fromOffset(70, 80),
 			BackgroundTransparency = 1,
 			Parent = layer,
 		})
-		local circle = create("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.fromScale(0.5, 0),
-			Size = UDim2.fromOffset(40, 40),
-			BackgroundColor3 = OWNER_COLORS.Blue,
+		local diamond = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0, 26),
+			Size = UDim2.fromOffset(36, 36),
+			Rotation = 45,
+			BackgroundColor3 = OWNER_COLORS.Neutral,
 			Parent = frame,
 		})
-		Theme.round(circle)
-		Theme.border(circle, Color3.new(1, 1, 1), 3)
-		local icon =
-			text({ Size = UDim2.fromScale(1, 1), Text = "+", Font = Theme.Bold, TextSize = 32, Parent = circle })
-		local distance = text({
-			Position = UDim2.fromOffset(-20, 42),
-			Size = UDim2.new(1, 40, 0, 18),
+		Theme.corner(diamond, 5)
+		Theme.border(diamond, Color3.new(1, 1, 1), 3)
+		local ring = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0, 26),
+			Size = UDim2.fromOffset(52, 52),
+			BackgroundTransparency = 1,
+			Parent = frame,
+		})
+		Theme.round(ring)
+		local ringStroke = Theme.border(ring, Color3.new(1, 1, 1), 2)
+		ringStroke.Transparency = 0.4
+		local icon = Theme.outlined({
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0, 26),
+			Size = UDim2.fromOffset(36, 36),
+			Text = letter,
+			Font = Theme.Bold,
+			TextSize = 24,
+			ZIndex = 2,
+			Parent = frame,
+		}, 2)
+		local distance = Theme.outlined({
+			Position = UDim2.fromOffset(-30, 56),
+			Size = UDim2.new(1, 60, 0, 18),
 			Font = Theme.Bold,
 			TextSize = 15,
 			Parent = frame,
-		})
-		Theme.stroke(distance, Color3.new(0, 0, 0), 1.5)
-		marker = { frame = frame, circle = circle, icon = icon, distance = distance }
+		}, 1.5)
+		marker = { frame = frame, circle = diamond, icon = icon, distance = distance, ring = ringStroke }
 		markers[name] = marker
 		return marker
 	end
@@ -79,8 +97,14 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 		BackgroundColor3 = Color3.fromRGB(35, 60, 35),
 		BackgroundTransparency = 0.15,
 		ClipsDescendants = true,
+		Visible = false, -- press M
 		Parent = root,
 	})
+	game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+		if not gameProcessed and input.KeyCode == Enum.KeyCode.M then
+			map.Visible = not map.Visible
+		end
+	end)
 	Theme.corner(map, 8)
 	Theme.border(map, Color3.new(0, 0, 0), 3)
 	local bounds = { minX = -300, minZ = -300, size = 600 }
@@ -194,9 +218,9 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 		local center = viewport / 2
 		local seen = {}
 		local showMarkers = ClientState.phaseName() == "Battle"
-		for _, zone in ClientState.zones do
+		for index, zone in ClientState.zones do
 			seen[zone.name] = true
-			local marker = markerFor(zone.name)
+			local marker = markerFor(zone.name, string.char(64 + index))
 			marker.frame.Visible = showMarkers
 			if showMarkers then
 				local world = Vector3.new(zone.x, zone.y + 16, zone.z)
@@ -219,10 +243,10 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 				end
 				marker.frame.Position = UDim2.fromOffset(position.X, position.Y)
 				marker.circle.BackgroundColor3 = OWNER_COLORS[zone.owner] or OWNER_COLORS.Neutral
-				marker.icon.Text = if zone.contested then "⚔" elseif zone.owner == "Blue" then "✓" else "+"
-				marker.icon.TextSize = if zone.contested then 22 else 32
+				-- contested zones pulse
+				marker.ring.Transparency = if zone.contested then 0.2 + math.abs(math.sin(os.clock() * 5)) * 0.8 else 1
 				local meters = (rootPosition - Vector3.new(zone.x, zone.y, zone.z)).Magnitude * STUDS_TO_METERS
-				marker.distance.Text = string.format("%s · %dm", zone.name, meters)
+				marker.distance.Text = string.format("%s  %dm", zone.name, meters)
 			end
 		end
 		for name, marker in markers do

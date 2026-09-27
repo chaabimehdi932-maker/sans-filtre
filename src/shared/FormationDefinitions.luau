@@ -20,9 +20,9 @@ local FormationDefinitions = {}
 FormationDefinitions.FORM_UP_TIME = 3 -- PLACEHOLDER
 FormationDefinitions.FORMING_DAMAGE_TAKEN_MULT = 1.3 -- PLACEHOLDER
 
--- Base distance between soldiers (studs)
-FormationDefinitions.SPACING_X = 2.2
-FormationDefinitions.SPACING_Z = 2.6
+-- Base distance between soldiers (studs). Soldiers are full-size R6 rigs (2 studs wide).
+FormationDefinitions.SPACING_X = 3.2
+FormationDefinitions.SPACING_Z = 3.8
 
 FormationDefinitions.Order = { "Line", "Column", "Square" }
 
@@ -117,6 +117,45 @@ function FormationDefinitions.layout(formation: string, count: number, spacingMu
 		grid(math.ceil(count / ranks))
 	end
 	return slots
+end
+
+--[[
+	Side-by-side placement of several squads for a Hold order. Shared by the client preview
+	(markers on the ground) and the server, so squads go exactly where the preview showed.
+	entries (sorted by squad id): { { soldiers, spacingMult, formations } }
+	Returns one { center, formation } per entry (a unit that can't use `formation` keeps its default).
+]]
+function FormationDefinitions.placeSquads(
+	entries: { any },
+	anchor: Vector3,
+	yaw: number,
+	formation: string,
+	gap: number?
+): { any }
+	local spacing = gap or 5
+	local right = Vector3.new(math.cos(yaw), 0, -math.sin(yaw))
+	local widths, formations = {}, {}
+	local total = 0
+	for i, entry in entries do
+		local chosen = if table.find(entry.formations, formation) then formation else entry.formations[1]
+		local slots = FormationDefinitions.layout(chosen, entry.soldiers, entry.spacingMult)
+		local minX, maxX = 0, 0
+		for _, slot in slots do
+			minX = math.min(minX, slot.X)
+			maxX = math.max(maxX, slot.X)
+		end
+		widths[i] = maxX - minX + FormationDefinitions.SPACING_X * (entry.spacingMult or 1)
+		formations[i] = chosen
+		total += widths[i]
+	end
+	total += spacing * math.max(0, #entries - 1)
+	local out = {}
+	local cursor = -total / 2
+	for i in entries do
+		out[i] = { center = anchor + right * (cursor + widths[i] / 2), formation = formations[i] }
+		cursor += widths[i] + spacing
+	end
+	return out
 end
 
 return FormationDefinitions

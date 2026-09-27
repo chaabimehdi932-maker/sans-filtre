@@ -338,6 +338,8 @@ local function recoverFromRout(squad: Squad, now: number)
 	squad.morale = math.max(squad.morale, squad.maxMorale * Morale.RoutRecoverFraction * 0.8)
 	squad.regroupUntil = now + Morale.RegroupTime
 	squad.order = "Hold"
+	squad.holdPosition = nil
+	squad.pendingFormation = nil
 	squad.goal = nil
 	squad.waypoints = nil
 	squad.idleYaw = squad.yaw

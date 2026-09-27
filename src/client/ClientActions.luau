@@ -17,7 +17,6 @@ local player = Players.LocalPlayer
 
 local combatRemote = Remotes.get("CombatAction")
 local orderRemote = Remotes.get("OrderUnits")
-local formationRemote = Remotes.get("SetFormation")
 local selectRemote = Remotes.get("SelectSquads")
 
 local changed = Instance.new("BindableEvent")
@@ -46,6 +45,11 @@ function ClientActions.cooldownFraction(action: string): number
 		return 0
 	end
 	return remaining / (durations[action] or 1)
+end
+
+function ClientActions.cooldownRemaining(action: string): number
+	local at = readyAt[action]
+	return if at then math.max(0, at - os.clock()) else 0
 end
 
 local function ready(action: string): boolean
@@ -133,7 +137,6 @@ end
 ---------------------------------------------------------------------------
 
 local selection: { [number]: boolean } = {}
-local formationPromptUntil = 0
 
 local function parseSelection(): { [number]: boolean }
 	local set = {}
@@ -188,37 +191,80 @@ function ClientActions.toggleSelected(squadId: number)
 	ClientActions.setSelection(ids)
 end
 
+---------------------------------------------------------------------------
+-- Hold mode: X shows where the selected squads will stand (HoldPreviewController),
+-- 1/2/3 pick the formation, X again (or Enter) confirms, Backspace cancels.
+---------------------------------------------------------------------------
+
+local hold = { active = false, formation = "Line" }
+
+function ClientActions.holdState(): any
+	return hold
+end
+
+-- Where the Hold preview is anchored: in front of the commander, facing where he looks
+function ClientActions.holdAnchor(): (Vector3?, number)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return nil, 0
+	end
+	local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	if look.Magnitude < 0.01 then
+		look = Vector3.new(0, 0, -1)
+	end
+	look = look.Unit
+	local yaw = math.atan2(-look.X, -look.Z)
+	return root.Position + look * GameConfig.Orders.HoldAhead, yaw
+end
+
+function ClientActions.beginHold(formation: string?)
+	hold.active = true
+	if formation then
+		hold.formation = formation
+	end
+	changed:Fire("Hold", true)
+end
+
+function ClientActions.setHoldFormation(formation: string)
+	hold.formation = formation
+	if not hold.active then
+		ClientActions.beginHold()
+	end
+	changed:Fire("HoldFormation", formation)
+end
+
+function ClientActions.cancelHold()
+	if hold.active then
+		hold.active = false
+		changed:Fire("Hold", false)
+	end
+end
+
+function ClientActions.confirmHold()
+	local anchor, yaw = ClientActions.holdAnchor()
+	hold.active = false
+	changed:Fire("Hold", false)
+	if anchor then
+		orderRemote:FireServer("Hold", { x = anchor.X, z = anchor.Z, yaw = yaw, formation = hold.formation })
+	else
+		orderRemote:FireServer("Hold")
+	end
+	changed:Fire("Order", "Hold")
+end
+
 function ClientActions.order(order: string)
+	if order == "Hold" then
+		if hold.active then
+			ClientActions.confirmHold()
+		else
+			ClientActions.beginHold()
+		end
+		return
+	end
+	ClientActions.cancelHold()
 	orderRemote:FireServer(order)
 	changed:Fire("Order", order)
-	if order == "Hold" then
-		-- after X, the number keys 1/2/3 choose a formation for a few seconds
-		formationPromptUntil = os.clock() + GameConfig.Orders.FormationPromptTime
-		changed:Fire("FormationPrompt", true)
-	end
-end
-
-function ClientActions.formation(formation: string)
-	formationRemote:FireServer(formation)
-	formationPromptUntil = 0
-	changed:Fire("Formation", formation)
-	changed:Fire("FormationPrompt", false)
-end
-
--- 0..1 time left on the formation prompt (0 = closed)
-function ClientActions.formationPrompt(): number
-	local remaining = formationPromptUntil - os.clock()
-	if remaining <= 0 then
-		return 0
-	end
-	return remaining / GameConfig.Orders.FormationPromptTime
-end
-
-function ClientActions.closeFormationPrompt()
-	if formationPromptUntil > 0 then
-		formationPromptUntil = 0
-		changed:Fire("FormationPrompt", false)
-	end
 end
 
 -- Server corrections: a rejected action tells us how long the real cooldown still is

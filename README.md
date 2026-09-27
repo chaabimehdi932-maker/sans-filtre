@@ -19,10 +19,11 @@ zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.
 | H | Heal: restores 40% HP and boosts the morale of your squads nearby |
 | G | Mount / dismount |
 | **X / C / V / B** | Orders for the **selected** squads: **Hold / Follow / Attack / Rush** |
-| **X then 1 / 2 / 3** | Hold, then pick the formation: Line / Column / Square |
+| **X → 1 / 2 / 3 → X** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, X again confirms (Backspace cancels) |
 | 1 – 9 | Select squad n · **Shift + number** adds/removes it from the selection |
 | 0 or ` | Select all your squads · T = next squad |
 | **Ctrl + drag** (left mouse) | Box-select squads on screen (Ctrl + click = pick one) |
+| F1 · M | Controls panel · minimap |
 
 The squad panel (right) is clickable too (Shift + click = add). The whole army is selected at
 the start of every battle.
@@ -42,7 +43,8 @@ reinforcement waves). Every 5th round is a boss round with a named general's squ
 ## Systems
 
 - **Squads**: one logical object with pooled HP, simulated on the server. Every client draws
-  and animates the soldiers itself (`client/SquadRenderer`, `client/SoldierModels`): marching,
+  full-size R6 soldiers and animates their joints itself (`client/SquadRenderer`,
+  `client/SoldierModels`): marching,
   aiming, volley recoil, reloading, bayonet thrusts, routing, falling casualties, galloping
   cavalry with sabres, recoiling cannons.
 - **Formations**: Line (firepower, weak flanks), Column (fast, fragile), Square (stops cavalry,

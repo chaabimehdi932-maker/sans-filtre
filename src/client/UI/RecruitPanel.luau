@@ -116,7 +116,7 @@ function RecruitPanel.build(root: ScreenGui, ClientState: any): any
 		text({
 			Position = UDim2.fromOffset(10, 8),
 			Size = UDim2.new(1, -20, 0, 22),
-			Text = def.displayName,
+			Text = (def.icon or "") .. "  " .. def.displayName,
 			Font = Theme.Bold,
 			TextSize = 18,
 			TextXAlignment = Enum.TextXAlignment.Left,

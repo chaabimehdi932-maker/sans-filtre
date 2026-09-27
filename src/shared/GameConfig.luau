@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.3"
+GameConfig.Version = "0.4"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -25,7 +25,7 @@ GameConfig.Recruitment = {
 	StartingPoints = 400,
 	MaxSquadsPerPlayer = 8,
 	FreeSquadIfEmpty = "LineInfantry", -- given for free if a player recruits nothing
-	DeploySpacing = 22, -- studs between squads when deploying
+	DeploySpacing = 32, -- studs between squads when deploying
 }
 
 GameConfig.Rewards = {
@@ -80,12 +80,13 @@ GameConfig.Hero = {
 
 GameConfig.Orders = {
 	List = { "Hold", "Follow", "Attack", "Rush" },
-	FollowDistance = 18, -- how far behind the commander following squads stand
-	FollowSpacing = 20, -- side-by-side spacing of several following squads
+	FollowDistance = 24, -- how far behind the commander following squads stand
+	FollowSpacing = 30, -- side-by-side spacing of several following squads
 	RushSpeedMult = 1.3,
 	RushDamageTakenMult = 1.2, -- rushing breaks formation discipline
 	AttackSearchRadius = 350,
-	FormationPromptTime = 3, -- after X (Hold), seconds during which 1/2/3 pick a formation
+	HoldAhead = 16, -- the Hold preview is placed this far in front of the commander
+	HoldMaxDistance = 250, -- server rejects Hold positions further than this from the commander
 	RushEnemyRadius = 90,
 }
 

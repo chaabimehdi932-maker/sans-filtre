@@ -12,6 +12,7 @@ Theme.Colors = {
 	KeyRed = Color3.fromRGB(215, 30, 45),
 	KeyBlue = Color3.fromRGB(40, 70, 220),
 	KeyOrange = Color3.fromRGB(240, 120, 20),
+	KeyPink = Color3.fromRGB(225, 40, 150),
 	Gold = Color3.fromRGB(255, 205, 40),
 	Green = Color3.fromRGB(70, 200, 100),
 	Blue = Color3.fromRGB(45, 95, 215),
@@ -21,9 +22,9 @@ Theme.Colors = {
 }
 
 Theme.Display = Enum.Font.LuckiestGuy -- big cartoon banner font
-Theme.Bold = Enum.Font.GothamBlack
-Theme.Semi = Enum.Font.GothamBold
-Theme.Body = Enum.Font.Gotham
+Theme.Bold = Enum.Font.FredokaOne -- rounded cartoon font used across the HUD
+Theme.Semi = Enum.Font.FredokaOne
+Theme.Body = Enum.Font.GothamMedium
 
 -- create("TextLabel", { Size = ..., Parent = ... })
 function Theme.create(className: string, props: { [string]: any }): any
@@ -92,6 +93,66 @@ function Theme.bar(props: { [string]: any }, fillColor: Color3): (Frame, Frame)
 		Parent = back,
 	})
 	return back, fill
+end
+
+-- Dark rounded tile with a thick black outline and a soft vertical gradient (HUD buttons)
+function Theme.tile(props: { [string]: any }): TextButton
+	local defaults = {
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		AutoButtonColor = false,
+		Text = "",
+	}
+	for key, value in props do
+		defaults[key] = value
+	end
+	local button = Theme.create("TextButton", defaults)
+	Theme.corner(button, 7)
+	Theme.create("UIGradient", {
+		Color = ColorSequence.new(Color3.fromRGB(58, 58, 68), Color3.fromRGB(20, 20, 26)),
+		Rotation = 90,
+		Parent = button,
+	})
+	return button
+end
+
+-- Coloured key badge (e.g. the red "X" on the Hold button)
+function Theme.keyBadge(
+	parent: Instance,
+	key: string,
+	color: Color3,
+	position: UDim2,
+	anchor: Vector2?,
+	size: number?
+): Frame
+	local s = size or 26
+	local badge = Theme.create("Frame", {
+		Name = "Key",
+		Size = UDim2.fromOffset(s, s),
+		Position = position,
+		AnchorPoint = anchor or Vector2.zero,
+		BackgroundColor3 = color,
+		ZIndex = 5,
+		Parent = parent,
+	})
+	Theme.corner(badge, 5)
+	Theme.border(badge, Color3.new(0, 0, 0), 2)
+	local label = Theme.text({
+		Size = UDim2.fromScale(1, 1),
+		Text = key,
+		Font = Theme.Bold,
+		TextSize = s * 0.68,
+		ZIndex = 6,
+		Parent = badge,
+	})
+	Theme.stroke(label, Color3.new(0, 0, 0), 1.5)
+	return badge
+end
+
+-- White label with a black outline (the HUD's main text style)
+function Theme.outlined(props: { [string]: any }, thickness: number?): TextLabel
+	local label = Theme.text(props)
+	Theme.stroke(label, Color3.new(0, 0, 0), thickness or 2)
+	return label
 end
 
 function Theme.formatTime(seconds: number): string

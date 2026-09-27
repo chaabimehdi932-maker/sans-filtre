@@ -110,18 +110,70 @@ Remotes.get("SelectSquads").OnServerEvent:Connect(function(player: Player, ids: 
 	publish(player)
 end)
 
-Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: unknown)
+-- Hold with a placement (from the client preview): squads march side by side to the spot,
+-- then form up in the chosen formation. Without placement data they hold where they stand.
+local function holdAt(player: Player, squads: { any }, data: any): boolean
+	if typeof(data) ~= "table" then
+		return false
+	end
+	local x, z, yaw, formation = data.x, data.z, data.yaw, data.formation
+	if typeof(x) ~= "number" or typeof(z) ~= "number" or typeof(yaw) ~= "number" or typeof(formation) ~= "string" then
+		return false
+	end
+	if not FormationDefinitions.Formations[formation] or x ~= x or z ~= z or yaw ~= yaw then
+		return false -- (x ~= x rejects NaN)
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return false
+	end
+	local anchor = Vector3.new(x, root.Position.Y, z)
+	if MathUtil.flatDistance(anchor, root.Position) > Orders.HoldMaxDistance then
+		return false
+	end
+	local entries = {}
+	for _, squad in squads do
+		table.insert(entries, {
+			soldiers = squad.soldierCount,
+			spacingMult = squad.def.spacingMult,
+			formations = squad.def.formations,
+		})
+	end
+	local placements = FormationDefinitions.placeSquads(entries, anchor, yaw, formation)
+	for i, squad in squads do
+		squad.order = "Hold"
+		squad.preferredTarget = nil
+		squad.holdPosition = placements[i].center
+		squad.holdYaw = yaw
+		squad.idleYaw = yaw
+		squad.pendingFormation = placements[i].formation
+	end
+	return true
+end
+
+Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: unknown, data: unknown)
 	if typeof(order) ~= "string" or not VALID_ORDERS[order] then
 		return
 	end
+	local squads = {}
 	for _, squad in CommandService.getSelected(player) do
 		if not squad.routing then -- routing squads ignore orders
-			squad.order = order
-			squad.preferredTarget = nil
-			if order == "Hold" then
-				squad.idleYaw = squad.yaw
-				SquadService.stop(squad)
-			end
+			table.insert(squads, squad)
+		end
+	end
+	if order == "Hold" and holdAt(player, squads, data) then
+		return
+	end
+	for _, squad in squads do
+		squad.order = order
+		squad.preferredTarget = nil
+		squad.holdPosition = nil
+		squad.pendingFormation = nil
+		if order == "Hold" then
+			squad.idleYaw = squad.yaw
+			squad.holdYaw = squad.yaw
+			SquadService.stop(squad)
 		end
 	end
 end)
@@ -161,7 +213,20 @@ local function engageDistance(squad: any, target: any): number
 end
 
 local function doHold(squad: any)
-	SquadService.stop(squad)
+	local target = squad.holdPosition
+	if target and MathUtil.flatDistance(squad.position, target) > 2 then
+		SquadService.moveTo(squad, target, 1.5)
+	else
+		SquadService.stop(squad)
+		-- arrived: form up in the formation picked in the Hold preview
+		local formation = squad.pendingFormation
+		if formation and (formation == squad.formation or SquadService.setFormation(squad, formation)) then
+			squad.pendingFormation = nil
+		end
+	end
+	if squad.holdYaw then
+		squad.idleYaw = squad.holdYaw
+	end
 end
 
 local function doFollow(squad: any, index: number, count: number)

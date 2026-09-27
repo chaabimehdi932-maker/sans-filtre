@@ -1,7 +1,8 @@
 --[[
 	Army controls
 	  X Hold · C Follow · V Attack · B Rush        → every selected squad
-	  after X: 1 Line · 2 Column · 3 Square        (formation prompt, a few seconds)
+	  X shows the Hold preview on the ground: 1 Line · 2 Column · 3 Square,
+	  X again (or Enter) confirms, Backspace cancels
 	  1-9 select squad n · Shift+number add/remove · 0 or ` select all · T next squad
 	  Ctrl + drag left mouse: box-select your squads (Ctrl + click = pick one)
 	Selected squads are outlined (client-side Highlights).
@@ -164,12 +165,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	local number = NUMBER_KEYS[key]
 	if number then
-		if ClientActions.formationPrompt() > 0 and number <= 3 then
-			ClientActions.formation(FORMATIONS[number])
+		if ClientActions.holdState().active and number <= 3 then
+			ClientActions.setHoldFormation(FORMATIONS[number])
 		else
 			selectIndex(number, shiftHeld())
 		end
 		return
+	end
+	if ClientActions.holdState().active then
+		if key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter then
+			ClientActions.confirmHold()
+			return
+		elseif key == Enum.KeyCode.Backspace or key == Enum.KeyCode.Escape then
+			ClientActions.cancelHold()
+			return
+		end
 	end
 	if key == Enum.KeyCode.Zero or key == Enum.KeyCode.Backquote then
 		ClientActions.setSelection(mySquadIds())
