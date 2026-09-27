@@ -44,16 +44,12 @@ local drawings: { [string]: (Frame, number) -> () } = {}
 function drawings.Shield(icon, z)
 	shape(icon, { Position = at(0.5, 0.36), Size = size(0.66, 0.46), ZIndex = z }, 0.18)
 	shape(icon, { Position = at(0.5, 0.56), Size = size(0.47, 0.47), Rotation = 45, ZIndex = z }, 0.12)
-	shape(
-		icon,
-		{
-			Position = at(0.5, 0.5),
-			Size = size(0.1, 0.62),
-			BackgroundColor3 = Color3.fromRGB(70, 110, 200),
-			ZIndex = z + 1,
-		},
-		0.5
-	)
+	shape(icon, {
+		Position = at(0.5, 0.5),
+		Size = size(0.1, 0.62),
+		BackgroundColor3 = Color3.fromRGB(70, 110, 200),
+		ZIndex = z + 1,
+	}, 0.5)
 end
 
 -- Crossed swords
@@ -62,17 +58,13 @@ function drawings.Swords(icon, z)
 		shape(icon, { Position = at(0.5, 0.46), Size = size(0.11, 0.78), Rotation = angle, ZIndex = z }, 0.4)
 	end
 	for _, spot in { { 0.25, 0.75, 45 }, { 0.75, 0.75, -45 } } do
-		shape(
-			icon,
-			{
-				Position = at(spot[1], spot[2]),
-				Size = size(0.3, 0.09),
-				Rotation = spot[3],
-				BackgroundColor3 = Color3.fromRGB(230, 185, 70),
-				ZIndex = z + 1,
-			},
-			0.5
-		)
+		shape(icon, {
+			Position = at(spot[1], spot[2]),
+			Size = size(0.3, 0.09),
+			Rotation = spot[3],
+			BackgroundColor3 = Color3.fromRGB(230, 185, 70),
+			ZIndex = z + 1,
+		}, 0.5)
 	end
 end
 
@@ -153,16 +145,12 @@ function drawings.Horseshoe(icon, z)
 	gradient.Rotation = 90 -- open at the bottom
 	gradient.Parent = stroke
 	for _, x in { 0.24, 0.76 } do
-		shape(
-			icon,
-			{
-				Position = at(x, 0.74),
-				Size = size(0.13, 0.16),
-				BackgroundColor3 = Color3.fromRGB(215, 175, 90),
-				ZIndex = z,
-			},
-			0.3
-		)
+		shape(icon, {
+			Position = at(x, 0.74),
+			Size = size(0.13, 0.16),
+			BackgroundColor3 = Color3.fromRGB(215, 175, 90),
+			ZIndex = z,
+		}, 0.3)
 	end
 end
 
@@ -179,16 +167,12 @@ function drawings.Skull(icon, z)
 	shape(icon, { Position = at(0.5, 0.42), Size = size(0.72, 0.62), BackgroundColor3 = bone, ZIndex = z }, 0.5)
 	shape(icon, { Position = at(0.5, 0.74), Size = size(0.42, 0.24), BackgroundColor3 = bone, ZIndex = z }, 0.25)
 	for _, x in { 0.35, 0.65 } do
-		shape(
-			icon,
-			{
-				Position = at(x, 0.45),
-				Size = size(0.18, 0.2),
-				BackgroundColor3 = Color3.fromRGB(30, 10, 10),
-				ZIndex = z + 1,
-			},
-			0.5
-		)
+		shape(icon, {
+			Position = at(x, 0.45),
+			Size = size(0.18, 0.2),
+			BackgroundColor3 = Color3.fromRGB(30, 10, 10),
+			ZIndex = z + 1,
+		}, 0.5)
 	end
 end
 
