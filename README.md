@@ -54,8 +54,17 @@ Le type de script dépend du nom du fichier :
 - analyse le code (Selene) ;
 - construit `sans-filtre.rbxl` et le met à disposition dans l'onglet **Actions** de GitHub.
 
-## Scripts d'exemple
+## Ce que fait le jeu
 
-- `src/server/Leaderstats.server.luau` : classement « Pieces », +10 pièces par minute, sauvegarde DataStore.
-- `src/client/Bienvenue.client.luau` : message de bienvenue à l'écran.
-- `src/shared/Config.luau` : réglages partagés.
+- **Pièces sur la carte** (`src/server/Pieces.server.luau`) : 25 pièces dorées apparaissent au sol,
+  les toucher donne 5 pièces, elles réapparaissent ailleurs 10 s plus tard.
+- **Boutique** (`src/server/Boutique.server.luau` + `src/client/Boutique.client.luau`) : bouton
+  « Boutique » en bas à gauche pour acheter vitesse et saut. Les achats sont vérifiés par le serveur.
+- **Données** (`src/server/Donnees.luau`) : pièces et achats sauvegardés avec DataStore.
+- **Revenu passif** (`src/server/Joueurs.server.luau`) : +10 pièces par minute.
+- **Réglages** (`src/shared/Config.luau`) : prix, nombre de pièces, vitesse… tout se change ici.
+
+## Récupérer les dernières modifications
+
+**Windows** : double-clic sur **`METTRE_A_JOUR.bat`**. Si `rojo serve` tourne,
+les changements arrivent directement dans Studio.
