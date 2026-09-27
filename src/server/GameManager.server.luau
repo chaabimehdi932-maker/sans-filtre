@@ -45,7 +45,7 @@ end
 -- Map + service wiring
 ---------------------------------------------------------------------------
 
-print("[Napoleonic Commander] server starting…")
+print("[Napoleonic Commander] server starting… version " .. GameConfig.Version)
 MapService.ensureMap()
 ZoneService.init()
 print("[Napoleonic Commander] map ready:", #ZoneService.getZones(), "capture zones")

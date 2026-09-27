@@ -17,6 +17,11 @@ local SummaryPanel = require(UI:WaitForChild("SummaryPanel"))
 
 local root = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("MainHUD")
 
+print(
+	"[Napoleonic Commander] client version "
+		.. require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("GameConfig")).Version
+)
+
 local hud = Hud.build(root, ClientState, ClientActions)
 local markers = Markers.build(root, ClientState, ClientActions)
 local recruit = RecruitPanel.build(root, ClientState)

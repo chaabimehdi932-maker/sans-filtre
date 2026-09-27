@@ -10,6 +10,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
+local GameConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("GameConfig"))
 local Theme = require(script.Parent:WaitForChild("Theme"))
 
 local C = Theme.Colors
@@ -724,7 +725,7 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 				Theme.formatTime(remaining)
 			)
 		else
-			topLabel.Text = "Waiting for the server…"
+			topLabel.Text = "Waiting for the server… (v" .. GameConfig.Version .. ")"
 		end
 
 		local hold = ClientState.hold
