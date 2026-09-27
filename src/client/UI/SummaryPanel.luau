@@ -1,0 +1,123 @@
+-- End-of-round summary: casualties, zones held, time, XP/points earned, Continue button.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Remotes = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Remotes"))
+
+local Theme = require(script.Parent:WaitForChild("Theme"))
+
+local C = Theme.Colors
+local create, text = Theme.create, Theme.text
+
+local continueRemote = Remotes.get("ContinueRound")
+
+local SummaryPanel = {}
+
+function SummaryPanel.build(root: ScreenGui, ClientState: any): any
+	local api = {}
+
+	local panel = create("Frame", {
+		Name = "SummaryPanel",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.fromOffset(560, 460),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.05,
+		Visible = false,
+		ZIndex = 20,
+		Parent = root,
+	})
+	Theme.corner(panel, 12)
+	Theme.border(panel, Color3.new(0, 0, 0), 3)
+
+	local title = text({
+		Position = UDim2.fromOffset(0, 16),
+		Size = UDim2.new(1, 0, 0, 80),
+		Font = Theme.Display,
+		TextSize = 76,
+		ZIndex = 21,
+		Parent = panel,
+	})
+	Theme.stroke(title, Color3.new(0, 0, 0), 4)
+	local subtitle = text({
+		Position = UDim2.fromOffset(0, 96),
+		Size = UDim2.new(1, 0, 0, 24),
+		TextColor3 = C.Muted,
+		ZIndex = 21,
+		Parent = panel,
+	})
+	local lines = text({
+		Position = UDim2.fromOffset(60, 136),
+		Size = UDim2.new(1, -120, 0, 210),
+		Font = Theme.Semi,
+		TextSize = 19,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		LineHeight = 1.25,
+		RichText = true,
+		ZIndex = 21,
+		Parent = panel,
+	})
+	local button = create("TextButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -22),
+		Size = UDim2.fromOffset(380, 62),
+		BackgroundColor3 = C.Green,
+		Font = Theme.Display,
+		TextSize = 26,
+		TextColor3 = C.Text,
+		ZIndex = 21,
+		Parent = panel,
+	})
+	Theme.corner(button, 10)
+	Theme.border(button, Color3.new(0, 0, 0), 3)
+
+	local voted = false
+	button.Activated:Connect(function()
+		if not voted then
+			voted = true
+			continueRemote:FireServer()
+			button.Text = "Waiting for other players…"
+			button.BackgroundColor3 = Color3.fromRGB(80, 80, 85)
+		end
+	end)
+
+	function api.onSummary()
+		local s = ClientState.summary
+		if not s then
+			return
+		end
+		voted = false
+		title.Text = if s.victory then "VICTORY" else "DEFEAT"
+		title.TextColor3 = if s.victory then C.Gold else C.Red
+		subtitle.Text = string.format("Round %d · %s", s.round, if s.side == "Attacker" then "Attack" else "Defence")
+		local rows = {
+			string.format("Enemy soldiers killed: <b>%d</b>", s.killsDealt),
+			string.format("Soldiers lost: <b>%d</b>", s.killsTaken),
+			string.format("Zones held: <b>%d / %d</b>", s.zonesHeld, s.zonesTotal),
+			string.format("Time: <b>%s</b>", Theme.formatTime(s.timeTaken)),
+			string.format('Points earned: <font color="#FFCD28"><b>+%d</b></font>', s.pointsEarned),
+			string.format('XP earned: <font color="#FFCD28"><b>+%d</b></font>', s.xpEarned),
+		}
+		for _, name in s.unlocked or {} do
+			table.insert(rows, string.format('<font color="#78E682"><b>New unit unlocked: %s!</b></font>', name))
+		end
+		if not s.victory then
+			table.insert(rows, '<font color="#FF8070">Your army is lost. The campaign restarts at round 1.</font>')
+		end
+		lines.Text = table.concat(rows, "\n")
+		button.Text = if s.victory then "CONTINUE TO ROUND " .. s.nextRound else "TRY AGAIN"
+		button.BackgroundColor3 = C.Green
+		panel.Visible = true
+	end
+
+	function api.onPhase(info: any)
+		if info.phase ~= "Reward" then
+			panel.Visible = false
+		end
+	end
+
+	return api
+end
+
+return SummaryPanel

@@ -1,21 +1,83 @@
 {
-  "name": "sans-filtre",
+  "name": "napoleonic-commander",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Shared": {
+      "Modules": {
         "$path": "src/shared"
+      },
+      "RemoteEvents": {
+        "$className": "Folder",
+        "RoundStateChanged": {
+          "$className": "RemoteEvent"
+        },
+        "UpdateSquadState": {
+          "$className": "RemoteEvent"
+        },
+        "UpdateZoneState": {
+          "$className": "RemoteEvent"
+        },
+        "OrderUnits": {
+          "$className": "RemoteEvent"
+        },
+        "SetFormation": {
+          "$className": "RemoteEvent"
+        },
+        "CycleSquad": {
+          "$className": "RemoteEvent"
+        },
+        "RequestRecruit": {
+          "$className": "RemoteEvent"
+        },
+        "ConfirmRecruit": {
+          "$className": "RemoteEvent"
+        },
+        "RecruitState": {
+          "$className": "RemoteEvent"
+        },
+        "CombatAction": {
+          "$className": "RemoteEvent"
+        },
+        "CombatFeedback": {
+          "$className": "RemoteEvent"
+        },
+        "PlayerProgress": {
+          "$className": "RemoteEvent"
+        },
+        "RoundSummary": {
+          "$className": "RemoteEvent"
+        },
+        "ContinueRound": {
+          "$className": "RemoteEvent"
+        },
+        "VFX": {
+          "$className": "RemoteEvent"
+        },
+        "Notify": {
+          "$className": "RemoteEvent"
+        }
       }
     },
     "ServerScriptService": {
-      "Server": {
-        "$path": "src/server"
-      }
+      "$path": "src/server"
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "Client": {
-          "$path": "src/client"
+        "$path": "src/client"
+      },
+      "StarterCharacterScripts": {
+        "Health": {
+          "$className": "Script"
+        }
+      }
+    },
+    "StarterGui": {
+      "MainHUD": {
+        "$className": "ScreenGui",
+        "$properties": {
+          "ResetOnSpawn": false,
+          "IgnoreGuiInset": true,
+          "ZIndexBehavior": "Sibling"
         }
       }
     }

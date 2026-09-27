@@ -1,70 +1,112 @@
-# sans-filtre
+# Napoleonic Commander
 
-Jeu Roblox géré avec [Rojo](https://rojo.space) : le code vit dans ce dépôt Git
-et se synchronise automatiquement dans Roblox Studio.
+Roblox mass-battle game (Mount & Blade / UEBS feel): you are the commander, on horseback in
+third person, fighting alongside your squads while giving them orders. Win rounds by capturing
+zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.space).
 
-## Installation automatique (une seule fois)
+> **Systems-first pass.** Soldiers, horses and the map are placeholder blocks.
+> **Every balance number is a `PLACEHOLDER`**: see "Tuning" below.
 
-1. Télécharge le projet : sur GitHub, choisis la branche `claude/roblox-studio-c4irid`,
-   puis **Code → Download ZIP** et décompresse-le (ou `git clone`).
-2. **Windows** : double-clic sur **`INSTALLER.bat`**.
-   **Mac** : ouvre un terminal dans le dossier et lance `./installer.sh`.
+## Controls
 
-   Le script installe Rokit, Rojo, Selene, StyLua et le plugin Rojo pour Studio,
-   puis lance `rojo serve`.
-3. Ouvre (ou redémarre) Roblox Studio → ouvre ton jeu → onglet **Plugins** → **Rojo** → **Connect**.
+| Key | Action |
+|---|---|
+| WASD / Space | Move · jump (on foot) |
+| Mouse | Look around (the cursor is locked during battles) · **Left Alt** frees the cursor |
+| Left click | Attack (a mounted charge hits harder the faster you ride) |
+| F (hold) | Block: raise your shield (frontal damage −80%) |
+| Q | Roll: dodge with a short invulnerability window (on foot) |
+| H | Heal: restores 40% HP and boosts the morale of your squads nearby |
+| G | Mount / dismount |
+| **X / C / V / B** | Orders for the selected squad: **Hold / Follow / Attack / Rush** |
+| 1 / 2 / 3 | Formation: Line / Column / Square |
+| T / Shift+T | Next / previous squad |
+| Shift + order or formation | Applies to **all** your squads |
 
-Recommandé : [VS Code](https://code.visualstudio.com) avec les extensions proposées
-dans `.vscode/extensions.json` (Rojo, Luau LSP, StyLua, Selene).
+## How a round plays
 
-## Travailler au quotidien
+1. **Recruitment** (40 s): spend points on squads in the shop. Surviving veterans stay in your army.
+2. **Battle**: the big banner gives your objective (`ATTACKER — CAPTURE PLAINS`).
+   - *Attacker* (odd rounds): capture **and hold** every zone for 20 s, or destroy the enemy.
+   - *Defender* (even rounds): destroy the attackers before they take every zone.
+3. **Summary**: kills, losses, zones held, points and XP earned → next round.
+   A defeat sends you back to round 1. Your level, best round and unlocked units are saved.
 
-1. **Windows** : double-clic sur **`DEMARRER.bat`** (Mac : `rojo serve` dans un terminal).
-2. Dans Studio : **Plugins** → **Rojo** → **Connect**.
-3. Modifie les fichiers dans `src/` : les changements apparaissent **instantanément** dans Studio.
+Difficulty rises every round (more squads, cavalry from round 3, artillery from round 4,
+reinforcement waves). Every 5th round is a boss round with a named general's squad.
 
-Pour générer un fichier de jeu complet sans Studio :
+## Systems
+
+- **Squads**: one logical object with pooled HP. Soldiers die off visually as HP drops.
+- **Formations**: Line (firepower, weak flanks), Column (fast, fragile), Square (stops cavalry,
+  weak against cannons). Changing formation takes 3 s, during which the squad is vulnerable.
+- **Morale**: drops from casualties, flanking, charges and isolation. At 0 the squad routs, flees
+  and ignores orders until it rallies.
+- **Combat**: musket volleys, bayonets up close, cavalry charge bonus (then disengage and
+  re-charge), artillery shells with splash damage. All of it runs server-side.
+- **Zones**: capture progress based on the presence weight of squads inside; frozen when
+  contested. Held zones give a bonus: *Income* (points), *Morale* (regen), *ArtilleryRange* (+25%).
+- **Enemy AI**: state machine Idle → Advancing → Engaging → Routing → Regrouping. It takes
+  objectives, flanks Lines, sends cavalry at guns and exposed squads, forms square against
+  cavalry, and falls back when morale is low.
+
+## Architecture
+
 ```
-rojo build -o sans-filtre.rbxl
+ServerScriptService/                    (src/server)
+  GameManager (Script)                  round state machine, win/lose, service wiring, Heartbeat
+  SquadService                          squads, movement/pathfinding, combat, morale, visuals
+  EnemyAIController                     enemy squad AI
+  CommandService                        player orders / formations / selection
+  PlayerCombatService                   commander combat (attack, block, roll, heal, horse)
+  ZoneService                           capture zones and bonuses
+  RecruitmentService                    points, validated purchases, deployment
+  DataService                           DataStoreService (level, best round, unlocks)
+  MapService                            CollectionService tags + placeholder map
+ReplicatedStorage/
+  Modules/                              (src/shared) UnitDefinitions, FormationDefinitions,
+                                        GameConfig, MathUtil, Remotes
+  RemoteEvents/                         declared in default.project.json
+StarterPlayerScripts/                   (src/client)
+  PlayerCombatController, ArmyCommandController, CameraController, UIController, VFXController
+  ClientState, ClientActions, UI/*      (shared client modules)
+StarterGui/MainHUD                      single ScreenGui; UIController builds its frames
 ```
 
-## Où va quoi
+Clients only send intent (RemoteEvents). The server validates everything and pushes state back
+4 times per second. Expensive systems are throttled: combat 0.2 s, orders 0.3 s, AI 0.5 s,
+zones 0.5 s, paths 2 s.
 
-| Dossier        | Dans Roblox Studio                              |
-|----------------|-------------------------------------------------|
-| `src/server/`  | `ServerScriptService.Server`                    |
-| `src/client/`  | `StarterPlayer.StarterPlayerScripts.Client`     |
-| `src/shared/`  | `ReplicatedStorage.Shared`                      |
+## Tuning
 
-Le type de script dépend du nom du fichier :
+- `src/shared/UnitDefinitions.luau`: HP, speed, damage, range, reload, cost, morale for each unit
+- `src/shared/FormationDefinitions.luau`: formation bonuses and penalties
+- `src/shared/GameConfig.luau`: rounds and difficulty (`getRound`), commander, morale, zones, AI,
+  rewards, sounds (`GameConfig.Sounds`: put real asset ids there, including `Music`)
 
-| Nom de fichier       | Type dans Studio |
-|----------------------|------------------|
-| `Nom.server.luau`    | Script           |
-| `Nom.client.luau`    | LocalScript      |
-| `Nom.luau`           | ModuleScript     |
+## Building your own map in Studio
 
-> Les parties, modèles et décors se construisent toujours dans Studio (Rojo gère le code).
-> Pense à sauvegarder ta place dans Studio / publier sur Roblox comme d'habitude.
+With no tagged Parts, a placeholder map (3 zones: Plains, Village, Ridge) is generated.
+To use your map, tag Parts with the **Tag Editor** (View → Tags):
 
-## Automatisation (GitHub Actions)
+| Tag | Part | Attributes |
+|---|---|---|
+| `CaptureZone` | a flat block or cylinder | `ZoneName` (text), `Bonus` = `Income` / `Morale` / `ArtilleryRange`, `Order` (number), `Radius` (optional) |
+| `PlayerDeployZone` | the area where your army deploys | — |
+| `EnemyDeployZone` | the area where the enemy spawns | — |
 
-À chaque push, `.github/workflows/ci.yml` :
-- vérifie le formatage (StyLua) ;
-- analyse le code (Selene) ;
-- construit `sans-filtre.rbxl` et le met à disposition dans l'onglet **Actions** de GitHub.
+Set **`CanCollide = false`** on these Parts. Scripts only read the tags.
 
-## Ce que fait le jeu
+## Development setup (Windows)
 
-- **Pièces sur la carte** (`src/server/Pieces.server.luau`) : 25 pièces dorées apparaissent au sol,
-  les toucher donne 5 pièces, elles réapparaissent ailleurs 10 s plus tard.
-- **Boutique** (`src/server/Boutique.server.luau` + `src/client/Boutique.client.luau`) : bouton
-  « Boutique » en bas à gauche pour acheter vitesse et saut. Les achats sont vérifiés par le serveur.
-- **Données** (`src/server/Donnees.luau`) : pièces et achats sauvegardés avec DataStore.
-- **Revenu passif** (`src/server/Joueurs.server.luau`) : +10 pièces par minute.
-- **Réglages** (`src/shared/Config.luau`) : prix, nombre de pièces, vitesse… tout se change ici.
+1. Double-click **`DEMARRER.bat`** (installs the right Rojo version, then starts it).
+2. Roblox Studio → **Plugins → Rojo → Connect** (Script Injection must be allowed in *Manage Plugins*).
+3. To get the latest changes: double-click **`METTRE_A_JOUR.bat`**.
 
-## Récupérer les dernières modifications
+For saving to work in Studio: *Game Settings → Security → Enable Studio Access to API Services*.
 
-**Windows** : double-clic sur **`METTRE_A_JOUR.bat`**. Si `rojo serve` tourne,
-les changements arrivent directement dans Studio.
+## Stretch goals noted in the code
+
+- Command-radius orders (every squad near the commander) instead of the selected squad
+- Click-to-place deployment in the deployment zone
+- Real models, animations and sounds
