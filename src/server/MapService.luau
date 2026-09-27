@@ -81,10 +81,13 @@ end
 -- Only in placeholder mode: a sunny, hazy look (your own map keeps its own Lighting)
 local function setupLighting()
 	local Lighting = game:GetService("Lighting")
-	Lighting.ClockTime = 14.5
-	Lighting.Brightness = 2.4
+	Lighting.ClockTime = 15.3 -- afternoon sun: longer shadows
+	Lighting.GeographicLatitude = 42
+	Lighting.Brightness = 2.6
 	Lighting.GlobalShadows = true
-	Lighting.OutdoorAmbient = Color3.fromRGB(135, 140, 150)
+	Lighting.Ambient = Color3.fromRGB(70, 70, 80)
+	Lighting.OutdoorAmbient = Color3.fromRGB(135, 140, 155)
+	Lighting.ShadowSoftness = 0.3
 	Lighting.EnvironmentDiffuseScale = 0.6
 	Lighting.EnvironmentSpecularScale = 0.4
 	local function ensure(className: string, props: { [string]: any })
@@ -108,6 +111,8 @@ local function setupLighting()
 	ensure("ColorCorrectionEffect", { Saturation = 0.18, Contrast = 0.08, TintColor = Color3.fromRGB(255, 250, 240) })
 	ensure("BloomEffect", { Intensity = 0.35, Size = 24, Threshold = 1.6 })
 	ensure("SunRaysEffect", { Intensity = 0.05, Spread = 0.8 })
+	-- slight blur on the far background adds depth (Atmosphere haze replaces classic fog)
+	ensure("DepthOfFieldEffect", { FarIntensity = 0.12, FocusDistance = 120, InFocusRadius = 140, NearIntensity = 0 })
 	if not Workspace.Terrain:FindFirstChildOfClass("Clouds") then
 		local clouds = Instance.new("Clouds")
 		clouds.Cover = 0.6
@@ -254,6 +259,18 @@ local function buildPlaceholderMap()
 	end
 	local terrain = Workspace.Terrain
 	terrain:FillBlock(CFrame.new(0, -6, 0), Vector3.new(1000, 12, 1000), Enum.Material.Grass)
+	terrain:SetMaterialColor(Enum.Material.Grass, Color3.fromRGB(95, 145, 60))
+	terrain:SetMaterialColor(Enum.Material.LeafyGrass, Color3.fromRGB(70, 120, 45))
+	terrain:SetMaterialColor(Enum.Material.Ground, Color3.fromRGB(120, 95, 65))
+	-- texture variation: patches of darker grass, trampled mud and bare earth
+	for _ = 1, 90 do
+		local x, z = rng:NextNumber(-450, 450), rng:NextNumber(-450, 450)
+		local material = (
+			{ Enum.Material.LeafyGrass, Enum.Material.LeafyGrass, Enum.Material.Mud, Enum.Material.Ground }
+		)[rng:NextInteger(1, 4)]
+		local size = rng:NextNumber(14, 40)
+		terrain:FillCylinder(CFrame.new(x, -1.5, z), 3, size, material)
+	end
 	-- the Ridge zone sits on high ground (its bonus is artillery range)
 	terrain:FillBall(Vector3.new(120, -26, -70), 36, Enum.Material.Grass)
 	for _, hill in
@@ -350,6 +367,72 @@ local function buildPlaceholderMap()
 	stoneWall(scenery, Vector3.new(-50, 0, 25), Vector3.new(-18, 0, 28))
 	stoneWall(scenery, Vector3.new(18, 0, 28), Vector3.new(50, 0, 25))
 	stoneWall(scenery, Vector3.new(-45, 0, -70), Vector3.new(-10, 0, -75))
+
+	-- Battle-line props: rocks, bushes and broken fences between the two armies
+	local function rock(position: Vector3)
+		local y = MapService.groundY(position.X, position.Z)
+		local size = rng:NextNumber(1.5, 4)
+		newPart(scenery, {
+			Name = "Rock",
+			Size = Vector3.new(size * rng:NextNumber(1, 1.6), size * 0.7, size),
+			CFrame = CFrame.new(position.X, y + size * 0.25, position.Z)
+				* CFrame.Angles(rng:NextNumber(-0.3, 0.3), rng:NextNumber(0, 6.28), rng:NextNumber(-0.3, 0.3)),
+			Color = Color3.fromRGB(125, 122, 115):Lerp(Color3.fromRGB(95, 92, 88), rng:NextNumber()),
+			Material = Enum.Material.Slate,
+		})
+	end
+	local function bush(position: Vector3)
+		local y = MapService.groundY(position.X, position.Z)
+		local size = rng:NextNumber(2.5, 4.5)
+		newPart(scenery, {
+			Name = "Bush",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.one * size,
+			Position = Vector3.new(position.X, y + size * 0.3, position.Z),
+			Color = Color3.fromRGB(60, 110, 45):Lerp(Color3.fromRGB(90, 130, 50), rng:NextNumber()),
+			Material = Enum.Material.Grass,
+			CanCollide = false,
+		})
+	end
+	local function fence(from: Vector3, to: Vector3)
+		local length = (to - from).Magnitude
+		local posts = math.max(2, math.floor(length / 6))
+		for i = 0, posts do
+			if rng:NextNumber() < 0.8 then -- some posts are missing
+				local p = from:Lerp(to, i / posts)
+				local y = MapService.groundY(p.X, p.Z)
+				newPart(scenery, {
+					Name = "FencePost",
+					Size = Vector3.new(0.5, 3.2, 0.5),
+					CFrame = CFrame.new(p.X, y + 1.5, p.Z)
+						* CFrame.Angles(rng:NextNumber(-0.12, 0.12), 0, rng:NextNumber(-0.12, 0.12)),
+					Color = Color3.fromRGB(105, 75, 45),
+					Material = Enum.Material.Wood,
+				})
+			end
+		end
+		for _, height in { 1.2, 2.4 } do
+			local mid = (from + to) / 2
+			local y = MapService.groundY(mid.X, mid.Z)
+			newPart(scenery, {
+				Name = "FenceRail",
+				Size = Vector3.new(0.25, 0.35, length),
+				CFrame = CFrame.lookAt(Vector3.new(mid.X, y + height, mid.Z), Vector3.new(to.X, y + height, to.Z)),
+				Color = Color3.fromRGB(120, 88, 55),
+				Material = Enum.Material.WoodPlanks,
+			})
+		end
+	end
+	for _ = 1, 45 do
+		rock(Vector3.new(rng:NextNumber(-170, 170), 0, rng:NextNumber(-200, 200)))
+	end
+	for _ = 1, 40 do
+		bush(Vector3.new(rng:NextNumber(-170, 170), 0, rng:NextNumber(-200, 200)))
+	end
+	fence(Vector3.new(-160, 0, 110), Vector3.new(-80, 0, 100))
+	fence(Vector3.new(80, 0, 100), Vector3.new(160, 0, 110))
+	fence(Vector3.new(-150, 0, -140), Vector3.new(-90, 0, -150))
+	fence(Vector3.new(90, 0, -150), Vector3.new(150, 0, -140))
 
 	-- Woods on the flanks (kept away from the lanes between the zones)
 	for _ = 1, 70 do

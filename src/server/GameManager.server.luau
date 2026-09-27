@@ -21,6 +21,7 @@ local Remotes = require(Modules:WaitForChild("Remotes"))
 local CommandService = require(script.Parent:WaitForChild("CommandService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local EnemyAIController = require(script.Parent:WaitForChild("EnemyAIController"))
+local SquadController = require(script.Parent:WaitForChild("SquadController"))
 local MapService = require(script.Parent:WaitForChild("MapService"))
 local PlayerCombatService = require(script.Parent:WaitForChild("PlayerCombatService"))
 local RecruitmentService = require(script.Parent:WaitForChild("RecruitmentService"))
@@ -74,7 +75,9 @@ end
 SquadService.hooks.onSquadDestroyed = function(squad)
 	if squad.owner then
 		notifyRemote:FireClient(squad.owner, squad.name .. " was destroyed", "bad")
-		CommandService.prune(squad.owner)
+		if squad.isPlayerControlled then
+			CommandService.ensureControlled(squad.owner) -- take command of another squad
+		end
 	elseif squad.team == "Red" then
 		notifyAll("Enemy " .. squad.name .. " destroyed!", "good")
 	end
@@ -210,7 +213,7 @@ end)
 -- Frame loop
 ---------------------------------------------------------------------------
 
-local timers = { command = 0, ai = 0, zone = 0, snapshot = 0, income = 0 }
+local timers = { command = 0, zone = 0, snapshot = 0, income = 0 }
 local holdInfo: any = nil
 
 local function updateHold(step: number)
@@ -236,19 +239,12 @@ RunService.Heartbeat:Connect(function(dt)
 	SquadService.update(dt)
 	local inBattle = phaseInfo.phase == "Battle" and battle ~= nil and not battle.result
 
+	-- every squad decides through SquadController (per-squad throttles inside)
 	timers.command += dt
-	if timers.command >= GameConfig.AI.CommandInterval then
+	if timers.command >= 0.1 then
 		timers.command = 0
 		if inBattle then
-			CommandService.tick()
-		end
-	end
-
-	timers.ai += dt
-	if timers.ai >= GameConfig.AI.DecisionInterval then
-		timers.ai = 0
-		if inBattle then
-			EnemyAIController.tick()
+			SquadController.tick()
 		end
 	end
 
@@ -326,7 +322,8 @@ local function runBattle(cfg: any): string
 	RecruitmentService.deployAll()
 	PlayerCombatService.teleportAll(MapService.spawnCFrame("Blue"))
 	for _, player in Players:GetPlayers() do
-		CommandService.selectAll(player) -- start the battle with the whole army selected
+		CommandService.setControlled(player, nil)
+		CommandService.ensureControlled(player) -- command the first squad, the rest follow the ally AI
 		DataService.recordRoundReached(player, round)
 	end
 	EnemyAIController.setTuning(cfg.ai)

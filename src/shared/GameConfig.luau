@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.4"
+GameConfig.Version = "0.5"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -26,6 +26,8 @@ GameConfig.Recruitment = {
 	MaxSquadsPerPlayer = 8,
 	FreeSquadIfEmpty = "LineInfantry", -- given for free if a player recruits nothing
 	DeploySpacing = 32, -- studs between squads when deploying
+	MaxVeteranRank = 3, -- stars earned by surviving battles
+	VeteranBonusPerRank = 0.08, -- +8% HP and damage per star
 }
 
 GameConfig.Rewards = {
@@ -138,6 +140,8 @@ GameConfig.Zones = {
 }
 
 GameConfig.AI = {
+	-- Allied squads you are not commanding directly (AllyAIController)
+	Ally = { aggression = 0.6, flankPreference = 0.35, retreatThreshold = 0.25, regroupRecover = 0.7 },
 	DecisionInterval = 0.5,
 	CommandInterval = 0.3, -- how often player squads re-evaluate their order
 	PathRecalcInterval = 2,
@@ -146,6 +150,14 @@ GameConfig.AI = {
 	CavalryDisengageTime = 5,
 	ExposedRadius = 30, -- a squad with no friend this close is "exposed"
 	SquareThreatRadius = 50, -- infantry forms square when enemy cavalry is this close
+}
+
+-- Client-side soldier rendering
+GameConfig.Rendering = {
+	MaxActiveSoldiers = 180, -- cap on rendered soldiers (both teams); squads show fewer when over it
+	LodNearDistance = 150, -- full animation + per-soldier ground checks within this distance
+	LodMidDistance = 300, -- beyond: animate every 3rd frame
+	LodFarDistance = 500, -- beyond: every 8th frame, no limb animation
 }
 
 GameConfig.Network = {

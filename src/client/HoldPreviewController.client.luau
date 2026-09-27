@@ -90,19 +90,14 @@ stroke2.Parent = subtitle
 
 local function selectedEntries(): ({ any }, { any })
 	local squads = {}
-	for _, id in ClientActions.selectedIds() do
-		local squad = ClientState.squadsById[id]
-		if squad and squad.state ~= "Routing" then
-			table.insert(squads, squad)
-		end
+	local squad = ClientState.squadsById[ClientActions.controlledId()]
+	if squad and squad.state ~= "Routing" then
+		table.insert(squads, squad)
 	end
-	table.sort(squads, function(a, b)
-		return a.id < b.id
-	end)
 	local entries = {}
-	for _, squad in squads do
-		local def = UnitDefinitions.get(squad.unitId)
-		table.insert(entries, { soldiers = squad.soldiers, spacingMult = def.spacingMult, formations = def.formations })
+	for _, s in squads do
+		local def = UnitDefinitions.get(s.unitId)
+		table.insert(entries, { soldiers = s.soldiers, spacingMult = def.spacingMult, formations = def.formations })
 	end
 	return squads, entries
 end
@@ -126,7 +121,7 @@ RunService.RenderStepped:Connect(function(dt)
 	if #entries == 0 then
 		gui.Enabled = true
 		labelPart.Position = anchor + Vector3.new(0, 5, 0)
-		subtitle.Text = "Select squads first (1-9, 0 = all)"
+		subtitle.Text = "No squad under your command (Tab)"
 		hideFrom(1)
 		return
 	end

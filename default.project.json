@@ -53,7 +53,7 @@
         "Notify": {
           "$className": "RemoteEvent"
         },
-        "SelectSquads": {
+        "SelectSquad": {
           "$className": "RemoteEvent"
         }
       }

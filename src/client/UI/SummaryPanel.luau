@@ -1,4 +1,5 @@
--- End-of-round summary: casualties, zones held, time, XP/points earned, Continue button.
+-- SummaryScreen — full-screen, shown ONLY during the Reward phase: casualties, zones held,
+-- time, XP/points earned, Continue button.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -16,17 +17,28 @@ local SummaryPanel = {}
 function SummaryPanel.build(root: ScreenGui, ClientState: any): any
 	local api = {}
 
-	local panel = create("Frame", {
-		Name = "SummaryPanel",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.45),
-		Size = UDim2.fromOffset(560, 460),
-		BackgroundColor3 = C.Panel,
-		BackgroundTransparency = 0.05,
+	local frame = create("Frame", {
+		Name = "SummaryScreen",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(8, 8, 14),
+		BackgroundTransparency = 0.35,
 		Visible = false,
 		ZIndex = 20,
 		Parent = root,
 	})
+	api.frame = frame
+	local panel = create("Frame", {
+		Name = "Panel",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(560, 460),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.05,
+		ZIndex = 20,
+		Parent = frame,
+	})
+	api.panel = panel
+	create("UIScale", { Name = "FitScale", Parent = panel })
 	Theme.corner(panel, 12)
 	Theme.border(panel, Color3.new(0, 0, 0), 3)
 
@@ -108,14 +120,9 @@ function SummaryPanel.build(root: ScreenGui, ClientState: any): any
 		lines.Text = table.concat(rows, "\n")
 		button.Text = if s.victory then "CONTINUE TO ROUND " .. s.nextRound else "TRY AGAIN"
 		button.BackgroundColor3 = C.Green
-		panel.Visible = true
 	end
 
-	function api.onPhase(info: any)
-		if info.phase ~= "Reward" then
-			panel.Visible = false
-		end
-	end
+	function api.onPhase(_info: any) end
 
 	return api
 end

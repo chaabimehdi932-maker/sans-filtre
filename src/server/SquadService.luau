@@ -187,7 +187,9 @@ function SquadService.create(params: any): Squad
 		routing = false,
 		regroupUntil = 0,
 		aiRegrouping = false,
-		order = "Hold", -- player squads only: Hold | Follow | Attack | Rush
+		order = "Hold", -- used while isPlayerControlled: Hold | Follow | Attack | Rush
+		isPlayerControlled = false, -- true = obeys its owner's hotkeys, false = AI (SquadController)
+		rank = params.rank or 0, -- veteran stars
 		aiMemory = {},
 		stats = { damageDealt = 0 },
 	}
@@ -855,6 +857,9 @@ function SquadService.snapshot(): { any }
 			moving = squad.isMoving,
 			rushing = squad.rushing,
 			charging = now < squad.chargeReadyUntil,
+			controlled = squad.isPlayerControlled,
+			rank = squad.rank,
+			tier = squad.def.tier,
 		})
 	end
 	return out

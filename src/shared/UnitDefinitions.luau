@@ -28,6 +28,8 @@
 	  visual            "Infantry" | "Cavalry" | "Artillery" (placeholder look)
 	  hatColor/hatHeight placeholder colours that make unit types recognisable
 	  unlockRoundsWon   locked until the player has won this many rounds in total (saved)
+	  tier              card rarity colour: 1 grey · 2 blue · 3 purple · 4 gold
+	  icon              emoji shown when no portrait is available
 ]]
 
 local UnitDefinitions = {}
@@ -40,6 +42,7 @@ UnitDefinitions.Units = {
 		id = "LineInfantry",
 		displayName = "Line Infantry",
 		icon = "🔫",
+		tier = 2,
 		description = "Balanced musket volleys, bayonets when enemies get close. Can form square.",
 		attackType = "Ranged",
 		health = 600, -- PLACEHOLDER
@@ -67,6 +70,7 @@ UnitDefinitions.Units = {
 		id = "Skirmishers",
 		displayName = "Skirmishers",
 		icon = "🎯",
+		tier = 1,
 		description = "Fast, loose-order sharpshooters. Fire on the move, weak in a stand-up fight.",
 		attackType = "Ranged",
 		health = 300, -- PLACEHOLDER
@@ -96,6 +100,7 @@ UnitDefinitions.Units = {
 		id = "Cavalry",
 		displayName = "Cavalry",
 		icon = "🐎",
+		tier = 3,
 		description = "Very fast. Devastating charges against infantry out of square, weak in a long melee.",
 		attackType = "Melee",
 		health = 480, -- PLACEHOLDER
@@ -123,6 +128,7 @@ UnitDefinitions.Units = {
 		id = "Artillery",
 		displayName = "Artillery",
 		icon = "💣",
+		tier = 3,
 		description = "Huge area damage at long range. Slow, must stop to fire, helpless in melee.",
 		attackType = "Artillery",
 		health = 240, -- PLACEHOLDER
@@ -152,6 +158,7 @@ UnitDefinitions.Units = {
 		id = "EliteGuard",
 		displayName = "Elite Guard",
 		icon = "🎖️",
+		tier = 4,
 		description = "Veteran grenadiers: tough, deadly volleys, iron morale. Unlocked by winning rounds.",
 		attackType = "Ranged",
 		health = 1000, -- PLACEHOLDER

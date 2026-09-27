@@ -18,15 +18,13 @@ zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.
 | Q | Roll: dodge with a short invulnerability window (on foot) |
 | H | Heal: restores 40% HP and boosts the morale of your squads nearby |
 | G | Mount / dismount |
-| **X / C / V / B** | Orders for the **selected** squads: **Hold / Follow / Attack / Rush** |
+| **X / C / V / B** | Orders for the squad **you command**: **Hold / Follow / Attack / Rush** |
 | **X → 1 / 2 / 3 → X** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, X again confirms (Backspace cancels) |
-| 1 – 9 | Select squad n · **Shift + number** adds/removes it from the selection |
-| 0 or ` | Select all your squads · T = next squad |
-| **Ctrl + drag** (left mouse) | Box-select squads on screen (Ctrl + click = pick one) |
+| **Tab / Shift+Tab** | Switch which squad you command (or click its card, top-left) |
 | F1 · M | Controls panel · minimap |
 
-The squad panel (right) is clickable too (Shift + click = add). The whole army is selected at
-the start of every battle.
+You command **one squad at a time**. Your other squads are run by the **ally AI**: they take
+objectives, engage enemies and fall back when their morale breaks, like real allies.
 
 ## How a round plays
 
@@ -66,7 +64,10 @@ ServerScriptService/                    (src/server)
   GameManager (Script)                  round state machine, win/lose, service wiring, Heartbeat
   SquadService                          squads, movement/pathfinding, combat, morale, visuals
   EnemyAIController                     enemy squad AI
-  CommandService                        player orders / formations / selection
+  SquadController                       one decision path per squad: player orders OR AI
+  CommandService                        the commanded squad (IsPlayerControlled), hotkey orders
+  AllyAIController / EnemyAIController  your other squads / the enemy, both on SquadAI
+  SquadAI                               shared tactics + state machine (team-agnostic)
   PlayerCombatService                   commander combat (attack, block, roll, heal, horse)
   ZoneService                           capture zones and bonuses
   RecruitmentService                    points, validated purchases, deployment
@@ -74,12 +75,14 @@ ServerScriptService/                    (src/server)
   MapService                            CollectionService tags + placeholder map
 ReplicatedStorage/
   Modules/                              (src/shared) UnitDefinitions, FormationDefinitions,
-                                        GameConfig, MathUtil, Remotes
+                                        SoldierAnimationIds, GameConfig, MathUtil, Remotes
   RemoteEvents/                         declared in default.project.json
 StarterPlayerScripts/                   (src/client)
   PlayerCombatController, ArmyCommandController, CameraController, UIController, VFXController,
-  CharacterAnimator (rider pose, horse gait, sabre swing, block, roll), SquadRenderController
-  ClientState, ClientActions, SquadRenderer, SoldierModels, UI/*   (shared client modules)
+  CharacterAnimator (rider pose, horse gait, sabre swing, block, roll), SquadRenderController,
+  SquadSelectionController (Tab / click), HoldPreviewController
+  ClientState, ClientActions, SquadRenderer, SoldierModels, SoldierAnimationService,
+  UI/* (Hud, UnitCard, RecruitPanel, SummaryPanel, Markers, Effects, Theme)   (client modules)
 StarterGui/MainHUD                      single ScreenGui; UIController builds its frames
 ```
 
@@ -88,6 +91,10 @@ Clients only send intent (RemoteEvents). The server validates everything and pus
 zones 0.5 s, paths 2 s.
 
 ## Tuning
+
+- `src/shared/SoldierAnimationIds.luau`: animation ids per soldier state (empty = procedural
+  pose). Soldiers are R6 rigs with standard R6 joints, so use **R6** animations.
+- `GameConfig.Rendering`: soldier cap (`MaxActiveSoldiers`) and LOD distances
 
 - `src/shared/UnitDefinitions.luau`: HP, speed, damage, range, reload, cost, morale for each unit
 - `src/shared/FormationDefinitions.luau`: formation bonuses and penalties

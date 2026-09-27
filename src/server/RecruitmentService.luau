@@ -42,7 +42,7 @@ local function sendState(player: Player)
 	end
 	local roster = {}
 	for _, entry in session.roster do
-		table.insert(roster, { unitId = entry.unitId, carried = entry.carried })
+		table.insert(roster, { unitId = entry.unitId, carried = entry.carried, rank = entry.rank or 0 })
 	end
 	stateRemote:FireClient(player, {
 		points = math.floor(session.points),
@@ -166,7 +166,7 @@ function RecruitmentService.deployAll(): { any }
 			table.insert(session.roster, { unitId = R.FreeSquadIfEmpty, carried = false })
 		end
 		for _, entry in session.roster do
-			table.insert(entries, { player = player, unitId = entry.unitId })
+			table.insert(entries, { player = player, unitId = entry.unitId, rank = entry.rank or 0 })
 		end
 	end
 	table.sort(entries, function(a, b)
@@ -181,6 +181,10 @@ function RecruitmentService.deployAll(): { any }
 			position = spots[i].position,
 			yaw = spots[i].yaw,
 			owner = entry.player,
+			rank = entry.rank,
+			-- veterans are a bit tougher and hit a bit harder
+			statMultiplier = 1 + entry.rank * R.VeteranBonusPerRank,
+			damageMultiplier = 1 + entry.rank * R.VeteranBonusPerRank,
 		})
 		squad.order = "Hold"
 		table.insert(created, squad)
@@ -196,7 +200,11 @@ function RecruitmentService.collectSurvivors()
 	for _, squad in SquadService.getByTeam("Blue") do
 		local session = squad.owner and sessions[squad.owner]
 		if session then
-			table.insert(session.roster, { unitId = squad.unitId, carried = true })
+			table.insert(session.roster, {
+				unitId = squad.unitId,
+				carried = true,
+				rank = math.min(R.MaxVeteranRank, (squad.rank or 0) + 1),
+			})
 		end
 	end
 	for player in sessions do

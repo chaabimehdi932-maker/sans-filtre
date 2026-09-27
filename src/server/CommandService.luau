@@ -1,15 +1,14 @@
 --[[
 	CommandService
-	Army orders from the commander (X Hold · C Follow · V Attack · B Rush), formations
-	(Line / Column / Square) and multi-squad selection, all validated server-side.
+	The player commands ONE squad at a time (squad.isPlayerControlled = true). That squad obeys
+	the X Hold · C Follow · V Attack · B Rush hotkeys; every other friendly squad is run by
+	AllyAIController. SquadController decides each tick which of the two drives a squad, so
+	there is a single code path per squad and the handoff is just this flag.
 
-	Selection: the client sends the ids it wants selected (SelectSquads remote: number keys,
-	Shift+number, 0 = all, Ctrl+drag box, squad panel clicks). The server keeps only squads the
-	player owns and publishes the result in the player attribute "SelectedSquads" ("3,5,8").
-	Orders and formation changes apply to every selected squad.
-	-- STRETCH GOAL: command radius model — also allow "every friendly squad within N studs".
-
-	tick() runs every AI.CommandInterval and turns each squad's standing order into movement.
+	Switching: SelectSquad remote (Tab / Shift+Tab / clicking a squad card). The previous squad
+	goes back to AI control instantly; the new one holds where it stands until given an order.
+	The controlled squad id is published in the player attribute "ControlledSquad".
+	-- STRETCH GOAL: command radius model — also order every friendly squad within N studs.
 ]]
 
 local Players = game:GetService("Players")
@@ -29,90 +28,82 @@ local Orders = GameConfig.Orders
 local CommandService = {}
 
 local VALID_ORDERS = { Hold = true, Follow = true, Attack = true, Rush = true }
-local MAX_SELECTION = 64
 
-local selections: { [Player]: { [number]: boolean } } = {}
+local controlled: { [Player]: any } = {}
 
-local function publish(player: Player)
-	local ids = {}
-	local selection = selections[player]
-	if selection then
-		for id in selection do
-			table.insert(ids, id)
-		end
-	end
-	table.sort(ids)
-	player:SetAttribute("SelectedSquads", table.concat(ids, ","))
+-- Reset the per-order state so the squad starts clean under its new controller
+local function clearOrderState(squad: any)
+	squad.preferredTarget = nil
+	squad.holdPosition = nil
+	squad.pendingFormation = nil
+	squad.rushing = false
+	squad.speedMult = 1
 end
 
--- Selected squads that are still alive (dead ones are dropped from the selection)
-function CommandService.getSelected(player: Player): { any }
-	local selection = selections[player]
-	local list = {}
-	if not selection then
-		return list
+function CommandService.getControlled(player: Player): any
+	local squad = controlled[player]
+	if squad and squad.alive then
+		return squad
 	end
-	local changed = false
-	for id in selection do
-		local squad = SquadService.getById(id)
-		if squad and squad.alive and squad.owner == player then
-			table.insert(list, squad)
-		else
-			selection[id] = nil
-			changed = true
-		end
-	end
-	if changed then
-		publish(player)
-	end
-	table.sort(list, function(a, b)
-		return a.id < b.id
-	end)
-	return list
+	return nil
 end
 
-function CommandService.prune(player: Player)
-	CommandService.getSelected(player)
+-- Hand direct command of `squad` (or nothing) to the player
+function CommandService.setControlled(player: Player, squad: any)
+	local previous = controlled[player]
+	if previous == squad then
+		return
+	end
+	if previous and previous.alive then
+		previous.isPlayerControlled = false -- back to AllyAIController
+		clearOrderState(previous)
+	end
+	controlled[player] = squad
+	if squad then
+		squad.isPlayerControlled = true
+		clearOrderState(squad)
+		squad.order = "Hold"
+		squad.holdYaw = squad.yaw
+		squad.idleYaw = squad.yaw
+		SquadService.stop(squad)
+	end
+	player:SetAttribute("ControlledSquad", if squad then squad.id else 0)
 end
 
-function CommandService.selectAll(player: Player)
-	local selection = {}
-	for _, squad in SquadService.getOwnedBy(player) do
-		selection[squad.id] = true
+-- Make sure the player commands a living squad (first owned one), e.g. after it was destroyed
+function CommandService.ensureControlled(player: Player)
+	if CommandService.getControlled(player) then
+		return
 	end
-	selections[player] = selection
-	publish(player)
+	controlled[player] = nil
+	CommandService.setControlled(player, SquadService.getOwnedBy(player)[1])
 end
 
 function CommandService.removePlayer(player: Player)
-	selections[player] = nil
+	controlled[player] = nil
 end
 
-Remotes.get("SelectSquads").OnServerEvent:Connect(function(player: Player, ids: unknown)
-	if typeof(ids) ~= "table" then
+-- SelectSquad(id) takes command of that squad; SelectSquad("next" | "prev") cycles
+Remotes.get("SelectSquad").OnServerEvent:Connect(function(player: Player, which: unknown)
+	local owned = SquadService.getOwnedBy(player)
+	if #owned == 0 then
 		return
 	end
-	local selection = {}
-	local count = 0
-	for _, id in ids :: { any } do
-		count += 1
-		if count > MAX_SELECTION then
-			break
+	if typeof(which) == "number" then
+		local squad = SquadService.getById(which)
+		if squad and squad.alive and squad.owner == player then
+			CommandService.setControlled(player, squad)
 		end
-		if typeof(id) == "number" then
-			local squad = SquadService.getById(id)
-			if squad and squad.alive and squad.owner == player then
-				selection[squad.id] = true
-			end
-		end
+	elseif which == "next" or which == "prev" then
+		local index = table.find(owned, CommandService.getControlled(player)) or 0
+		local step = if which == "prev" then -1 else 1
+		CommandService.setControlled(player, owned[(index - 1 + step) % #owned + 1])
 	end
-	selections[player] = selection
-	publish(player)
 end)
 
--- Hold with a placement (from the client preview): squads march side by side to the spot,
--- then form up in the chosen formation. Without placement data they hold where they stand.
-local function holdAt(player: Player, squads: { any }, data: any): boolean
+-- Hold with a placement (from the client preview): the squad marches to the spot, then forms up
+-- in the chosen formation. Without placement data it holds where it stands.
+local function holdAt(player: Player, squad: any, data: any): boolean
 	if typeof(data) ~= "table" then
 		return false
 	end
@@ -132,23 +123,15 @@ local function holdAt(player: Player, squads: { any }, data: any): boolean
 	if MathUtil.flatDistance(anchor, root.Position) > Orders.HoldMaxDistance then
 		return false
 	end
-	local entries = {}
-	for _, squad in squads do
-		table.insert(entries, {
-			soldiers = squad.soldierCount,
-			spacingMult = squad.def.spacingMult,
-			formations = squad.def.formations,
-		})
-	end
-	local placements = FormationDefinitions.placeSquads(entries, anchor, yaw, formation)
-	for i, squad in squads do
-		squad.order = "Hold"
-		squad.preferredTarget = nil
-		squad.holdPosition = placements[i].center
-		squad.holdYaw = yaw
-		squad.idleYaw = yaw
-		squad.pendingFormation = placements[i].formation
-	end
+	local placement = FormationDefinitions.placeSquads({
+		{ soldiers = squad.soldierCount, spacingMult = squad.def.spacingMult, formations = squad.def.formations },
+	}, anchor, yaw, formation)[1]
+	clearOrderState(squad)
+	squad.order = "Hold"
+	squad.holdPosition = placement.center
+	squad.holdYaw = yaw
+	squad.idleYaw = yaw
+	squad.pendingFormation = placement.formation
 	return true
 end
 
@@ -156,33 +139,25 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 	if typeof(order) ~= "string" or not VALID_ORDERS[order] then
 		return
 	end
-	local squads = {}
-	for _, squad in CommandService.getSelected(player) do
-		if not squad.routing then -- routing squads ignore orders
-			table.insert(squads, squad)
-		end
-	end
-	if order == "Hold" and holdAt(player, squads, data) then
+	local squad = CommandService.getControlled(player)
+	if not squad or squad.routing then -- routing squads ignore orders
 		return
 	end
-	for _, squad in squads do
-		squad.order = order
-		squad.preferredTarget = nil
-		squad.holdPosition = nil
-		squad.pendingFormation = nil
-		if order == "Hold" then
-			squad.idleYaw = squad.yaw
-			squad.holdYaw = squad.yaw
-			SquadService.stop(squad)
-		end
+	if order == "Hold" and holdAt(player, squad, data) then
+		return
+	end
+	clearOrderState(squad)
+	squad.order = order
+	if order == "Hold" then
+		squad.idleYaw = squad.yaw
+		squad.holdYaw = squad.yaw
+		SquadService.stop(squad)
 	end
 end)
 
 Remotes.get("SetFormation").OnServerEvent:Connect(function(player: Player, formation: unknown)
-	if typeof(formation) ~= "string" or not FormationDefinitions.Formations[formation] then
-		return
-	end
-	for _, squad in CommandService.getSelected(player) do
+	local squad = CommandService.getControlled(player)
+	if squad and typeof(formation) == "string" and FormationDefinitions.Formations[formation] then
 		SquadService.setFormation(squad, formation)
 	end
 end)
@@ -294,35 +269,21 @@ local function doRush(squad: any)
 	end
 end
 
-function CommandService.tick()
-	-- Group following squads per commander so they line up side by side
-	local followers: { [Player]: { any } } = {}
-	for _, squad in SquadService.getByTeam("Blue") do
-		if squad.owner and squad.order == "Follow" and not squad.routing then
-			followers[squad.owner] = followers[squad.owner] or {}
-			table.insert(followers[squad.owner], squad)
-		end
+-- Turn the controlled squad's standing order into movement (called by SquadController)
+function CommandService.applyOrder(squad: any)
+	squad.rushing = squad.order == "Rush"
+	if time() < squad.regroupUntil then
+		return
 	end
-
-	for _, squad in SquadService.getByTeam("Blue") do
-		if not squad.owner then
-			continue
-		end
-		squad.rushing = squad.order == "Rush" and not squad.routing
-		if squad.routing or time() < squad.regroupUntil then
-			continue
-		end
-		local order = squad.order
-		if order == "Hold" then
-			doHold(squad)
-		elseif order == "Follow" then
-			local list = followers[squad.owner]
-			doFollow(squad, table.find(list, squad) or 1, #list)
-		elseif order == "Attack" then
-			doAttack(squad)
-		elseif order == "Rush" then
-			doRush(squad)
-		end
+	local order = squad.order
+	if order == "Hold" then
+		doHold(squad)
+	elseif order == "Follow" then
+		doFollow(squad, 1, 1)
+	elseif order == "Attack" then
+		doAttack(squad)
+	elseif order == "Rush" then
+		doRush(squad)
 	end
 end
 

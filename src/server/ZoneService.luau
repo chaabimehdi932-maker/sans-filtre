@@ -105,26 +105,60 @@ local function buildZone(part: BasePart, index: number): any
 		Parent = visualsFolder,
 	})
 
+	-- Compact label: letter diamond on its own row ABOVE the name, so it never covers the text.
+	-- Pixel-sized (not stud-sized) so it stays readable far away and small up close.
+	local letter = string.char(64 + index)
+	local teamColor = Teams.Neutral.color
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "ZoneInfo"
-	gui.Size = UDim2.fromOffset(190, 58)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 10, 0)
+	gui.Size = UDim2.fromOffset(150, 78)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 11, 0)
 	gui.AlwaysOnTop = true
 	gui.MaxDistance = 1500
 	gui.LightInfluence = 0
 	gui.Adornee = pole
+	local function stroked(label: TextLabel, thickness: number)
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = thickness
+		stroke.Parent = label
+	end
+	local diamond = Instance.new("Frame")
+	diamond.Name = "Diamond"
+	diamond.AnchorPoint = Vector2.new(0.5, 0)
+	diamond.Position = UDim2.new(0.5, 0, 0, 4)
+	diamond.Size = UDim2.fromOffset(20, 20)
+	diamond.Rotation = 45
+	diamond.BackgroundColor3 = teamColor
+	diamond.Parent = gui
+	local diamondStroke = Instance.new("UIStroke")
+	diamondStroke.Color = Color3.new(1, 1, 1)
+	diamondStroke.Thickness = 2
+	diamondStroke.Parent = diamond
+	local letterLabel = Instance.new("TextLabel")
+	letterLabel.BackgroundTransparency = 1
+	letterLabel.AnchorPoint = Vector2.new(0.5, 0)
+	letterLabel.Position = UDim2.new(0.5, 0, 0, 2)
+	letterLabel.Size = UDim2.fromOffset(24, 24)
+	letterLabel.Font = Enum.Font.FredokaOne
+	letterLabel.TextSize = 16
+	letterLabel.TextColor3 = Color3.new(1, 1, 1)
+	letterLabel.Text = letter
+	letterLabel.ZIndex = 2
+	letterLabel.Parent = gui
+	stroked(letterLabel, 1.5)
 	local title = Instance.new("TextLabel")
 	title.BackgroundTransparency = 1
-	title.Size = UDim2.new(1, 0, 0, 24)
-	title.Font = Enum.Font.GothamBlack
-	title.TextSize = 22
+	title.Position = UDim2.fromOffset(0, 30)
+	title.Size = UDim2.new(1, 0, 0, 18)
+	title.Font = Enum.Font.FredokaOne
+	title.TextSize = 17
 	title.TextColor3 = Color3.new(1, 1, 1)
-	title.TextStrokeTransparency = 0.2
 	title.Text = string.upper(name)
 	title.Parent = gui
+	stroked(title, 2)
 	local barBack = Instance.new("Frame")
-	barBack.Position = UDim2.fromOffset(10, 27)
-	barBack.Size = UDim2.new(1, -20, 0, 10)
+	barBack.Position = UDim2.fromOffset(25, 50)
+	barBack.Size = UDim2.new(1, -50, 0, 7)
 	barBack.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 	barBack.BorderSizePixel = 0
 	barBack.Parent = gui
@@ -134,13 +168,13 @@ local function buildZone(part: BasePart, index: number): any
 	barFill.Parent = barBack
 	local status = Instance.new("TextLabel")
 	status.BackgroundTransparency = 1
-	status.Position = UDim2.fromOffset(0, 39)
-	status.Size = UDim2.new(1, 0, 0, 16)
-	status.Font = Enum.Font.GothamBold
-	status.TextSize = 13
+	status.Position = UDim2.fromOffset(0, 59)
+	status.Size = UDim2.new(1, 0, 0, 15)
+	status.Font = Enum.Font.FredokaOne
+	status.TextSize = 12
 	status.TextColor3 = Color3.new(1, 1, 1)
-	status.TextStrokeTransparency = 0.3
 	status.Parent = gui
+	stroked(status, 1.5)
 	gui.Parent = pole
 
 	return {
@@ -153,7 +187,8 @@ local function buildZone(part: BasePart, index: number): any
 		control = 0,
 		owner = "Neutral",
 		contested = false,
-		ui = { ring = ring, fill = fill, flag = flag, barFill = barFill, status = status },
+		letter = letter,
+		ui = { ring = ring, fill = fill, flag = flag, barFill = barFill, status = status, diamond = diamond },
 		lastVisual = "",
 	}
 end
@@ -171,6 +206,7 @@ local function refreshVisuals(zone: any)
 
 	ui.ring.Color = ownerColor
 	ui.flag.Color = ownerColor
+	ui.diamond.BackgroundColor3 = ownerColor
 	ui.fill.Color = Teams[leaning].color
 	local diameter = math.max(0.5, zone.radius * 2 * fraction)
 	ui.fill.Size = Vector3.new(0.2, diameter, diameter)
@@ -293,6 +329,7 @@ function ZoneService.snapshot(): { any }
 			owner = zone.owner,
 			contested = zone.contested,
 			bonus = zone.bonus,
+			letter = zone.letter,
 		})
 	end
 	return out

@@ -1,6 +1,8 @@
 --[[
 	ObjectiveMarkers: lettered diamonds (A, B, C…) coloured by owner with the distance in metres,
-	pinned over each capture zone and clamped to the screen edge when it is off-screen.
+	for each capture zone. They stay inside a safe rectangle that avoids every HUD region, and
+	hide when the zone is on screen and close (its world label is then visible instead, so the
+	two never cover each other).
 	Minimap (top-right, press M): north-up map of zones, squads and the commander.
 ]]
 
@@ -23,7 +25,8 @@ local OWNER_COLORS = {
 
 local Markers = {}
 
-function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): any
+-- `root` is the (unscaled) ScreenGui: markers are placed in real screen pixels
+function Markers.build(root: Instance, ClientState: any, ClientActions: any, regions: any): any
 	local api = {}
 
 	---------------------------------------------------------------- objective markers
@@ -92,13 +95,13 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 	local map = create("Frame", {
 		Name = "Minimap",
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -12, 0, 12),
+		Position = UDim2.fromScale(1, 0),
 		Size = UDim2.fromOffset(190, 190),
 		BackgroundColor3 = Color3.fromRGB(35, 60, 35),
 		BackgroundTransparency = 0.15,
 		ClipsDescendants = true,
 		Visible = false, -- press M
-		Parent = root,
+		Parent = regions.topRight,
 	})
 	game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
 		if not gameProcessed and input.KeyCode == Enum.KeyCode.M then
@@ -183,7 +186,7 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 				)
 				squadDots[i] = dot
 			end
-			local isSelected = ClientActions.isSelected(squad.id)
+			local isSelected = squad.id == ClientActions.controlledId()
 			dot.Visible = true
 			dot.Size = UDim2.fromOffset(if isSelected then 9 else 6, if isSelected then 9 else 6)
 			dot.Position = toMap(squad.x, squad.z)
@@ -214,19 +217,35 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 		arrow.Rotation = math.deg(math.atan2(look.X, -look.Z))
 
 		-- objective markers
+		-- safe rectangle (pixels) between the HUD regions
 		local viewport = camera.ViewportSize
-		local center = viewport / 2
+		local function bottomOf(frame: GuiObject): number
+			return if frame.Visible then frame.AbsolutePosition.Y + frame.AbsoluteSize.Y else 0
+		end
+		local left = regions.left.AbsolutePosition.X + regions.left.AbsoluteSize.X + 30
+		local right = viewport.X - 60
+		local top = math.max(bottomOf(regions.topLeft), bottomOf(regions.topCenter), bottomOf(regions.topRight)) + 40
+		local bottom = regions.bottomCenter.AbsolutePosition.Y - 50
 		local seen = {}
 		local showMarkers = ClientState.phaseName() == "Battle"
+		layer.Visible = showMarkers
 		for index, zone in ClientState.zones do
 			seen[zone.name] = true
 			local marker = markerFor(zone.name, string.char(64 + index))
-			marker.frame.Visible = showMarkers
-			if showMarkers then
-				local world = Vector3.new(zone.x, zone.y + 16, zone.z)
-				local screen, onScreen = camera:WorldToViewportPoint(world)
+			local zonePosition = Vector3.new(zone.x, zone.y, zone.z)
+			local distance = (rootPosition - zonePosition).Magnitude
+			local screen, onScreen = camera:WorldToViewportPoint(zonePosition + Vector3.new(0, 16, 0))
+			local nearAndVisible = onScreen and distance < 220
+			marker.frame.Visible = showMarkers and not nearAndVisible and right > left and bottom > top
+			if marker.frame.Visible then
 				local position = Vector2.new(screen.X, screen.Y)
-				if not onScreen then
+				local center = Vector2.new((left + right) / 2, (top + bottom) / 2)
+				local inside = onScreen
+					and position.X >= left
+					and position.X <= right
+					and position.Y >= top
+					and position.Y <= bottom
+				if not inside then
 					local direction = position - center
 					if screen.Z < 0 then
 						direction = -direction
@@ -234,10 +253,9 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 					if direction.Magnitude < 1 then
 						direction = Vector2.new(0, -1)
 					end
-					local margin = 60
 					local scale = math.min(
-						(center.X - margin) / math.max(math.abs(direction.X), 0.001),
-						(center.Y - margin) / math.max(math.abs(direction.Y), 0.001)
+						(right - left) / 2 / math.max(math.abs(direction.X), 0.001),
+						(bottom - top) / 2 / math.max(math.abs(direction.Y), 0.001)
 					)
 					position = center + direction * scale
 				end
@@ -245,8 +263,7 @@ function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): a
 				marker.circle.BackgroundColor3 = OWNER_COLORS[zone.owner] or OWNER_COLORS.Neutral
 				-- contested zones pulse
 				marker.ring.Transparency = if zone.contested then 0.2 + math.abs(math.sin(os.clock() * 5)) * 0.8 else 1
-				local meters = (rootPosition - Vector3.new(zone.x, zone.y, zone.z)).Magnitude * STUDS_TO_METERS
-				marker.distance.Text = string.format("%s  %dm", zone.name, meters)
+				marker.distance.Text = string.format("%s  %dm", zone.name, distance * STUDS_TO_METERS)
 			end
 		end
 		for name, marker in markers do

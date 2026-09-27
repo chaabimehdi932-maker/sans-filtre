@@ -4,9 +4,11 @@
 	classic head mesh + face) with Napoleonic uniforms, plus horses and cannons.
 
 	Every model is an anchored root part moved by SquadRenderer with BulkMoveTo; the rest hangs
-	on Motor6D joints. Animation is procedural: the renderer writes each joint's Transform.
-	Joints use simple, readable frames (not Roblox's rotated R6 defaults):
-	  Transform = CFrame.Angles(x, 0, z)  → +x swings a limb forward, z spreads it sideways.
+	on Motor6D joints. The body joints use Roblox's STANDARD R6 names and C0/C1 frames
+	(RootJoint, Neck, Left/Right Shoulder, Left/Right Hip) so real R6 animations can play on
+	them (SoldierAnimationIds). Procedural poses go through SoldierModels.pose(rig, joint, R),
+	where R is a rotation in the torso's own axes:
+	  CFrame.Angles(x, 0, z)  → +x swings a limb forward, z spreads it sideways.
 
 	Rig table: { model, root, motors = { name = Motor6D }, parts = { visible BaseParts }, kind }
 	  Infantry/Crew motors : root, neck, armL, armR, legL, legR, gun (infantry only)
@@ -78,7 +80,7 @@ local function newRig(parent: Instance, kind: string, rootSize: Vector3, rootVis
 	root.Parent = model
 	model.PrimaryPart = root
 	model.Parent = parent
-	return { model = model, root = root, motors = {}, parts = {}, kind = kind }
+	return { model = model, root = root, motors = {}, frames = {}, parts = {}, kind = kind }
 end
 
 local function part(
@@ -122,6 +124,57 @@ local function motor(rig: any, name: string, part0: BasePart, part1: BasePart, c
 	return m
 end
 
+-- Standard R6 joint frames
+local R6 = {
+	RootJoint = { CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0), CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
+	Neck = { CFrame.new(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0), CFrame.new(0, -0.5, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
+	["Right Shoulder"] = {
+		CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+		CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+	},
+	["Left Shoulder"] = {
+		CFrame.new(-1, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+		CFrame.new(0.5, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+	},
+	["Right Hip"] = {
+		CFrame.new(1, -1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+		CFrame.new(0.5, 1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+	},
+	["Left Hip"] = {
+		CFrame.new(-1, -1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+		CFrame.new(-0.5, 1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+	},
+}
+
+local function r6Motor(
+	rig: any,
+	key: string,
+	name: string,
+	part0: BasePart,
+	part1: BasePart,
+	c0Override: CFrame?
+): Motor6D
+	local frames = R6[name]
+	local c0 = c0Override or frames[1]
+	local m = motor(rig, key, part0, part1, c0, frames[2])
+	m.Name = name
+	-- cache the joint's rotation so poses can be given in torso axes
+	local rotation = c0 - c0.Position
+	rig.frames[key] = { rotation, rotation:Inverse() }
+	return m
+end
+
+-- Apply a rotation expressed in the parent part's axes to a joint (works for any C0 frame)
+function SoldierModels.pose(rig: any, key: string, rotation: CFrame)
+	local m = rig.motors[key]
+	local frame = rig.frames[key]
+	if frame then
+		m.Transform = frame[2] * rotation * frame[1]
+	else
+		m.Transform = rotation
+	end
+end
+
 local function attach(part0: BasePart, part1: BasePart, c0: CFrame)
 	local w = Instance.new("Weld")
 	w.Part0 = part0
@@ -138,7 +191,11 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 
 	local torso = part(rig, "Torso", Vector3.new(2, 2, 1), coat)
 	torso.CastShadow = true
-	motor(rig, if cavalry then "rider" else "root", torsoParent, torso, torsoC0, CFrame.new())
+	if cavalry then
+		motor(rig, "rider", torsoParent, torso, torsoC0, CFrame.new())
+	else
+		r6Motor(rig, "root", "RootJoint", torsoParent, torso)
+	end
 
 	local head = part(rig, "Head", Vector3.new(2, 1, 1), skin)
 	local mesh = Instance.new("SpecialMesh")
@@ -150,12 +207,12 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 	face.Texture = "rbxasset://textures/face.png"
 	face.Face = Enum.NormalId.Front
 	face.Parent = head
-	motor(rig, "neck", torso, head, CFrame.new(0, 1, 0), CFrame.new(0, -0.5, 0))
+	r6Motor(rig, "neck", "Neck", torso, head)
 
 	for _, side in { "L", "R" } do
-		local x = if side == "L" then -1.5 else 1.5
-		local arm = part(rig, "Arm" .. side, Vector3.new(1, 2, 1), coat)
-		motor(rig, "arm" .. side, torso, arm, CFrame.new(x, 0.5, 0), CFrame.new(0, 0.5, 0))
+		local sideName = if side == "L" then "Left" else "Right"
+		local arm = part(rig, sideName .. " Arm", Vector3.new(1, 2, 1), coat)
+		r6Motor(rig, "arm" .. side, sideName .. " Shoulder", torso, arm)
 		attach(arm, part(rig, "Hand", Vector3.new(1.04, 0.45, 1.04), skin), CFrame.new(0, -0.8, 0))
 		attach(arm, part(rig, "Cuff", Vector3.new(1.06, 0.2, 1.06), uniform.facing), CFrame.new(0, -0.5, 0))
 		attach(
@@ -163,8 +220,8 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 			part(rig, "Epaulette", Vector3.new(1.1, 0.25, 1.1), uniform.facing, Enum.Material.Fabric),
 			CFrame.new(0, 0.9, 0)
 		)
-		local leg = part(rig, "Leg" .. side, Vector3.new(1, 2, 1), uniform.trousers)
-		motor(rig, "leg" .. side, torso, leg, CFrame.new(x / 3, -1, 0), CFrame.new(0, 1, 0))
+		local leg = part(rig, sideName .. " Leg", Vector3.new(1, 2, 1), uniform.trousers)
+		r6Motor(rig, "leg" .. side, sideName .. " Hip", torso, leg)
 		local bootHeight = if cavalry then 1.3 else 0.7
 		attach(
 			leg,
@@ -239,10 +296,30 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 	return torso
 end
 
--- Line infantry, skirmishers, grenadiers; artillery crew with withGun = false
-function SoldierModels.infantry(parent: Instance, team: string, def: any, withGun: boolean): any
+-- Line infantry, skirmishers, grenadiers; artillery crew with withGun = false.
+-- crewTool: "Rammer" (loader) or "Linstock" (gunner) held in the right hand.
+function SoldierModels.infantry(parent: Instance, team: string, def: any, withGun: boolean, crewTool: string?): any
 	local rig = newRig(parent, if withGun then "Infantry" else "Crew", Vector3.new(2, 2, 1), nil)
 	local torso = body(rig, team, def, rig.root, CFrame.new(), false)
+	local hand = rig.motors.armR.Part1
+	if crewTool == "Rammer" then
+		-- continues the line of the arm, like the cavalry sabre
+		attach(hand, part(rig, "Rammer", Vector3.new(0.22, 5, 0.22), WOOD, Enum.Material.Wood), CFrame.new(0, -3.4, 0))
+		attach(
+			hand,
+			part(rig, "RammerHead", Vector3.new(0.5, 0.5, 0.5), Color3.fromRGB(60, 45, 30), Enum.Material.Fabric),
+			CFrame.new(0, -5.9, 0)
+		)
+	elseif crewTool == "Linstock" then
+		attach(
+			hand,
+			part(rig, "Linstock", Vector3.new(0.16, 2.6, 0.16), WOOD, Enum.Material.Wood),
+			CFrame.new(0, -1.9, -0.3)
+		)
+		local match =
+			part(rig, "Match", Vector3.new(0.26, 0.26, 0.26), Color3.fromRGB(255, 140, 40), Enum.Material.Neon)
+		attach(hand, match, CFrame.new(0, -3.2, -0.3))
+	end
 	if withGun then
 		-- musket lies along its own +Y; the "gun" joint's Transform is the pose (butt position)
 		local musket = part(rig, "Musket", Vector3.new(0.22, 4.4, 0.3), WOOD, Enum.Material.Wood)

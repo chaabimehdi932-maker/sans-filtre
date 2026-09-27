@@ -17,7 +17,7 @@ local player = Players.LocalPlayer
 
 local combatRemote = Remotes.get("CombatAction")
 local orderRemote = Remotes.get("OrderUnits")
-local selectRemote = Remotes.get("SelectSquads")
+local selectRemote = Remotes.get("SelectSquad")
 
 local changed = Instance.new("BindableEvent")
 
@@ -136,59 +136,19 @@ end
 -- Army: orders, formations, selection
 ---------------------------------------------------------------------------
 
-local selection: { [number]: boolean } = {}
-
-local function parseSelection(): { [number]: boolean }
-	local set = {}
-	local text = player:GetAttribute("SelectedSquads")
-	if typeof(text) == "string" then
-		for id in string.gmatch(text, "%d+") do
-			set[tonumber(id) :: number] = true
-		end
-	end
-	return set
+-- One squad at a time is under your direct command (the others follow the ally AI).
+-- The server publishes its id in the player attribute "ControlledSquad".
+function ClientActions.controlledId(): number
+	local id = player:GetAttribute("ControlledSquad")
+	return if typeof(id) == "number" then id else 0
 end
-selection = parseSelection()
--- the server echoes the (validated) selection back through this attribute
-player:GetAttributeChangedSignal("SelectedSquads"):Connect(function()
-	selection = parseSelection()
-	changed:Fire("Selection")
+player:GetAttributeChangedSignal("ControlledSquad"):Connect(function()
+	changed:Fire("Controlled")
 end)
 
-function ClientActions.isSelected(squadId: number): boolean
-	return selection[squadId] == true
-end
-
-function ClientActions.selectedIds(): { number }
-	local ids = {}
-	for id in selection do
-		table.insert(ids, id)
-	end
-	table.sort(ids)
-	return ids
-end
-
-function ClientActions.setSelection(ids: { number })
-	local set = {}
-	for _, id in ids do
-		set[id] = true
-	end
-	selection = set -- optimistic: the HUD updates right away
-	changed:Fire("Selection")
-	selectRemote:FireServer(ids)
-end
-
-function ClientActions.toggleSelected(squadId: number)
-	local ids = {}
-	for id in selection do
-		if id ~= squadId then
-			table.insert(ids, id)
-		end
-	end
-	if not selection[squadId] then
-		table.insert(ids, squadId)
-	end
-	ClientActions.setSelection(ids)
+-- Take command of a squad (id) or cycle ("next" / "prev")
+function ClientActions.selectSquad(which: number | string)
+	selectRemote:FireServer(which)
 end
 
 ---------------------------------------------------------------------------
