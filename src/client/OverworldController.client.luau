@@ -30,54 +30,13 @@ local terrain = Workspace.Terrain
 local ORIGIN = Vector3.new(0, 0, -9000)
 local SIZE = CampaignConfig.MapSize
 local HALF = SIZE / 2
-local FLAT = 4 -- height of towns, castles and roads
+local FLAT = CampaignConfig.FlatHeight
 
 ---------------------------------------------------------------------------
 -- Height map (deterministic: the same for everyone)
 ---------------------------------------------------------------------------
 
-local function riverX(z: number): number
-	return 430 + math.sin(z / 95) * 38 + math.sin(z / 37) * 12
-end
-
-local LAKES = { { x = 625, z = 470, r = 34 }, { x = 280, z = 450, r = 26 }, { x = 760, z = 200, r = 40 } }
-
-local function smoothstep(a: number, b: number, t: number): number
-	local x = math.clamp((t - a) / (b - a), 0, 1)
-	return x * x * (3 - 2 * x)
-end
-
--- Height above sea level (sea level = 1). Below 1 = under water.
-local function height(x: number, z: number): number
-	local h = 5 + math.noise(x / 170, z / 170, 0.3) * 7 + math.noise(x / 55, z / 55, 1.7) * 2.5
-	-- mountains along the north edge and the far east
-	local north = smoothstep(860, 1000, z)
-	local east = smoothstep(930, 1040, x)
-	local ridge = math.max(north, east)
-	h += ridge * (38 + math.noise(x / 60, z / 60, 4.2) * 18)
-	-- the sea: south coast and the south-west bay
-	local coast = smoothstep(90, 20, z + math.noise(x / 90, 0, 7) * 25)
-	local bay = smoothstep(80, 10, x + math.noise(0, z / 70, 3) * 30) * smoothstep(520, 380, z)
-	h -= math.max(coast, bay) * 16
-	-- lakes
-	for _, lake in LAKES do
-		local d = math.sqrt((x - lake.x) ^ 2 + (z - lake.z) ^ 2)
-		h -= smoothstep(lake.r + 12, lake.r * 0.4, d) * 12
-	end
-	-- the river
-	local dr = math.abs(x - riverX(z))
-	if z > 60 and z < 870 then
-		h -= smoothstep(9, 3, dr) * 8
-	end
-	-- flat ground around places and along roads
-	local flatten = 0
-	for _, location in CampaignConfig.Locations do
-		local d = math.sqrt((x - location.x) ^ 2 + (z - location.z) ^ 2)
-		flatten = math.max(flatten, smoothstep(46, 26, d))
-	end
-	flatten = math.max(flatten, smoothstep(14, 6, CampaignConfig.distanceToRoad(x, z)))
-	return h + (FLAT - h) * flatten
-end
+local height = CampaignConfig.heightAt
 
 local function world(x: number, z: number, lift: number?): Vector3
 	return ORIGIN + Vector3.new(x - HALF, math.max(1, height(x, z)) + (lift or 0), z - HALF)
@@ -257,38 +216,32 @@ local function generate()
 			Enum.Material.Ground
 		)
 	end
-	-- forests on the plains
-	for _ = 1, 42 do
-		local cx, cz = rng:NextNumber(40, 960), rng:NextNumber(60, 900)
-		for _ = 1, rng:NextInteger(8, 18) do
-			local x, z = cx + rng:NextNumber(-26, 26), cz + rng:NextNumber(-26, 26)
-			local h = height(x, z)
-			if h > 2.5 and h < 22 and CampaignConfig.distanceToRoad(x, z) > 12 then
-				local near = false
-				for _, location in CampaignConfig.Locations do
-					if (Vector2.new(location.x, location.z) - Vector2.new(x, z)).Magnitude < 40 then
-						near = true
-					end
-				end
-				if not near then
-					local size = rng:NextNumber(5, 9)
-					local base = world(x, z)
-					block({
-						Size = Vector3.new(1, size * 0.5, 1),
-						CFrame = CFrame.new(base + Vector3.new(0, size * 0.25, 0)),
-						Color = WOOD,
-					})
-					block({
-						Shape = Enum.PartType.Ball,
-						Size = Vector3.one * size * 0.75,
-						CFrame = CFrame.new(base + Vector3.new(0, size * 0.72, 0)),
-						Color = Color3.fromRGB(45, 95 + rng:NextInteger(-15, 15), 45),
-						Material = Enum.Material.Grass,
-					})
+	-- forests (the same woods the server uses to pick a "Forest" battlefield)
+	local planted = 0
+	for x = 6, SIZE - 6, 14 do
+		for z = 6, SIZE - 6, 14 do
+			local tx, tz = x + rng:NextNumber(-5, 5), z + rng:NextNumber(-5, 5)
+			if rng:NextNumber() < 0.75 and CampaignConfig.forestAt(tx, tz) then
+				local size = rng:NextNumber(5, 9)
+				local base = world(tx, tz)
+				block({
+					Size = Vector3.new(1, size * 0.5, 1),
+					CFrame = CFrame.new(base + Vector3.new(0, size * 0.25, 0)),
+					Color = WOOD,
+				})
+				block({
+					Shape = Enum.PartType.Ball,
+					Size = Vector3.one * size * 0.75,
+					CFrame = CFrame.new(base + Vector3.new(0, size * 0.72, 0)),
+					Color = Color3.fromRGB(45, 95 + rng:NextInteger(-15, 15), 45),
+					Material = Enum.Material.Grass,
+				})
+				planted += 1
+				if planted % 150 == 0 then
+					task.wait()
 				end
 			end
 		end
-		task.wait()
 	end
 	for _, location in CampaignConfig.Locations do
 		if location.kind == "Town" then
@@ -555,8 +508,9 @@ local function onTick()
 		seen[party.id] = true
 		local icon = icons[party.id]
 		if not icon then
-			local model = partyModel(party.faction, false, party.kind)
-			local label = partyTag(model, party.faction, party.hostile, false)
+			local big = party.kind == "Lord" -- generals' armies are bigger
+			local model = partyModel(party.faction, big, party.kind)
+			local label = partyTag(model, party.faction, party.hostile, big)
 			local start = world(party.x, party.z)
 			icon = { model = model, label = label, pos = start, target = start, yaw = 0 }
 			icons[party.id] = icon

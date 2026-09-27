@@ -226,6 +226,24 @@ local function cavalry(squad: any, enemies: { any }, allies: { any }, now: numbe
 	end
 end
 
+-- Foot brawlers (bandit swordsmen): rush the nearest enemy, gunners and guns first, and stay
+-- in the melee (no charge-and-pull-back like cavalry)
+local function brawlers(squad: any, enemies: { any })
+	local search = 140 + tuning.aggression * 160
+	local target = nearestIn(squad.position, enemies, search, function(enemy, distance)
+		if enemy.def.attackType ~= "Melee" then
+			return distance * 0.75 -- shooters can't hold a brawl
+		end
+		return distance
+	end)
+	if target then
+		squad.preferredTarget = target
+		SquadService.moveTo(squad, target.position, squad.radius + target.radius + 1, 1.15)
+	else
+		goToObjective(squad, enemies)
+	end
+end
+
 local function artillery(squad: any, enemies: { any })
 	local def = squad.def
 	local range = def.attackRange
@@ -286,7 +304,9 @@ function SquadAI.think(squad: any, enemies: { any }, allies: { any }, tuningValu
 	chooseFormation(squad, enemies, nearestDistance, now)
 
 	local attackType = squad.def.attackType
-	if attackType == "Melee" then
+	if attackType == "Melee" and squad.def.visual ~= "Cavalry" then
+		brawlers(squad, enemies)
+	elseif attackType == "Melee" then
 		cavalry(squad, enemies, allies, now)
 	elseif attackType == "Artillery" then
 		artillery(squad, enemies)

@@ -843,6 +843,98 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		Parent = timeBar,
 	}, 1.5)
 
+	-- enlisting with a general -------------------------------------------------------------
+	local enlistPanel = panel({
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -170),
+		Size = UDim2.fromOffset(760, 86),
+		Visible = false,
+		Parent = root,
+	})
+	table.insert(fitPanels, enlistPanel)
+	local enlistText = outlined({
+		Position = UDim2.fromOffset(16, 8),
+		Size = UDim2.new(1, -250, 1, -16),
+		Text = "",
+		TextSize = 16,
+		RichText = true,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = enlistPanel,
+	}, 1.5)
+	local enlistTarget: number? = nil
+	local enlistButton: TextButton
+	enlistButton = button(
+		{
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -14, 0.5, 0),
+			Size = UDim2.fromOffset(220, 56),
+			TextSize = 20,
+			Parent = enlistPanel,
+		},
+		"⚑ ENLIST",
+		Color3.fromRGB(190, 140, 60),
+		function()
+			local campaign = ClientState.campaign
+			if campaign and campaign.enlisted then
+				send("LeaveService")
+			elseif enlistTarget then
+				send("Enlist", enlistTarget)
+			end
+		end
+	)
+
+	local function refreshEnlist()
+		local campaign = ClientState.campaign
+		local world = ClientState.world
+		if not campaign or campaign.view ~= "Overworld" then
+			enlistPanel.Visible = false
+			return
+		end
+		local enlisted = campaign.enlisted
+		if enlisted then
+			enlistPanel.Visible = true
+			enlistText.Text = string.format(
+				'<font color="#FFCD28"><b>⚑ Serving %s as %s</b></font> — you lead his %s in battle, your company rests in camp.\n💰 %d gold a day  ·  %d battle%s fought%s',
+				enlisted.lordName,
+				enlisted.title,
+				UnitDefinitions.get(enlisted.unit).displayName,
+				enlisted.wage,
+				enlisted.battles,
+				if enlisted.battles == 1 then "" else "s",
+				if enlisted.nextRank
+					then string.format("  ·  %s at %d", enlisted.nextTitle, enlisted.nextRank)
+					else "  ·  highest rank"
+			)
+			setButtonText(enlistButton, "LEAVE SERVICE")
+			return
+		end
+		enlistTarget = nil
+		local lordName = nil
+		if world then
+			for _, party in world.parties do
+				if party.kind == "Lord" and party.faction == campaign.faction then
+					local distance = math.sqrt((party.x - world.x) ^ 2 + (party.z - world.z) ^ 2)
+					if distance <= CampaignConfig.Enlist.EnlistRadius then
+						enlistTarget = party.id
+						lordName = party.name
+					end
+				end
+			end
+		end
+		enlistPanel.Visible = enlistTarget ~= nil
+		if enlistTarget then
+			local rank = CampaignConfig.Enlist.Ranks[1]
+			enlistText.Text = string.format(
+				'<font color="#FFCD28"><b>%s</b></font> is here. Enlist: you march with him and lead one of his squads (%s) in his battles — your own company stays safe.\n💰 %d gold a day + a share of the loot · leave whenever you like',
+				lordName,
+				UnitDefinitions.get(rank.unit).displayName,
+				CampaignConfig.Enlist.WagePerDay * rank.wageMult
+			)
+			setButtonText(enlistButton, "⚑ ENLIST")
+		end
+	end
+
 	-- town HUD (view "Town") ------------------------------------------------------------
 	local townBar = panel({
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -1360,6 +1452,10 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			placeAssault.Visible = contract ~= nil and contract.canAssault == true
 		end
 		queueNotice.Visible = campaign.queued == true
+		if campaign.enlisted then
+			placePanel.Visible = false
+		end
+		refreshEnlist()
 		if modal.Visible and modalKind == "Board" then
 			fillBoard()
 		end
@@ -1372,6 +1468,7 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			return
 		end
 		dayLabel.Text = string.format("📅 Day %d", math.floor(world.day) + 1)
+		refreshEnlist()
 		local seasons = { "Spring", "Summer", "Autumn", "Winter" }
 		local day = math.floor(world.day)
 		timeLabel.Text = string.format(

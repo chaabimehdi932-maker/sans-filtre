@@ -235,6 +235,19 @@ local function crewPose(state: string, _r: any, s: any, now: number): ({ Vector2
 	return { ARMS.Idle[1], ARMS.Idle[2] + Vector2.new(math.sin(now + s.phase) * 0.05, 0) }, 0
 end
 
+-- Bandit swordsmen: buckler up, sword swinging overhead in the brawl
+local function swordPose(state: string, r: any, s: any, now: number): ({ Vector2 }, number)
+	if state == "HitReact" then
+		return ARMS.Flinch, 0.3
+	elseif state == "MeleeSwing" then
+		local cut = (math.sin(now * 8 + s.phase) + 1) * 0.5
+		return { Vector2.new(1.1, 0.4), Vector2.new(0.6 + cut * 2, -0.25) }, -0.15 * cut
+	elseif state == "Running" or r.charging then
+		return { Vector2.new(0.9, 0.35), Vector2.new(2.3, -0.1) }, -0.2 -- sword raised, screaming
+	end
+	return { Vector2.new(0.55, 0.25), Vector2.new(0.35, 0.1) }, 0
+end
+
 local function sabrePose(r: any, s: any, now: number): Vector2
 	if r.routing then
 		return Vector2.new(0.3, 0)
@@ -338,6 +351,9 @@ function SoldierAnimationService.update(
 	local arms, gun, lean
 	if kind == "Crew" then
 		arms, lean = crewPose(state, r, soldier, now)
+		gun = GUN_SHOULDER
+	elseif kind == "Swordsman" then
+		arms, lean = swordPose(state, r, soldier, now)
 		gun = GUN_SHOULDER
 	else
 		arms, gun, lean = infantryPose(state, r, soldier, now)

@@ -318,6 +318,48 @@ local function body(
 			),
 			CFrame.new(0, if rank >= 3 then 1.25 else 1.1, 0.1)
 		)
+	elseif def.headgear == "Hood" then
+		-- bandit hood: a cloth dome over the head and a drape on the shoulders
+		attach(
+			head,
+			part(
+				rig,
+				"Hood",
+				Vector3.new(1.45, 1.45, 1.45),
+				def.hatColor or LEATHER,
+				Enum.Material.Fabric,
+				Enum.PartType.Ball
+			),
+			CFrame.new(0, 0.3, 0.12)
+		)
+		attach(
+			torso,
+			part(rig, "Drape", Vector3.new(2.1, 0.5, 1.15), def.hatColor or LEATHER, Enum.Material.Fabric),
+			CFrame.new(0, 0.9, 0.05)
+		)
+	elseif def.headgear == "Bandana" then
+		attach(
+			head,
+			part(
+				rig,
+				"Bandana",
+				Vector3.new(1.3, 0.45, 1.3),
+				def.hatColor or Color3.fromRGB(150, 40, 35),
+				Enum.Material.Fabric
+			),
+			CFrame.new(0, 0.42, 0)
+		)
+		attach(
+			head,
+			part(
+				rig,
+				"Knot",
+				Vector3.new(0.3, 0.5, 0.3),
+				def.hatColor or Color3.fromRGB(150, 40, 35),
+				Enum.Material.Fabric
+			),
+			CFrame.new(0, 0.2, 0.7)
+		)
 	else
 		local hatHeight = (def.hatHeight or 0.7) * 1.4
 		local hat = part(
@@ -419,8 +461,47 @@ function SoldierModels.infantry(
 	rank: number?
 ): any
 	local stars = rank or 0
-	local rig = newRig(parent, if withGun then "Infantry" else "Crew", Vector3.new(2, 2, 1), nil)
+	local swordsman = def.weapon == "Sword"
+	local rig = newRig(
+		parent,
+		if swordsman then "Swordsman" elseif withGun then "Infantry" else "Crew",
+		Vector3.new(2, 2, 1),
+		nil
+	)
 	local torso = body(rig, team, def, rig.root, CFrame.new(), false, stars)
+	if swordsman then
+		-- sabre continuing the line of the right arm, round wooden buckler on the left
+		local hand = rig.motors.armR.Part1
+		attach(
+			hand,
+			part(rig, "Sword", Vector3.new(0.12, 3.2, 0.3), STEEL, Enum.Material.Metal),
+			CFrame.new(0, -2.65, -0.1)
+		)
+		attach(
+			hand,
+			part(rig, "Hilt", Vector3.new(0.5, 0.14, 0.4), BRASS, Enum.Material.Metal),
+			CFrame.new(0, -1.05, 0)
+		)
+		local shieldArm = rig.motors.armL.Part1
+		attach(
+			shieldArm,
+			part(
+				rig,
+				"Buckler",
+				Vector3.new(0.3, 1.8, 1.8),
+				Color3.fromRGB(110, 75, 45),
+				Enum.Material.Wood,
+				Enum.PartType.Cylinder
+			),
+			CFrame.new(-0.62, -0.5, 0)
+		)
+		attach(
+			shieldArm,
+			part(rig, "Boss", Vector3.new(0.35, 0.5, 0.5), STEEL, Enum.Material.Metal, Enum.PartType.Ball),
+			CFrame.new(-0.8, -0.5, 0)
+		)
+		return rig
+	end
 	local hand = rig.motors.armR.Part1
 	if crewTool == "Rammer" then
 		-- continues the line of the arm, like the cavalry sabre

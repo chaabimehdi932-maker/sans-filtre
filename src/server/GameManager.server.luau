@@ -213,6 +213,8 @@ local function setPhase(phase: string, duration: number, cfg: any, banner: boole
 		round = cfg.round,
 		title = cfg.title,
 		teamFactions = cfg.teamFactions,
+		battlefield = cfg.battlefield and cfg.battlefield.name,
+		enlisted = if cfg.enlisted then cfg.lordName else nil,
 		endsAt = Workspace:GetServerTimeNow() + duration,
 		side = cfg.side,
 		winCondition = cfg.winCondition,
@@ -361,6 +363,10 @@ end
 local function runRecruitment(cfg: any)
 	SquadService.clearAll()
 	SquadService.setPaused(false)
+	-- the battlefield matches where the fight happens (castle walls, woods, river, …)
+	if MapService.setBattlefield(cfg.battlefield) then
+		ZoneService.init()
+	end
 	-- Attack battles: the enemy holds the field. Defence battles: we do.
 	ZoneService.reset(if cfg.side == "Attacker" then "Red" else "Blue")
 	holdInfo = nil

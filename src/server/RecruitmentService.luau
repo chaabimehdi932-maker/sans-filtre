@@ -156,7 +156,7 @@ end
 function RecruitmentService.hire(player: Player, unitId: string): (boolean, string)
 	local campaign = DataService.getCampaign(player)
 	local def = UnitDefinitions.get(unitId)
-	if not campaign or not def then
+	if not campaign or not def or def.hidden then
 		return false, "Unknown unit"
 	end
 	if not DataService.isUnlocked(player, unitId) then
@@ -315,8 +315,13 @@ function RecruitmentService.deployAll(cfg: any, participants: { Player }): { [Pl
 	local entries = {}
 	for _, player in participants do
 		if sessions[player] then
-			for _, entry in roster(player) do
-				table.insert(entries, { player = player, entry = entry })
+			if cfg.enlisted then
+				-- serving in a general's army: you lead one of HIS squads, your company stays in camp
+				table.insert(entries, { player = player, temporary = cfg.enlisted })
+			else
+				for _, entry in roster(player) do
+					table.insert(entries, { player = player, entry = entry })
+				end
 			end
 		end
 	end
@@ -336,10 +341,23 @@ function RecruitmentService.deployAll(cfg: any, participants: { Player }): { [Pl
 	local created: { [Player]: { any } } = {}
 	local nextSpot = 1
 	for _, item in entries do
-		local squad = spawnRosterSquad(item.player, item.entry, spots[order[nextSpot]])
+		local spot = spots[order[nextSpot]]
 		nextSpot += 1
 		local session = sessions[item.player]
-		session.deployed[squad] = item.entry
+		local squad
+		if item.temporary then
+			squad = SquadService.create({
+				unitId = item.temporary.unitId,
+				team = "Blue",
+				position = spot.position,
+				yaw = spot.yaw,
+				owner = item.player,
+				name = item.temporary.name,
+			})
+		else
+			squad = spawnRosterSquad(item.player, item.entry, spot)
+			session.deployed[squad] = item.entry
+		end
 		session.squad = session.squad or squad
 		created[item.player] = created[item.player] or {}
 		table.insert(created[item.player], squad)

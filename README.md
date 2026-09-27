@@ -40,6 +40,20 @@ Quartermaster Lenoir (replenish casualties), Captain Varga (tavern — veteran f
 already ★/★★), Old Marcel (innkeeper — rumours about bandits and your bounty),
 Madame Rosalie (market — new kit and drill: gold → squad XP), the gate guard (back to the map).
 
+**Enlisting (when you're poor):** every faction has a general's army roaming the map. Ride up
+to your employer's general and press ⚑ ENLIST: you march with him, earn a daily wage and a
+share of the loot, and in his battles you lead one of his squads (better ones as you get
+promoted: Recruit → Veteran → Sergeant → Lieutenant). Your own company stays safe in camp.
+LEAVE SERVICE whenever you have enough gold.
+
+**Battlefields follow the map:** fight near a castle and its walls tower behind the enemy;
+raids and garrison defences are real sieges with breached curtain walls; near a town you fight
+in its outskirts; bandits defend their stockade; the woods, hills and rivers of the overworld
+become forest, hill and river-crossing battlefields.
+
+**Bandits** field their own troops: sword-and-buckler Bandit Swordsmen who rush in and brawl,
+and Bandit Gunners with stolen muskets.
+
 ## The mercenary campaign
 
 1. **Choose your employer**: Francia, Albion or Borussia (same units, different colours). You

@@ -7,6 +7,9 @@
 	  "PlayerDeployZone" Part where the player's army deploys
 	  "EnemyDeployZone"  Part where enemy squads spawn
 	If no CaptureZone exists, a placeholder map is generated so the game is playable right away.
+	The placeholder map changes with where the campaign battle happens (setBattlefield):
+	castle siege walls, a castle on the horizon, town outskirts, a bandit stockade, deep woods,
+	hills or a river crossing — Mount & Blade style. Hand-built maps are left untouched.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -241,7 +244,10 @@ local function stoneWall(parent: Instance, from: Vector3, to: Vector3)
 end
 
 -- Placeholder battlefield: grass terrain, hills, road, village, woods, 3 zones, 2 deployment areas
+local placeholder = false
+
 local function buildPlaceholderMap()
+	placeholder = true
 	local folder = Workspace:FindFirstChild("Map")
 	if not folder then
 		folder = Instance.new("Folder")
@@ -343,8 +349,11 @@ local function buildPlaceholderMap()
 	scenery.Name = "Scenery"
 	scenery.Parent = folder
 
-	-- Village: houses around a small square, with a well
+	-- Village: houses around a small square, with a well (hidden on some battlefields)
 	local village = zones[2].position
+	local villageFolder = Instance.new("Folder")
+	villageFolder.Name = "Village"
+	villageFolder.Parent = scenery
 	for _, spot in
 		{
 			{ -16, -14, 0.3 },
@@ -354,10 +363,10 @@ local function buildPlaceholderMap()
 			{ -30, 0, math.pi / 2 },
 		}
 	do
-		house(scenery, village + Vector3.new(spot[1], 0, spot[2]), spot[3])
+		house(villageFolder, village + Vector3.new(spot[1], 0, spot[2]), spot[3])
 	end
 	local wellY = MapService.groundY(village.X, village.Z)
-	newPart(scenery, {
+	newPart(villageFolder, {
 		Name = "Well",
 		Shape = Enum.PartType.Cylinder,
 		Size = Vector3.new(2.5, 4, 4),
@@ -447,6 +456,446 @@ local function buildPlaceholderMap()
 	for _ = 1, 12 do
 		tree(scenery, Vector3.new(rng:NextNumber(-60, 60) - 140, 0, rng:NextNumber(-150, -110)))
 	end
+end
+
+---------------------------------------------------------------------------
+-- Battlefields (placeholder map only)
+---------------------------------------------------------------------------
+
+local ServerStorage = game:GetService("ServerStorage")
+
+local ZONE_NAMES = {
+	Field = { "Plains", "Village", "Ridge" },
+	Forest = { "Clearing", "Woodcutters' Camp", "Ridge" },
+	Hills = { "Hilltop", "Village", "High Ridge" },
+	River = { "Bridge", "Village", "Ridge" },
+	Town = { "Market Square", "Church Square", "Mill Hill" },
+	CastleNear = { "Plains", "Village", "Ridge" },
+	Castle = { "Gatehouse", "West Bastion", "East Bastion" },
+	BanditCamp = { "Stockade", "Burnt Village", "Lookout" },
+}
+
+local undoTerrain: { () -> () } = {}
+local STONE = Color3.fromRGB(150, 145, 135)
+
+local function themeFolder(): Folder?
+	local map = Workspace:FindFirstChild("Map")
+	local scenery = map and map:FindFirstChild("Scenery")
+	if not scenery then
+		return nil
+	end
+	local theme = scenery:FindFirstChild("Theme")
+	if theme then
+		theme:Destroy()
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Theme"
+	folder.Parent = scenery
+	return folder
+end
+
+local function setVillageVisible(visible: boolean)
+	local map = Workspace:FindFirstChild("Map")
+	local scenery = map and map:FindFirstChild("Scenery")
+	local village = (scenery and scenery:FindFirstChild("Village")) or ServerStorage:FindFirstChild("Village")
+	if village then
+		village.Parent = if visible then scenery else ServerStorage
+	end
+end
+
+local function wallSegment(parent: Instance, from: Vector3, to: Vector3, height: number, thickness: number)
+	local mid = (from + to) / 2
+	local length = (to - from).Magnitude
+	if length < 1 then
+		return
+	end
+	local y = MapService.groundY(mid.X, mid.Z)
+	newPart(parent, {
+		Name = "Wall",
+		Size = Vector3.new(thickness, height, length),
+		CFrame = CFrame.lookAt(
+			Vector3.new(mid.X, y + height / 2 - 1, mid.Z),
+			Vector3.new(to.X, y + height / 2 - 1, to.Z)
+		),
+		Color = STONE,
+		Material = Enum.Material.Slate,
+	})
+	-- crenellations
+	local merlons = math.floor(length / 5)
+	for i = 0, merlons do
+		local p = from:Lerp(to, (i + 0.5) / (merlons + 1))
+		newPart(parent, {
+			Name = "Merlon",
+			Size = Vector3.new(thickness, 1.6, 2),
+			CFrame = CFrame.lookAt(Vector3.new(p.X, y + height - 0.2, p.Z), Vector3.new(to.X, y + height - 0.2, to.Z)),
+			Color = STONE,
+			Material = Enum.Material.Slate,
+		})
+	end
+end
+
+local function tower(parent: Instance, position: Vector3, height: number, radius: number)
+	local y = MapService.groundY(position.X, position.Z)
+	newPart(parent, {
+		Name = "Tower",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(height, radius * 2, radius * 2),
+		CFrame = CFrame.new(position.X, y + height / 2 - 1, position.Z) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(135, 130, 122),
+		Material = Enum.Material.Slate,
+	})
+	newPart(parent, {
+		Name = "Roof",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(1.2, radius * 2.3, radius * 2.3),
+		CFrame = CFrame.new(position.X, y + height - 0.5, position.Z) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(95, 60, 45),
+		Material = Enum.Material.WoodPlanks,
+	})
+end
+
+-- A walled line along x at depth z with gaps (breaches / gates) centred on `gaps`
+local function wallWithGaps(parent: Instance, z: number, x0: number, x1: number, gaps: { number }, gapWidth: number)
+	local cursor = x0
+	table.sort(gaps)
+	for _, gx in gaps do
+		wallSegment(parent, Vector3.new(cursor, 0, z), Vector3.new(gx - gapWidth / 2, 0, z), 12, 4)
+		tower(parent, Vector3.new(gx - gapWidth / 2 - 3, 0, z), 16, 4)
+		tower(parent, Vector3.new(gx + gapWidth / 2 + 3, 0, z), 16, 4)
+		-- rubble in the breach
+		for _ = 1, 4 do
+			local p = Vector3.new(gx + rng:NextNumber(-gapWidth / 2, gapWidth / 2), 0, z + rng:NextNumber(-4, 4))
+			local y = MapService.groundY(p.X, p.Z)
+			newPart(parent, {
+				Name = "Rubble",
+				Size = Vector3.new(rng:NextNumber(1.5, 3), rng:NextNumber(0.8, 1.6), rng:NextNumber(1.5, 3)),
+				CFrame = CFrame.new(p.X, y + 0.4, p.Z) * CFrame.Angles(0, rng:NextNumber(0, 6), 0),
+				Color = STONE,
+				Material = Enum.Material.Slate,
+				CanCollide = false,
+			})
+		end
+		cursor = gx + gapWidth / 2
+	end
+	wallSegment(parent, Vector3.new(cursor, 0, z), Vector3.new(x1, 0, z), 12, 4)
+end
+
+-- Siege: a curtain wall around the objectives, breached on the attackers' side
+local function buildCastle(parent: Instance, defender: string)
+	local x0, x1 = -185, 185
+	local front, back
+	if defender == "Red" then
+		front, back = 35, -265 -- you attack from the south (+z)
+	else
+		front, back = -125, 268 -- they attack from the north (-z)
+	end
+	local attackerWall = front
+	wallWithGaps(parent, attackerWall, x0, x1, { -120, 0, 120 }, 24)
+	wallWithGaps(parent, back, x0, x1, { 0 }, 18)
+	for _, x in { x0, x1 } do
+		wallSegment(parent, Vector3.new(x, 0, math.min(front, back)), Vector3.new(x, 0, math.max(front, back)), 12, 4)
+		tower(parent, Vector3.new(x, 0, front), 18, 5)
+		tower(parent, Vector3.new(x, 0, back), 18, 5)
+	end
+	-- the keep, deep inside
+	local keepZ = if defender == "Red" then -150 else 150
+	local y = MapService.groundY(0, keepZ)
+	newPart(parent, {
+		Name = "Keep",
+		Size = Vector3.new(34, 26, 26),
+		CFrame = CFrame.new(0, y + 12, keepZ),
+		Color = Color3.fromRGB(140, 135, 125),
+		Material = Enum.Material.Slate,
+	})
+	for _, dx in { -17, 17 } do
+		tower(parent, Vector3.new(dx, 0, keepZ - 13), 32, 5)
+		tower(parent, Vector3.new(dx, 0, keepZ + 13), 32, 5)
+	end
+end
+
+-- A castle on the horizon behind one army (battles near a castle)
+local function buildCastleBackdrop(parent: Instance, side: string)
+	local z = if side == "Red" then -360 else 360
+	local x0, x1 = -140, 140
+	wallWithGaps(parent, z, x0, x1, { 0 }, 14)
+	for _, x in { x0, x1 } do
+		tower(parent, Vector3.new(x, 0, z), 22, 6)
+	end
+	local keepZ = z + (if side == "Red" then -30 else 30)
+	local y = MapService.groundY(0, keepZ)
+	newPart(parent, {
+		Name = "Keep",
+		Size = Vector3.new(40, 34, 28),
+		CFrame = CFrame.new(0, y + 16, keepZ),
+		Color = Color3.fromRGB(140, 135, 125),
+		Material = Enum.Material.Slate,
+	})
+	tower(parent, Vector3.new(-22, 0, keepZ), 44, 6)
+	tower(parent, Vector3.new(22, 0, keepZ), 44, 6)
+end
+
+local function tent(parent: Instance, position: Vector3, yaw: number, color: Color3)
+	local y = MapService.groundY(position.X, position.Z)
+	local cf = CFrame.new(position.X, y, position.Z) * CFrame.Angles(0, yaw, 0)
+	for _, side in { -1, 1 } do
+		local wedge = Instance.new("WedgePart")
+		wedge.Anchored = true
+		wedge.Size = Vector3.new(6, 4, 3)
+		wedge.CFrame = cf * CFrame.new(side * 1.5, 2, 0) * CFrame.Angles(0, math.rad(90) * side, 0)
+		wedge.Color = color
+		wedge.Material = Enum.Material.Fabric
+		wedge.Parent = parent
+	end
+end
+
+local function buildBanditCamp(parent: Instance)
+	local center = Vector3.new(0, 0, -20)
+	-- palisade of sharpened stakes with two gaps
+	for i = 0, 71 do
+		local angle = i / 72 * math.pi * 2
+		local open = math.abs(math.cos(angle)) < 0.18 -- gaps facing both armies (±z)
+		if not open then
+			local p = center + Vector3.new(math.cos(angle) * 48, 0, math.sin(angle) * 48)
+			local y = MapService.groundY(p.X, p.Z)
+			local height = rng:NextNumber(5, 7)
+			newPart(parent, {
+				Name = "Stake",
+				Size = Vector3.new(1.3, height, 1.3),
+				CFrame = CFrame.new(p.X, y + height / 2 - 0.5, p.Z)
+					* CFrame.Angles(rng:NextNumber(-0.08, 0.08), 0, rng:NextNumber(-0.08, 0.08)),
+				Color = Color3.fromRGB(110, 80, 50),
+				Material = Enum.Material.Wood,
+			})
+		end
+	end
+	for i = 1, 9 do
+		local angle = i / 9 * math.pi * 2
+		tent(
+			parent,
+			center + Vector3.new(math.cos(angle) * 30, 0, math.sin(angle) * 30),
+			angle,
+			Color3.fromRGB(120 + rng:NextInteger(-15, 15), 100, 75)
+		)
+	end
+	for _, p in { Vector3.new(0, 0, -20), Vector3.new(-120, 0, -70), Vector3.new(120, 0, -70) } do
+		local y = MapService.groundY(p.X, p.Z)
+		local fire = newPart(parent, {
+			Name = "Campfire",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(2.5, 2.5, 2.5),
+			Position = Vector3.new(p.X + 6, y + 0.8, p.Z + 6),
+			Color = Color3.fromRGB(255, 120, 30),
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+		})
+		local flame = Instance.new("Fire")
+		flame.Size = 5
+		flame.Heat = 8
+		flame.Parent = fire
+	end
+	-- burnt ruins where the village was
+	for _, offset in { Vector3.new(-16, 0, -14), Vector3.new(15, 0, -17), Vector3.new(-18, 0, 15) } do
+		local p = Vector3.new(-120, 0, -70) + offset
+		local y = MapService.groundY(p.X, p.Z)
+		newPart(parent, {
+			Name = "Ruin",
+			Size = Vector3.new(10, 3, 8),
+			CFrame = CFrame.new(p.X, y + 1.5, p.Z),
+			Color = Color3.fromRGB(45, 40, 38),
+			Material = Enum.Material.Slate,
+		})
+	end
+	-- a lookout tower on the ridge
+	local y = MapService.groundY(120, -70)
+	for _, dx in { -2, 2 } do
+		for _, dz in { -2, 2 } do
+			newPart(parent, {
+				Size = Vector3.new(0.8, 14, 0.8),
+				CFrame = CFrame.new(120 + dx + 20, y + 7, -70 + dz),
+				Color = Color3.fromRGB(110, 80, 50),
+				Material = Enum.Material.Wood,
+			})
+		end
+	end
+	newPart(parent, {
+		Size = Vector3.new(6, 0.6, 6),
+		CFrame = CFrame.new(140, y + 14, -70),
+		Color = Color3.fromRGB(120, 88, 55),
+		Material = Enum.Material.WoodPlanks,
+	})
+end
+
+local function inZoneOrLane(x: number, z: number): boolean
+	for _, p in { Vector2.new(0, -20), Vector2.new(-120, -70), Vector2.new(120, -70) } do
+		if (Vector2.new(x, z) - p).Magnitude < 38 then
+			return true
+		end
+	end
+	return math.abs(z) > 190 or math.abs(x) < 10 -- deployment areas and the road stay open
+end
+
+local function buildForest(parent: Instance)
+	for _ = 1, 170 do
+		local x, z = rng:NextNumber(-200, 200), rng:NextNumber(-180, 180)
+		if not inZoneOrLane(x, z) then
+			tree(parent, Vector3.new(x, 0, z))
+		end
+	end
+end
+
+local function buildTown(parent: Instance)
+	-- rows of houses along the road and around the squares
+	for z = -160, 160, 26 do
+		for _, side in { -1, 1 } do
+			local x = side * rng:NextNumber(22, 30)
+			if not inZoneOrLane(x, z) then
+				house(parent, Vector3.new(x, 0, z), if side > 0 then -math.pi / 2 else math.pi / 2)
+			end
+		end
+	end
+	for i = 1, 8 do
+		local angle = i / 8 * math.pi * 2
+		local p = Vector3.new(0, 0, -20) + Vector3.new(math.cos(angle) * 46, 0, math.sin(angle) * 46)
+		if math.abs(p.X) > 12 then
+			house(parent, p, angle + math.pi)
+		end
+	end
+	-- the church on the square
+	local y = MapService.groundY(-150, -110)
+	newPart(parent, {
+		Name = "Church",
+		Size = Vector3.new(16, 12, 30),
+		CFrame = CFrame.new(-150, y + 6, -110),
+		Color = Color3.fromRGB(215, 205, 185),
+		Material = Enum.Material.Brick,
+	})
+	tower(parent, Vector3.new(-150, 0, -92), 30, 3.5)
+	-- the windmill on the hill
+	local my = MapService.groundY(160, -80)
+	tower(parent, Vector3.new(160, 0, -80), 16, 4)
+	newPart(parent, {
+		Name = "Sails",
+		Size = Vector3.new(0.4, 22, 2),
+		CFrame = CFrame.new(160, my + 16, -75.5) * CFrame.Angles(0, 0, math.rad(35)),
+		Color = Color3.fromRGB(230, 225, 210),
+		Material = Enum.Material.Fabric,
+	})
+	newPart(parent, {
+		Name = "Sails",
+		Size = Vector3.new(0.4, 22, 2),
+		CFrame = CFrame.new(160, my + 16, -75.5) * CFrame.Angles(0, 0, math.rad(125)),
+		Color = Color3.fromRGB(230, 225, 210),
+		Material = Enum.Material.Fabric,
+	})
+end
+
+local function buildRiver(parent: Instance)
+	local terrain = Workspace.Terrain
+	local cf = CFrame.new(0, -1.5, 95)
+	terrain:FillBlock(cf, Vector3.new(1000, 3, 26), Enum.Material.Air)
+	terrain:FillBlock(CFrame.new(0, -3.4, 95), Vector3.new(1000, 1.2, 26), Enum.Material.Sand)
+	terrain:FillBlock(CFrame.new(0, -1.7, 95), Vector3.new(1000, 2.2, 26), Enum.Material.Water)
+	table.insert(undoTerrain, function()
+		terrain:FillBlock(cf, Vector3.new(1000, 3, 26), Enum.Material.Grass)
+		terrain:FillBlock(CFrame.new(0, -3.4, 95), Vector3.new(1000, 1.2, 26), Enum.Material.Grass)
+	end)
+	-- a stone bridge on the road and two fords marked by posts
+	local y = MapService.groundY(0, 95)
+	newPart(parent, {
+		Name = "Bridge",
+		Size = Vector3.new(14, 1, 34),
+		CFrame = CFrame.new(0, y + 0.3, 95),
+		Color = Color3.fromRGB(140, 130, 115),
+		Material = Enum.Material.Cobblestone,
+		CanCollide = false,
+	})
+	for _, x in { -7.5, 7.5 } do
+		newPart(parent, {
+			Name = "Parapet",
+			Size = Vector3.new(1, 2, 34),
+			CFrame = CFrame.new(x, y + 1.5, 95),
+			Color = Color3.fromRGB(130, 120, 105),
+			Material = Enum.Material.Cobblestone,
+		})
+	end
+	for _ = 1, 30 do
+		local x = rng:NextNumber(-300, 300)
+		if math.abs(x) > 14 then
+			local side = if rng:NextNumber() < 0.5 then 80 else 110
+			newPart(parent, {
+				Name = "Reeds",
+				Size = Vector3.new(1, rng:NextNumber(2, 3.5), 1),
+				CFrame = CFrame.new(x, y + 1, side + rng:NextNumber(-2, 2)),
+				Color = Color3.fromRGB(120, 140, 70),
+				Material = Enum.Material.Grass,
+				CanCollide = false,
+			})
+		end
+	end
+end
+
+local function buildHills()
+	local terrain = Workspace.Terrain
+	local hills = { { -70, -34, 110, 44 }, { 90, -36, 50, 46 }, { -150, -38, -150, 50 }, { 30, -40, -150, 46 } }
+	for _, hill in hills do
+		terrain:FillBall(Vector3.new(hill[1], hill[2], hill[3]), hill[4], Enum.Material.Grass)
+	end
+	table.insert(undoTerrain, function()
+		for _, hill in hills do
+			terrain:FillBall(Vector3.new(hill[1], hill[2], hill[3]), hill[4], Enum.Material.Air)
+			terrain:FillBlock(
+				CFrame.new(hill[1], -6, hill[3]),
+				Vector3.new(hill[4] * 2 + 8, 12, hill[4] * 2 + 8),
+				Enum.Material.Grass
+			)
+		end
+		-- the Ridge zone's own hill
+		terrain:FillBall(Vector3.new(120, -26, -70), 36, Enum.Material.Grass)
+	end)
+end
+
+--[[
+	Rebuild the placeholder battlefield for a campaign battle.
+	battlefield = { theme = "Field" | "Forest" | "Hills" | "River" | "Town" | "CastleNear" | "Castle"
+	                | "BanditCamp", defender = "Red" | "Blue" (Castle), castleSide = "Red" | "Blue" }
+	Returns true when the zones were renamed (ZoneService.init() must run again).
+]]
+function MapService.setBattlefield(battlefield: any?): boolean
+	if not placeholder then
+		return false -- a hand-built map keeps its own scenery
+	end
+	for _, undo in undoTerrain do
+		undo()
+	end
+	table.clear(undoTerrain)
+	local theme = if battlefield and ZONE_NAMES[battlefield.theme] then battlefield.theme else "Field"
+	local folder = themeFolder()
+	if not folder then
+		return false
+	end
+	setVillageVisible(
+		theme == "Field" or theme == "Hills" or theme == "River" or theme == "Town" or theme == "CastleNear"
+	)
+	if theme == "Castle" then
+		buildCastle(folder, battlefield and battlefield.defender or "Red")
+	elseif theme == "CastleNear" then
+		buildCastleBackdrop(folder, battlefield and battlefield.castleSide or "Red")
+	elseif theme == "BanditCamp" then
+		buildBanditCamp(folder)
+	elseif theme == "Forest" then
+		buildForest(folder)
+	elseif theme == "Town" then
+		buildTown(folder)
+	elseif theme == "River" then
+		buildRiver(folder)
+	elseif theme == "Hills" then
+		buildHills()
+	end
+	local names = ZONE_NAMES[theme]
+	for index, part in MapService.getZoneParts() do
+		part:SetAttribute("ZoneName", names[index] or part.Name)
+	end
+	return true
 end
 
 function MapService.ensureMap()

@@ -31,12 +31,18 @@
 	  unlockRoundsWon   locked until the player has won this many rounds in total (saved)
 	  tier              card rarity colour: 1 grey · 2 blue · 3 purple · 4 gold
 	  icon              emoji shown when no portrait is available
+	  hidden            not recruitable (bandit-only units)
+	  weapon            "Sword" = sword & buckler infantry instead of a musket
+	  headgear          "Hood" | "Bandana" instead of the shako (bandits)
 ]]
 
 local UnitDefinitions = {}
 
 -- Display order in the recruitment shop
 UnitDefinitions.Order = { "LineInfantry", "Skirmishers", "Cavalry", "Artillery", "EliteGuard" }
+
+-- Bandit armies are made of these (never offered to the player)
+UnitDefinitions.BanditOrder = { "BanditSwordsmen", "BanditGunners" }
 
 UnitDefinitions.Units = {
 	LineInfantry = {
@@ -182,6 +188,69 @@ UnitDefinitions.Units = {
 		hatColor = Color3.fromRGB(15, 15, 15),
 		hatHeight = 1.4,
 		unlockRoundsWon = 3, -- PLACEHOLDER
+	},
+
+	-- Bandits ---------------------------------------------------------------------
+	BanditSwordsmen = {
+		id = "BanditSwordsmen",
+		displayName = "Bandit Swordsmen",
+		icon = "🗡",
+		tier = 1,
+		hidden = true,
+		description = "Cutthroats with sabres and bucklers. They rush in and brawl, no discipline, no volleys.",
+		attackType = "Melee",
+		weapon = "Sword",
+		headgear = "Hood",
+		health = 480, -- PLACEHOLDER
+		moveSpeed = 12, -- PLACEHOLDER
+		damage = 0,
+		attackRange = 0,
+		attackCooldown = 1.1,
+		meleeDamage = 24, -- PLACEHOLDER
+		meleeRange = 4,
+		meleeCooldown = 1.1, -- PLACEHOLDER
+		chargeMultiplier = 1.8, -- PLACEHOLDER: their wild rush hits hard
+		cost = 70,
+		morale = 60, -- PLACEHOLDER: they break quickly
+		soldiers = 16,
+		presenceWeight = 1,
+		formations = { "Line", "Column" },
+		canMoveAndFire = false,
+		spacingMult = 1.3,
+		visual = "Infantry",
+		hatColor = Color3.fromRGB(70, 55, 40),
+		hatHeight = 0.5,
+	},
+
+	BanditGunners = {
+		id = "BanditGunners",
+		displayName = "Bandit Gunners",
+		icon = "🔫",
+		tier = 1,
+		hidden = true,
+		description = "Deserters with stolen muskets. Ragged volleys from behind the swordsmen.",
+		attackType = "Ranged",
+		headgear = "Bandana",
+		health = 320, -- PLACEHOLDER
+		moveSpeed = 11, -- PLACEHOLDER
+		damage = 38, -- PLACEHOLDER
+		attackRange = 70, -- PLACEHOLDER
+		attackCooldown = 3.5, -- PLACEHOLDER
+		meleeDamage = 10, -- PLACEHOLDER
+		meleeRange = 4,
+		meleeCooldown = 1.5,
+		chargeMultiplier = 1,
+		cost = 60,
+		morale = 55, -- PLACEHOLDER
+		soldiers = 12,
+		presenceWeight = 1,
+		formations = { "Line", "Column" },
+		formationModifiers = { Line = { rangedTakenMult = 0.85 } },
+		canMoveAndFire = false,
+		spacingMult = 1.4,
+		visual = "Infantry",
+		hatColor = Color3.fromRGB(150, 40, 35),
+		hatHeight = 0.5,
 	},
 }
 

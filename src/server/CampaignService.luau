@@ -229,13 +229,55 @@ local function spawnPatrol(camp: any, faction: string)
 end
 
 -- Keep the world populated
+local Enlist = CampaignConfig.Enlist
+
+-- A general's army: big, hunts the enemies of its faction; you can enlist in your employer's
+local function spawnLord(camp: any, faction: string)
+	local owned = CampaignService.locationsOwnedBy(camp, faction)
+	if #owned == 0 then
+		return
+	end
+	local start = owned[rng:NextInteger(1, #owned)]
+	local names = Enlist.Generals[faction] or { "The General" }
+	local used = {}
+	for _, party in camp.parties do
+		if party.lordName then
+			used[party.lordName] = true
+		end
+	end
+	local name = names[1]
+	for _, candidate in names do
+		if not used[candidate] then
+			name = candidate
+			break
+		end
+	end
+	CampaignService.spawnParty(camp, {
+		kind = "Lord",
+		faction = faction,
+		name = name .. "'s army",
+		lordName = name,
+		pos = locationPos(start),
+		speed = Enlist.LordSpeed,
+		strength = randomStrength(camp, Enlist.LordStrength),
+		patrol = true,
+	})
+end
+
 local function maintainParties(camp: any)
-	local bandits, patrols = 0, {}
+	local bandits, patrols, lords = 0, {}, {}
 	for _, party in camp.parties do
 		if party.kind == "Bandit" then
 			bandits += 1
 		elseif party.kind == "Patrol" then
 			patrols[party.faction] = (patrols[party.faction] or 0) + 1
+		elseif party.kind == "Lord" then
+			lords[party.faction] = (lords[party.faction] or 0) + 1
+		end
+	end
+	for _, faction in CampaignConfig.FactionOrder do
+		for _ = (lords[faction] or 0) + 1, Enlist.LordsPerFaction do
+			spawnLord(camp, faction)
 		end
 	end
 	for _ = bandits + 1, Parties.BanditParties do
@@ -270,6 +312,15 @@ local function enemyUnits(base: any): { any }
 	return list
 end
 
+-- regular unit → what a bandit band fields instead
+local BANDIT_EQUIVALENT = {
+	LineInfantry = "BanditSwordsmen",
+	Skirmishers = "BanditGunners",
+	Cavalry = "BanditSwordsmen",
+	Artillery = "BanditGunners",
+	EliteGuard = "BanditSwordsmen",
+}
+
 -- Turn a battle spec into a GameManager battle config (reuses GameConfig.getRound)
 local function buildBattleConfig(camp: any, spec: any): any
 	local strength = math.max(1, spec.strength or 1)
@@ -279,6 +330,7 @@ local function buildBattleConfig(camp: any, spec: any): any
 		then base.waves -- castle garrisons get relief columns
 		else { { delay = 0, units = enemyUnits(base) } }
 	local waves = {}
+	local bandIndex = 0
 	for _, wave in sourceWaves do
 		local units = {}
 		for _, unit in wave.units do
@@ -287,16 +339,15 @@ local function buildBattleConfig(camp: any, spec: any): any
 			end
 			local copy = table.clone(unit)
 			if bandits then
-				if Difficulty.BanditNoArtillery then
-					if copy.unitId == "Artillery" then
-						copy.unitId = "Skirmishers"
-					elseif copy.unitId == "EliteGuard" then
-						copy.unitId = "LineInfantry"
-					end
+				-- bandits field their own troops: sword-and-buckler brawlers and gunners
+				bandIndex += 1
+				copy.unitId = BANDIT_EQUIVALENT[copy.unitId] or "BanditSwordsmen"
+				if copy.unitId == "BanditSwordsmen" and bandIndex % 5 == 0 then
+					copy.unitId = "BanditGunners" -- a few extra guns among the line
 				end
 				copy.statMultiplier = (copy.statMultiplier or 1) * Difficulty.BanditStatMult
 				copy.damageMultiplier = (copy.damageMultiplier or 1) * Difficulty.BanditStatMult
-				copy.name = "Bandit " .. UnitDefinitions.get(copy.unitId).displayName
+				copy.name = nil
 			end
 			table.insert(units, copy)
 		end
@@ -315,7 +366,26 @@ local function buildBattleConfig(camp: any, spec: any): any
 		)
 	end
 	local side = spec.side or "Defender"
+	-- where the fight happens decides the battlefield (Mount & Blade style)
+	local battlefield
+	if spec.kind == "Raid" or spec.kind == "Garrison" then
+		battlefield = { theme = "Castle", defender = if spec.kind == "Raid" then "Red" else "Blue" }
+	else
+		local theme, near = CampaignConfig.battlefieldAt(camp.pos.X, camp.pos.Y)
+		battlefield = { theme = theme }
+		if near and theme == "CastleNear" then
+			battlefield.castleSide = if CampaignService.getOwner(camp, near.id) == camp.data.Faction
+				then "Blue"
+				else "Red"
+		end
+		battlefield.place = near and near.name
+	end
+	battlefield.name = CampaignConfig.BattlefieldNames[battlefield.theme]
+		.. (if battlefield.place then " · " .. battlefield.place else "")
 	return {
+		enlisted = spec.enlisted,
+		lordName = spec.lordName,
+		battlefield = battlefield,
 		round = strength,
 		title = spec.title,
 		side = side,
@@ -413,6 +483,9 @@ function CampaignService.resolveBattle(spec: any, victory: boolean): { string }
 		local party = spec.party
 		if party then
 			local loot = math.floor(Economy.LootBase + Economy.LootPerStrength * (party.strength or 1))
+			if spec.enlisted then
+				loot = math.floor(loot * Enlist.LootShare) -- the general keeps most of it
+			end
 			if loot > 0 then
 				data.Gold += loot
 				table.insert(lines, string.format('Loot: <font color="#FFCD28"><b>+%d gold</b></font>', loot))
@@ -425,6 +498,9 @@ function CampaignService.resolveBattle(spec: any, victory: boolean): { string }
 		end
 	else
 		local penalty = math.floor(data.Gold * Economy.LossGoldPercent + Economy.LossGoldFlat)
+		if spec.enlisted then
+			penalty = 0 -- a soldier in someone else's army loses no gold
+		end
 		penalty = math.min(data.Gold, penalty)
 		if penalty > 0 then
 			data.Gold -= penalty
@@ -436,11 +512,13 @@ function CampaignService.resolveBattle(spec: any, victory: boolean): { string }
 		if spec.onDefeat then
 			spec.onDefeat(camp, lines)
 		end
-		retreatHome(camp)
-		table.insert(
-			lines,
-			"Your army falls back to " .. (CampaignService.homeTown(camp) or { name = "town" }).name .. "."
-		)
+		if not camp.enlisted then
+			retreatHome(camp)
+			table.insert(
+				lines,
+				"Your army falls back to " .. (CampaignService.homeTown(camp) or { name = "town" }).name .. "."
+			)
+		end
 	end
 	local report = RecruitmentService.afterBattle(camp.player, victory)
 	for _, name in report.lost do
@@ -568,8 +646,28 @@ function CampaignService.flush(camp: any)
 		queued = queued and CampaignService.battlefieldBusy(camp.player),
 		timeMode = camp.timeMode,
 		mercenaries = camp.mercenaries,
+		enlisted = CampaignService.describeEnlisted(camp),
 	})
 	RecruitmentService.sendState(camp.player)
+end
+
+function CampaignService.describeEnlisted(camp: any): any
+	local enlisted = camp.enlisted
+	if not enlisted then
+		return nil
+	end
+	local lord = camp.parties[enlisted.partyId]
+	local rank, nextRank = CampaignConfig.enlistRank(enlisted.battles)
+	return {
+		partyId = enlisted.partyId,
+		lordName = lord and lord.lordName or "?",
+		title = rank.title,
+		unit = rank.unit,
+		wage = Enlist.WagePerDay * rank.wageMult,
+		battles = enlisted.battles,
+		nextRank = nextRank and nextRank.battles,
+		nextTitle = nextRank and nextRank.title,
+	}
 end
 
 local function sendTick(camp: any)
@@ -698,7 +796,18 @@ local function updateParties(camp: any, dtDays: number)
 		local speed = party.speed
 		local toPlayer = (camp.pos - party.pos).Magnitude
 		local hostile = isHostile(camp, party)
-		if party.targetParty then
+		local hunted = if party.kind == "Lord" then CampaignService.lordTarget(camp, party) else nil
+		if hunted then
+			-- generals ride down the enemies of their faction
+			party.dest = hunted.pos
+			if (hunted.pos - party.pos).Magnitude <= Travel.ContactRadius then
+				CampaignService.lordContact(camp, party, hunted)
+				if camp.pendingBattle then
+					return
+				end
+				continue
+			end
+		elseif party.targetParty then
 			-- ambushers go for their prey (a caravan)
 			local target = camp.parties[party.targetParty]
 			if not target then
@@ -706,7 +815,13 @@ local function updateParties(camp: any, dtDays: number)
 				continue
 			end
 			party.dest = target.pos
-		elseif hostile and not safe and day >= party.noContactUntil and toPlayer <= Parties.ChaseRadius then
+		elseif
+			hostile
+			and not camp.enlisted
+			and not safe
+			and day >= party.noContactUntil
+			and toPlayer <= Parties.ChaseRadius
+		then
 			party.dest = camp.pos
 			speed *= Parties.ChaseSpeedMult
 		elseif party.route then
@@ -740,10 +855,130 @@ local function updateParties(camp: any, dtDays: number)
 		end
 		-- contact with the player's army
 		toPlayer = (camp.pos - party.pos).Magnitude
-		if hostile and not safe and day >= party.noContactUntil and toPlayer <= Travel.ContactRadius then
+		if
+			hostile
+			and not camp.enlisted
+			and not safe
+			and day >= party.noContactUntil
+			and toPlayer <= Travel.ContactRadius
+		then
 			CampaignService.battleWithParty(camp, party, "Battle")
 			return
 		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Generals and enlisting
+---------------------------------------------------------------------------
+
+-- The party a general is hunting (hostile to his faction, not tied to your contract), if any
+function CampaignService.lordTarget(camp: any, lord: any): any
+	if camp.data.Day < (lord.restUntil or 0) then
+		return nil
+	end
+	local best, bestDistance = nil, Enlist.LordHuntRadius
+	for _, other in camp.parties do
+		if
+			other ~= lord
+			and other.kind ~= "Caravan"
+			and not other.contractId
+			and CampaignConfig.hostile(other.faction, lord.faction)
+		then
+			local distance = (other.pos - lord.pos).Magnitude
+			if distance < bestDistance then
+				best, bestDistance = other, distance
+			end
+		end
+	end
+	return best
+end
+
+function CampaignService.discharge(camp: any, message: string)
+	if camp.enlisted then
+		camp.enlisted = nil
+		CampaignService.notify(camp, message, "info")
+		camp.dirty = true
+	end
+end
+
+-- A general caught a hostile party: you fight in his army if you serve him, else it's decided off-screen
+function CampaignService.lordContact(camp: any, lord: any, enemy: any)
+	local enlisted = camp.enlisted
+	if enlisted and enlisted.partyId == lord.id and camp.view == "Overworld" and not camp.pendingBattle then
+		local rank = CampaignConfig.enlistRank(enlisted.battles)
+		local allies = {}
+		local base = GameConfig.getRound(math.max(1, lord.strength))
+		for _, wave in base.waves do
+			for _, unit in wave.units do
+				table.insert(allies, unit.unitId)
+			end
+		end
+		CampaignService.startBattle(camp, {
+			kind = "Enlisted",
+			title = lord.lordName .. " vs " .. enemy.name,
+			enemyFaction = enemy.faction,
+			strength = enemy.strength,
+			side = "Defender",
+			allies = allies,
+			party = enemy,
+			enlisted = { unitId = rank.unit, name = rank.title .. " " .. camp.player.DisplayName .. "'s squad" },
+			lordName = lord.lordName,
+			onVictory = function(c: any, lines: { string })
+				local e = c.enlisted
+				if not e then
+					return
+				end
+				local before = CampaignConfig.enlistRank(e.battles)
+				e.battles += 1
+				local after = CampaignConfig.enlistRank(e.battles)
+				ReputationService.add(c.player, Enlist.ReputationPerVictory)
+				table.insert(
+					lines,
+					string.format("%s is pleased: +%d reputation.", lord.lordName, Enlist.ReputationPerVictory)
+				)
+				if after ~= before then
+					table.insert(
+						lines,
+						string.format(
+							'<font color="#FFCD28"><b>Promoted to %s!</b> You now lead his %s.</font>',
+							after.title,
+							UnitDefinitions.get(after.unit).displayName
+						)
+					)
+				end
+				lord.strength = math.max(3, lord.strength - 1)
+			end,
+			onDefeat = function(c: any, lines: { string })
+				lord.strength -= 2
+				lord.restUntil = c.data.Day + 2
+				if lord.strength < 3 then
+					CampaignService.removeParty(c, lord)
+					CampaignService.discharge(c, lord.lordName .. "'s army is broken. You are discharged.")
+					table.insert(lines, lord.lordName .. "'s army is broken — you are discharged.")
+				else
+					table.insert(lines, lord.lordName .. " falls back to regroup.")
+				end
+			end,
+		})
+		return
+	end
+	-- off-screen fight: the stronger side usually wins
+	local lordWins = rng:NextNumber() < lord.strength / (lord.strength + math.max(1, enemy.strength))
+	local loser = if lordWins then enemy else lord
+	if lordWins then
+		CampaignService.removeParty(camp, enemy)
+		lord.strength = math.max(3, lord.strength - 1)
+		lord.restUntil = camp.data.Day + 0.5
+	else
+		lord.strength -= 2
+		lord.restUntil = camp.data.Day + 2
+		if lord.strength < 3 then
+			CampaignService.removeParty(camp, lord)
+		end
+	end
+	if camp.enlisted and camp.enlisted.partyId == loser.id and not camp.parties[loser.id] then
+		CampaignService.discharge(camp, "Your general's army was destroyed. You are discharged.")
 	end
 end
 
@@ -778,6 +1013,18 @@ local function stepCamp(camp: any, dt: number)
 	if camp.pendingBattle then
 		return
 	end
+	if camp.enlisted then
+		local lord = camp.parties[camp.enlisted.partyId]
+		if not lord then
+			CampaignService.discharge(camp, "Your general's army has been scattered. You are on your own again.")
+		else
+			camp.pos = lord.pos
+			camp.moving = false
+			camp.atLocation = nil
+			local rank = CampaignConfig.enlistRank(camp.enlisted.battles)
+			camp.data.Gold += Enlist.WagePerDay * rank.wageMult * dtDays
+		end
+	end
 	if camp.moving and camp.dest then
 		local arrived
 		camp.pos, arrived = moveToward(camp.pos, camp.dest, Travel.ArmySpeed * dtDays)
@@ -803,6 +1050,12 @@ local function stepCamp(camp: any, dt: number)
 		end
 	end
 	updateParties(camp, dtDays)
+	if camp.enlisted then
+		local lord = camp.parties[camp.enlisted.partyId]
+		if lord then
+			camp.pos = lord.pos -- march with the general
+		end
+	end
 end
 
 RunService.Heartbeat:Connect(function(dt)
@@ -864,6 +1117,10 @@ function ACTIONS.Travel(camp: any, arg: unknown)
 	if typeof(arg) ~= "table" then
 		return
 	end
+	if camp.enlisted then
+		CampaignService.notify(camp, "You march with your general. Leave his service to go your own way.", "info")
+		return
+	end
 	local target: Vector2? = nil
 	local locationId = (arg :: any).location
 	if typeof(locationId) == "string" then
@@ -886,6 +1143,49 @@ function ACTIONS.Travel(camp: any, arg: unknown)
 		camp.paused = false
 		camp.atLocation = nil
 		camp.dirty = true
+	end
+end
+
+function ACTIONS.Enlist(camp: any, partyId: unknown)
+	local lord = if typeof(partyId) == "number" then camp.parties[partyId] else nil
+	if camp.enlisted or not lord or lord.kind ~= "Lord" or lord.faction ~= camp.data.Faction then
+		return
+	end
+	if (lord.pos - camp.pos).Magnitude > Enlist.EnlistRadius then
+		CampaignService.notify(camp, "Ride closer to " .. lord.lordName .. " to join him.", "bad")
+		return
+	end
+	if camp.contract then
+		CampaignService.notify(camp, "Finish or abandon your contract before enlisting.", "bad")
+		return
+	end
+	camp.enlisted = { partyId = lord.id, battles = 0 }
+	camp.dest = nil
+	camp.moving = false
+	local rank = CampaignConfig.enlistRank(0)
+	CampaignService.notify(
+		camp,
+		string.format(
+			"You join %s as a %s: %d gold a day, you lead one of his %s squads.",
+			lord.lordName,
+			rank.title,
+			Enlist.WagePerDay * rank.wageMult,
+			UnitDefinitions.get(rank.unit).displayName
+		),
+		"good"
+	)
+	camp.dirty = true
+end
+
+function ACTIONS.LeaveService(camp: any)
+	if camp.enlisted then
+		local lord = camp.parties[camp.enlisted.partyId]
+		CampaignService.discharge(
+			camp,
+			"You leave "
+				.. (if lord then lord.lordName else "the general")
+				.. "'s service. Your company is yours again."
+		)
 	end
 end
 
@@ -950,7 +1250,7 @@ end
 
 function ACTIONS.EnterTown(camp: any)
 	local town = atFriendly(camp, { "Town" })
-	if not town then
+	if not town or camp.enlisted then
 		return
 	end
 	camp.view = "Town"

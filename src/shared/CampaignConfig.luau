@@ -178,6 +178,125 @@ function CampaignConfig.roadRoute(fromId: string, toId: string): { string }?
 end
 
 ---------------------------------------------------------------------------
+-- The shape of the land (shared: the client draws it, the server picks battlefields from it)
+---------------------------------------------------------------------------
+
+CampaignConfig.FlatHeight = 4 -- height of towns, castles and roads
+CampaignConfig.Lakes = { { x = 625, z = 470, r = 34 }, { x = 280, z = 450, r = 26 }, { x = 760, z = 200, r = 40 } }
+
+function CampaignConfig.riverX(z: number): number
+	return 430 + math.sin(z / 95) * 38 + math.sin(z / 37) * 12
+end
+
+local function smoothstep(a: number, b: number, t: number): number
+	local x = math.clamp((t - a) / (b - a), 0, 1)
+	return x * x * (3 - 2 * x)
+end
+
+-- Ground height at (x, z); sea level is 1 (below = water)
+function CampaignConfig.heightAt(x: number, z: number): number
+	local h = 5 + math.noise(x / 170, z / 170, 0.3) * 7 + math.noise(x / 55, z / 55, 1.7) * 2.5
+	-- mountains along the north edge and the far east
+	local ridge = math.max(smoothstep(860, 1000, z), smoothstep(930, 1040, x))
+	h += ridge * (38 + math.noise(x / 60, z / 60, 4.2) * 18)
+	-- the sea: south coast and the south-west bay
+	local coast = smoothstep(90, 20, z + math.noise(x / 90, 0, 7) * 25)
+	local bay = smoothstep(80, 10, x + math.noise(0, z / 70, 3) * 30) * smoothstep(520, 380, z)
+	h -= math.max(coast, bay) * 16
+	for _, lake in CampaignConfig.Lakes do
+		local d = math.sqrt((x - lake.x) ^ 2 + (z - lake.z) ^ 2)
+		h -= smoothstep(lake.r + 12, lake.r * 0.4, d) * 12
+	end
+	if z > 60 and z < 870 then
+		h -= smoothstep(9, 3, math.abs(x - CampaignConfig.riverX(z))) * 8
+	end
+	-- flat ground around places and along roads
+	local flatten = 0
+	for _, location in CampaignConfig.Locations do
+		local d = math.sqrt((x - location.x) ^ 2 + (z - location.z) ^ 2)
+		flatten = math.max(flatten, smoothstep(46, 26, d))
+	end
+	flatten = math.max(flatten, smoothstep(14, 6, CampaignConfig.distanceToRoad(x, z)))
+	return h + (CampaignConfig.FlatHeight - h) * flatten
+end
+
+local function nearestLocation(x: number, z: number): (any, number)
+	local best, bestDistance = nil, math.huge
+	for _, location in CampaignConfig.Locations do
+		local d = math.sqrt((x - location.x) ^ 2 + (z - location.z) ^ 2)
+		if d < bestDistance then
+			best, bestDistance = location, d
+		end
+	end
+	return best, bestDistance
+end
+
+-- Woods: patches of forest on the plains, away from roads and places
+function CampaignConfig.forestAt(x: number, z: number): boolean
+	if math.noise(x / 110, z / 110, 5.5) < 0.22 then
+		return false
+	end
+	local h = CampaignConfig.heightAt(x, z)
+	if h < 2.5 or h > 22 or CampaignConfig.distanceToRoad(x, z) < 12 then
+		return false
+	end
+	local _, distance = nearestLocation(x, z)
+	return distance > 40
+end
+
+-- Water close by (coast, lake or river)?
+local function nearWater(x: number, z: number): boolean
+	if z > 60 and z < 870 and math.abs(x - CampaignConfig.riverX(z)) < 28 then
+		return true
+	end
+	for _, lake in CampaignConfig.Lakes do
+		if math.sqrt((x - lake.x) ^ 2 + (z - lake.z) ^ 2) < lake.r + 30 then
+			return true
+		end
+	end
+	return CampaignConfig.heightAt(x, z) < 2.2
+end
+
+--[[
+	Which battlefield a fight at (x, z) happens on (MapService.setBattlefield):
+	  "CastleNear" · "Town" · "BanditCamp"  within BattlefieldPlaceRadius of such a place
+	  "Forest" · "Hills" · "River" · "Field" from the land itself
+	Sieges (Raid / Garrison contracts) always use "Castle".
+]]
+CampaignConfig.BattlefieldPlaceRadius = 70 -- PLACEHOLDER
+CampaignConfig.BattlefieldNames = {
+	Field = "Open fields",
+	Forest = "Deep woods",
+	Hills = "Rolling hills",
+	River = "River crossing",
+	Town = "Town outskirts",
+	CastleNear = "Beneath the castle walls",
+	Castle = "Castle siege",
+	BanditCamp = "Bandit camp",
+}
+
+function CampaignConfig.battlefieldAt(x: number, z: number): (string, any)
+	local location, distance = nearestLocation(x, z)
+	if location and distance <= CampaignConfig.BattlefieldPlaceRadius then
+		if location.kind == "Castle" then
+			return "CastleNear", location
+		elseif location.kind == "Town" then
+			return "Town", location
+		else
+			return "BanditCamp", location
+		end
+	end
+	if CampaignConfig.forestAt(x, z) then
+		return "Forest", nil
+	elseif CampaignConfig.heightAt(x, z) > 15 then
+		return "Hills", nil
+	elseif nearWater(x, z) then
+		return "River", nil
+	end
+	return "Field", nil
+end
+
+---------------------------------------------------------------------------
 -- Travel, time and the living world
 ---------------------------------------------------------------------------
 
@@ -221,10 +340,9 @@ CampaignConfig.Difficulty = {
 	GarrisonAttackStrength = 3, -- PLACEHOLDER: attackers in a Garrison contract, + threat
 	BountyStrength = 3, -- PLACEHOLDER: + threat
 	AmbushStrength = 2, -- PLACEHOLDER: escort ambushes, + threat
-	BanditStatMult = 0.8, -- PLACEHOLDER: bandits are weaker on average
+	BanditStatMult = 0.9, -- PLACEHOLDER: on top of their own (weaker) unit stats
 	-- the named leader of a Bounty warband fights as a boss squad
-	BountyBoss = { unitId = "EliteGuard", statMultiplier = 1.4, damageMultiplier = 1.2 }, -- PLACEHOLDER
-	BanditNoArtillery = true, -- bandits field skirmishers instead of guns, line instead of guard
+	BountyBoss = { unitId = "BanditSwordsmen", statMultiplier = 2.2, damageMultiplier = 1.5 }, -- PLACEHOLDER
 }
 
 ---------------------------------------------------------------------------
@@ -273,6 +391,44 @@ CampaignConfig.Town = {
 	DrillCost = 150, -- PLACEHOLDER: × (1 + stars × DrillCostPerStar)
 	DrillCostPerStar = 0.5, -- PLACEHOLDER
 }
+
+---------------------------------------------------------------------------
+-- Enlisting: serve in a general's army (good when you're poor)
+---------------------------------------------------------------------------
+
+CampaignConfig.Enlist = {
+	LordsPerFaction = 1, -- PLACEHOLDER: generals' armies roaming the map per faction
+	LordStrength = { 5, 7 }, -- PLACEHOLDER: + threat
+	LordSpeed = 80, -- PLACEHOLDER: map units / day
+	LordHuntRadius = 220, -- PLACEHOLDER: a general attacks hostile parties this close
+	EnlistRadius = 25, -- how close you must be to a general to join him
+	WagePerDay = 20, -- PLACEHOLDER: gold per day at the lowest rank
+	LootShare = 0.3, -- PLACEHOLDER: your share of the loot after a victory
+	ReputationPerVictory = 4, -- PLACEHOLDER
+	-- promotions by battles fought in his army: the squad you command gets better
+	Ranks = {
+		{ battles = 0, title = "Recruit", unit = "LineInfantry", wageMult = 1 }, -- PLACEHOLDER
+		{ battles = 3, title = "Veteran", unit = "Skirmishers", wageMult = 1.5 }, -- PLACEHOLDER
+		{ battles = 6, title = "Sergeant", unit = "Cavalry", wageMult = 2 }, -- PLACEHOLDER
+		{ battles = 10, title = "Lieutenant", unit = "EliteGuard", wageMult = 3 }, -- PLACEHOLDER
+	},
+	Generals = {
+		Francia = { "General Moreau", "Marshal Lannes", "General Desaix" },
+		Albion = { "General Picton", "Lord Uxbridge", "General Hill" },
+		Borussia = { "Marshal Blücher", "General Yorck", "General Bülow" },
+	},
+}
+
+function CampaignConfig.enlistRank(battles: number): (any, any?)
+	local ranks = CampaignConfig.Enlist.Ranks
+	local current, nextRank = ranks[1], ranks[2]
+	for i, rank in ranks do
+		if battles >= rank.battles then
+			current, nextRank = rank, ranks[i + 1]
+		end
+	end
+	return current, nextRank
+end
 
 ---------------------------------------------------------------------------
 -- Contracts (quest board at your employer's town)

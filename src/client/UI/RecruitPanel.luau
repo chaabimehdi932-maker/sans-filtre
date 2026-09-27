@@ -186,6 +186,13 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 			total,
 			(game:GetService("Players").LocalPlayer:GetAttribute("MaxControlled") or 1) :: number
 		)
+		local phase = ClientState.phase
+		if phase and phase.enlisted then
+			chosenLabel.Text = string.format(
+				"<b>YOU SERVE %s:</b> you lead one of his squads. Your own company stays safe in camp.",
+				string.upper(phase.enlisted)
+			)
+		end
 		readyLabel.Text = if state.ready then "WAITING…" else "READY ✔"
 		readyGradient.Color = if state.ready
 			then ColorSequence.new(Color3.fromRGB(90, 90, 100), Color3.fromRGB(50, 50, 58))
@@ -214,11 +221,18 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 			return
 		end
 		title.Text = string.upper(info.title or "Battle")
-		subtitle.Text = if info.side == "Attacker"
-			then "You ATTACK: capture every zone and hold it, or destroy the enemy."
-			else "You DEFEND: destroy the attackers before they take every zone."
+		subtitle.Text = (if info.battlefield then "⛰ " .. info.battlefield .. "  —  " else "")
+			.. (
+				if info.side == "Attacker"
+					then "You ATTACK: capture every zone and hold it, or destroy the enemy."
+					else "You DEFEND: destroy the attackers before they take every zone."
+			)
 		local parts = {}
-		for _, unitId in UnitDefinitions.Order do
+		local shown = table.clone(UnitDefinitions.Order)
+		for _, unitId in UnitDefinitions.BanditOrder do
+			table.insert(shown, unitId)
+		end
+		for _, unitId in shown do
 			local n = info.enemyPreview and info.enemyPreview[unitId]
 			if n then
 				table.insert(parts, UnitDefinitions.get(unitId).displayName .. " ×" .. n)
