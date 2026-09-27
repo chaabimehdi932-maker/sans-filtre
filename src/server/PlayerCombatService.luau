@@ -505,6 +505,8 @@ function PlayerCombatService.removePlayer(player: Player)
 	states[player] = nil
 end
 
-Players.RespawnTime = Hero.RespawnTime
+pcall(function()
+	Players.RespawnTime = Hero.RespawnTime
+end)
 
 return PlayerCombatService

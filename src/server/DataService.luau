@@ -21,7 +21,18 @@ DataService.hooks = {
 	onLevelUp = function(_player: Player, _level: number) end,
 }
 
-local store = DataStoreService:GetDataStore(GameConfig.Data.StoreName)
+-- GetDataStore throws in a place that was never published: the game must still run (no saving)
+local store: DataStore? = nil
+do
+	local ok, result = pcall(function()
+		return DataStoreService:GetDataStore(GameConfig.Data.StoreName)
+	end)
+	if ok then
+		store = result
+	else
+		warn("DataService: saving disabled (publish the place and enable API access to save):", result)
+	end
+end
 local profiles: { [Player]: any } = {}
 -- If loading failed we never save, so a DataStore outage can't wipe someone's progress
 local loadFailed: { [Player]: boolean } = {}
@@ -36,15 +47,18 @@ end
 
 function DataService.load(player: Player)
 	local data, ok = nil, false
-	for attempt = 1, 3 do
-		ok, data = pcall(function()
-			return store:GetAsync(key(player))
-		end)
-		if ok then
-			break
+	local dataStore = store
+	if dataStore then
+		for attempt = 1, 3 do
+			ok, data = pcall(function()
+				return dataStore:GetAsync(key(player))
+			end)
+			if ok then
+				break
+			end
+			warn("DataService: load attempt", attempt, "failed for", player.Name, data)
+			task.wait(0.5 * attempt)
 		end
-		warn("DataService: load attempt", attempt, "failed for", player.Name, data)
-		task.wait(attempt)
 	end
 	local profile = defaultProfile()
 	if ok and typeof(data) == "table" then
@@ -62,11 +76,12 @@ end
 
 function DataService.save(player: Player)
 	local profile = profiles[player]
-	if not profile or loadFailed[player] then
+	local dataStore = store
+	if not profile or loadFailed[player] or not dataStore then
 		return
 	end
 	local ok, err = pcall(function()
-		store:SetAsync(key(player), profile)
+		dataStore:SetAsync(key(player), profile)
 	end)
 	if not ok then
 		warn("DataService: save failed for", player.Name, err)

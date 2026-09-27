@@ -45,8 +45,10 @@ end
 -- Map + service wiring
 ---------------------------------------------------------------------------
 
+print("[Napoleonic Commander] server starting…")
 MapService.ensureMap()
 ZoneService.init()
+print("[Napoleonic Commander] map ready:", #ZoneService.getZones(), "capture zones")
 
 local battle: any = nil -- per-battle stats and state, nil outside the Battle phase
 
@@ -435,6 +437,7 @@ local function runReward(cfg: any, result: string)
 	end
 end
 
+print("[Napoleonic Commander] server ready")
 task.spawn(function()
 	while true do
 		while #Players:GetPlayers() == 0 do
