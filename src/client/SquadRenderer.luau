@@ -106,6 +106,14 @@ local function newSoldier(r: any, index: number): any
 		jitter = Vector3.new(math.random() * 4 - 2, 0, math.random() * 4 - 2),
 		yawJitter = math.random() * 0.8 - 0.4,
 		delay = math.random() * 0.15, -- volleys ripple down the line
+		-- individuality: nobody moves exactly like their neighbour
+		vel = Vector3.zero,
+		speedMult = 0.85 + math.random() * 0.3,
+		reaction = math.random() * 0.6,
+		slotNoise = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5) * 1.1,
+		idleYaw = (math.random() - 0.5) * 0.3,
+		foe = nil,
+		foeUntil = 0,
 	}
 	if rig.kind == "Cavalry" then
 		SoldierAnimationService.setupRider(soldier)
@@ -423,16 +431,44 @@ local function updateMotion(r: any, dt: number, now: number)
 	r.yaw = MathUtil.normalizeAngle(r.yaw + MathUtil.angleDiff(r.yaw, r.snapYaw) * (1 - math.exp(-dt * 8)))
 end
 
+-- Enemy soldiers near a point (for melee pairing)
+local function enemiesNear(r: any, radius: number): { any }
+	local found = {}
+	for _, other in renders do
+		if other.team ~= r.team and (other.pos - r.pos).Magnitude <= radius + 20 then
+			for _, soldier in other.soldiers do
+				table.insert(found, soldier)
+			end
+		end
+	end
+	return found
+end
+
+--[[
+	Soldiers are individuals: each walks to its own spot (formation slot + a personal offset)
+	with its own top speed and reaction delay, accelerates instead of snapping, steps aside
+	from comrades that are too close, and in melee leaves the ranks to face an enemy soldier.
+]]
 local function updateSquad(r: any, dt: number, now: number, near: boolean, detail: boolean)
 	local base = CFrame.new(r.pos) * CFrame.Angles(0, r.yaw, 0)
-	local moveAlpha = 1 - math.exp(-dt * (if r.forming then 1.6 else 6))
 	local poseAlpha = 1 - math.exp(-dt * 10)
+	local accel = 1 - math.exp(-dt * (if r.forming then 2 else 5))
 	local running = r.rushing or r.routing or r.charging
 	local cavalry = r.def.visual == "Cavalry"
 	local artillery = r.def.visual == "Artillery"
+	local personalSpace = if cavalry then 4.2 else 2.3
+	local squadSpeed = math.max(r.vel.Magnitude, 0)
+	local melee = now < r.meleeUntil and not artillery
+	local foes = if melee then enemiesNear(r, 30) else nil
+
+	if r.moving and not r.wasMoving then
+		r.moveStart = now -- soldiers set off one after another
+	end
+	r.wasMoving = r.moving
 
 	for i, soldier in r.soldiers do
-		local slot = r.slots[i] or Vector3.zero
+		-- 1) where this soldier wants to be
+		local slot = (r.slots[i] or Vector3.zero) + soldier.slotNoise
 		local yawOffset = 0
 		if artillery and not r.routing then
 			local roleSlot, roleYaw = SoldierAnimationService.crewSlot(r, i, now)
@@ -446,7 +482,66 @@ local function updateSquad(r: any, dt: number, now: number, near: boolean, detai
 			slot += soldier.jitter
 		end
 		local target = (base * CFrame.new(slot.X, 0, slot.Z)).Position
-		local flat = Vector3.new(soldier.pos.X, target.Y, soldier.pos.Z):Lerp(target, moveAlpha)
+		local facePoint: Vector3? = nil
+
+		if foes and #foes > 0 then
+			-- melee: pick an enemy soldier now and then and square up to them
+			if
+				not soldier.foe
+				or soldier.foe.deathStart
+				or not soldier.foe.rig.root.Parent
+				or now >= soldier.foeUntil
+			then
+				local best, bestDistance = nil, math.huge
+				for _, foe in foes do
+					local d = (foe.pos - soldier.pos).Magnitude
+					if d < bestDistance and not foe.deathStart then
+						best, bestDistance = foe, d
+					end
+				end
+				soldier.foe = best
+				soldier.foeUntil = now + 0.6 + math.random() * 0.6
+			end
+			local foe = soldier.foe
+			if foe then
+				local away = Vector3.new(soldier.pos.X - foe.pos.X, 0, soldier.pos.Z - foe.pos.Z)
+				if away.Magnitude < 0.1 then
+					away = Vector3.new(1, 0, 0)
+				end
+				target = foe.pos + away.Unit * (personalSpace + 0.4)
+				facePoint = foe.pos
+			end
+		else
+			soldier.foe = nil
+		end
+
+		-- 2) accelerate towards it at this soldier's own pace
+		local toTarget = Vector3.new(target.X - soldier.pos.X, 0, target.Z - soldier.pos.Z)
+		local distance = toTarget.Magnitude
+		local topSpeed = math.max(squadSpeed * 1.15, if running then 16 else 9) * soldier.speedMult
+		if distance > 6 then
+			topSpeed *= 1.35 -- catching up with the ranks
+		end
+		local desired = Vector3.zero
+		local waiting = r.moving and now - (r.moveStart or 0) < soldier.reaction
+		if distance > 0.25 and not waiting then
+			desired = toTarget.Unit * math.min(topSpeed, distance * 3)
+		end
+		soldier.vel = soldier.vel:Lerp(desired, accel)
+
+		-- 3) personal space: step away from comrades that are too close
+		local push = Vector3.zero
+		for j, other in r.soldiers do
+			if j ~= i then
+				local offset = Vector3.new(soldier.pos.X - other.pos.X, 0, soldier.pos.Z - other.pos.Z)
+				local d = offset.Magnitude
+				if d < personalSpace and d > 0.01 then
+					push += offset / d * (personalSpace - d) * 4
+				end
+			end
+		end
+		local step = (soldier.vel + push) * dt
+		local flat = Vector3.new(soldier.pos.X + step.X, soldier.pos.Y, soldier.pos.Z + step.Z)
 
 		if near and now >= soldier.nextGround then
 			soldier.nextGround = now + 0.35 + math.random() * 0.3
@@ -454,26 +549,33 @@ local function updateSquad(r: any, dt: number, now: number, near: boolean, detai
 			soldier.groundY = if hit then hit.Position.Y else nil
 		end
 		local groundY = if near and soldier.groundY then soldier.groundY else r.pos.Y
-		soldier.pos = Vector3.new(flat.X, lerp(soldier.pos.Y, groundY, moveAlpha), flat.Z)
+		soldier.pos = Vector3.new(flat.X, lerp(soldier.pos.Y, groundY, math.min(1, dt * 8)), flat.Z)
 
-		local desiredYaw = r.yaw + yawOffset + (if r.routing then soldier.yawJitter else 0)
+		-- 4) face where you walk, your opponent, or the squad's front
+		local speed = soldier.vel.Magnitude
+		local desiredYaw
+		if facePoint then
+			desiredYaw =
+				MathUtil.yawFromDirection(Vector3.new(facePoint.X - soldier.pos.X, 0, facePoint.Z - soldier.pos.Z))
+		elseif speed > 1.5 then
+			desiredYaw = MathUtil.yawFromDirection(soldier.vel)
+		else
+			desiredYaw = r.yaw + yawOffset + soldier.idleYaw + (if r.routing then soldier.yawJitter else 0)
+		end
 		soldier.yaw = MathUtil.normalizeAngle(soldier.yaw + MathUtil.angleDiff(soldier.yaw, desiredYaw) * poseAlpha)
 
-		-- walking if the squad moves or this soldier is catching up with its slot
-		local walking = r.moving or (target - flat).Magnitude > 0.4
-		local rate = if not walking
-			then 0
-			elseif running then (if cavalry then 13 else 12)
-			else (if cavalry then 6 else 7)
-		soldier.phase += dt * rate
-		local amplitude = if not walking then 0 elseif running then 0.9 else 0.6
+		-- 5) legs follow the real speed
+		local walking = speed > 0.8
+		local soldierRunning = running or speed > 13
+		soldier.phase += dt * speed * (if cavalry then 0.55 else 0.8)
+		local amplitude = if not walking then 0 elseif soldierRunning then 0.9 else 0.6
 		soldier.legSwing = lerp(soldier.legSwing, amplitude, poseAlpha)
 
 		local feet = CFrame.new(soldier.pos) * CFrame.Angles(0, soldier.yaw, 0)
 		table.insert(bulkParts, soldier.rig.root)
 		table.insert(
 			bulkCFrames,
-			SoldierAnimationService.update(r, soldier, i, feet, dt, now, walking, running, detail)
+			SoldierAnimationService.update(r, soldier, i, feet, dt, now, walking, soldierRunning, detail)
 		)
 	end
 

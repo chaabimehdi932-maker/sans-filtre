@@ -1,13 +1,14 @@
 --[[
-	Battle HUD. Everything sits inside ONE frame (BattleHUD) that is fully hidden outside the
-	Battle phase. Inside, each element owns a fixed screen region so nothing can overlap
-	(design canvas 1600×900 scaled by a UIScale; api.layout re-flows narrow screens):
+	Battle HUD. Everything sits inside ONE full-screen frame (BattleHUD) that is fully hidden
+	outside the Battle phase. Each element owns a fixed screen region so nothing can overlap.
+	Regions are authored on a 1600×900 canvas; api.layout gives EACH REGION its own UIScale
+	and scales its edge offsets, so the HUD always spans the whole screen:
 
-	  ┌ TopLeft: SquadSelector ─┬── TopCenter: timer/phase/objective ──┬ TopRight: minimap (M) ┐
-	  │                          │   Banner region (staggered BELOW)     │                        │
-	  │ LeftColumn: orders       │                                       │                        │
-	  │  X C V B + 1/2/3 picks   │                                       │                        │
-	  ├ BottomLeft: card ────────┴─ BottomCenter: HP + hotbar ───────────┴ BottomRight: feed ─────┤
+	  ┌ (Roblox buttons) ─────── TopCenter: timer/phase/objective ───── TopRight: minimap (M) ┐
+	  │                          Banner region (below the top centre)                          │
+	  │ LeftColumn: orders       KillCombo                                                     │
+	  │  X C V B + 1/2/3 picks                                                                 │
+	  ├ BottomLeft: your unit ─── BottomCenter: HP + hotbar ─────────── BottomRight: feed ─────┤
 	  └──────────────────────────────── XP bar (full width) ─────────────────────────────────────┘
 ]]
 
@@ -30,17 +31,11 @@ local create, text, outlined = Theme.create, Theme.text, Theme.outlined
 local player = Players.LocalPlayer
 local BLACK = Color3.new(0, 0, 0)
 local DARK_RED = Color3.fromRGB(150, 10, 15)
+local ROMAN = { "I", "II", "III", "IV", "V" }
 
 local Hud = {}
 
 local PHASE_NAMES = { Waiting = "WAITING", Recruitment = "RECRUITMENT", Battle = "BATTLE", Reward = "RESULTS" }
-local STATE_COLORS = {
-	Idle = Color3.fromRGB(170, 170, 185),
-	Advancing = Color3.fromRGB(140, 200, 255),
-	Engaging = Color3.fromRGB(255, 150, 80),
-	Routing = Color3.fromRGB(255, 70, 70),
-	Regrouping = Color3.fromRGB(255, 220, 120),
-}
 
 -- Draws a formation as little dots (the 1/2/3 formation buttons)
 local function formationIcon(parent: GuiObject, formation: string)
@@ -65,7 +60,6 @@ end
 function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	local api = {}
 
-	-- the one container for the whole battle HUD
 	local root = create("Frame", {
 		Name = "BattleHUD",
 		Size = UDim2.fromScale(1, 1),
@@ -74,10 +68,11 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		Parent = screen,
 	})
 	api.frame = root
-	local uiScale = create("UIScale", { Parent = root })
 
+	-- regions: base layout on the 1600×900 canvas (scaled per region in api.layout)
+	local layoutBase: { [Frame]: any } = {}
 	local function region(name: string, anchor: Vector2, position: UDim2, size: Vector2): Frame
-		return create("Frame", {
+		local frame = create("Frame", {
 			Name = name,
 			AnchorPoint = anchor,
 			Position = position,
@@ -85,15 +80,17 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			BackgroundTransparency = 1,
 			Parent = root,
 		})
+		create("UIScale", { Name = "RegionScale", Parent = frame })
+		layoutBase[frame] = { position = position, size = size }
+		return frame
 	end
 	local regions = {
-		topLeft = region("TopLeft", Vector2.new(0, 0), UDim2.fromOffset(14, 56), Vector2.new(540, 170)),
 		topCenter = region("TopCenter", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 4), Vector2.new(420, 136)),
-		topRight = region("TopRight", Vector2.new(1, 0), UDim2.new(1, -14, 0, 56), Vector2.new(200, 200)),
-		-- below both the top centre AND the squad selector (ends at y 226): staggered, never stacked
-		banner = region("BannerRegion", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 236), Vector2.new(1000, 190)),
-		left = region("LeftColumn", Vector2.new(0, 0.5), UDim2.new(0, 14, 0.52, 0), Vector2.new(200, 376)),
-		bottomLeft = region("BottomLeft", Vector2.new(0, 1), UDim2.new(0, 14, 1, -26), Vector2.new(180, 200)),
+		topRight = region("TopRight", Vector2.new(1, 0), UDim2.new(1, -14, 0, 66), Vector2.new(200, 200)),
+		banner = region("BannerRegion", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 150), Vector2.new(1000, 190)),
+		left = region("LeftColumn", Vector2.new(0, 0.5), UDim2.new(0, 14, 0.49, 0), Vector2.new(200, 360)),
+		combo = region("KillCombo", Vector2.new(0, 0.5), UDim2.new(0, 240, 0.47, 0), Vector2.new(380, 110)),
+		bottomLeft = region("BottomLeft", Vector2.new(0, 1), UDim2.new(0, 14, 1, -26), Vector2.new(180, 250)),
 		bottomCenter = region("BottomCenter", Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -26), Vector2.new(600, 150)),
 		bottomRight = region("BottomRight", Vector2.new(1, 1), UDim2.new(1, -14, 1, -26), Vector2.new(380, 190)),
 	}
@@ -224,14 +221,11 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	end
 
 	---------------------------------------------------------------- left column: orders + hold formations
-	local orders = create("Frame", {
-		Name = "OrdersColumn",
-		Size = UDim2.new(0, 92, 1, 0),
-		BackgroundTransparency = 1,
-		Parent = regions.left,
-	})
+	local orders = create(
+		"Frame",
+		{ Name = "OrdersColumn", Size = UDim2.new(0, 92, 1, 0), BackgroundTransparency = 1, Parent = regions.left }
+	)
 	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = orders })
-
 	local ORDER_DEFS = {
 		{ name = "Hold", key = "X", icon = "🛡️", color = C.KeyRed },
 		{ name = "Follow", key = "C", icon = "🏃", color = C.KeyRed },
@@ -240,9 +234,9 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	}
 	local orderTiles = {}
 	for i, def in ORDER_DEFS do
-		local tile = Theme.tile({ Name = def.name, LayoutOrder = i, Size = UDim2.fromOffset(88, 86), Parent = orders })
+		local tile = Theme.tile({ Name = def.name, LayoutOrder = i, Size = UDim2.fromOffset(88, 84), Parent = orders })
 		local stroke = Theme.border(tile, BLACK, 3)
-		-- icon in the upper part, label on top of it (higher ZIndex): every label stays readable
+		-- icon in the upper part, label above it (higher ZIndex): every label stays readable
 		text({
 			Position = UDim2.fromOffset(0, 4),
 			Size = UDim2.new(1, 0, 0, 50),
@@ -293,14 +287,17 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		end)
 		formationTiles[def.name] = { tile = tile, stroke = stroke }
 	end
-	outlined({
-		LayoutOrder = 4,
-		Size = UDim2.fromOffset(90, 34),
-		Text = "X confirm\nBackspace cancel",
-		TextSize = 12,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Parent = formationFrame,
-	}, 1.5)
+	outlined(
+		{
+			LayoutOrder = 4,
+			Size = UDim2.fromOffset(90, 34),
+			Text = "X confirm\nBackspace cancel",
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = formationFrame,
+		},
+		1.5
+	)
 
 	local function flash(tile: GuiObject)
 		local gradient = tile:FindFirstChildOfClass("UIGradient")
@@ -317,82 +314,132 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		end
 	end)
 
-	---------------------------------------------------------------- top left: squad selector (one commanded squad)
-	outlined({
-		Size = UDim2.new(1, 0, 0, 20),
-		Text = "COMMANDING  ·  [Tab] switch squad",
-		Font = Theme.Bold,
-		TextSize = 15,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Parent = regions.topLeft,
-	}, 1.5)
-	local selector = create("ScrollingFrame", {
-		Name = "SquadSelector",
-		Position = UDim2.fromOffset(0, 26),
-		Size = UDim2.new(1, 0, 1, -26),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ScrollBarThickness = 4,
-		ScrollingDirection = Enum.ScrollingDirection.X,
-		AutomaticCanvasSize = Enum.AutomaticSize.X,
-		CanvasSize = UDim2.new(),
-		Parent = regions.topLeft,
-	})
-	create("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 12),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = selector,
-	})
-	create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 8), Parent = selector })
-	local selectorCards: { [number]: any } = {}
-
-	local soldierCountLabel: TextLabel
+	---------------------------------------------------------------- bottom left: the unit you command
+	local unitCard: any = nil
+	local unitCardId: string? = nil
+	local playerLevel = 1
+	local reinforcementLabel = outlined({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.new(1, -10, 0, 60),
+		BackgroundColor3 = BLACK,
+		BackgroundTransparency = 0.3,
+		Text = "",
+		TextSize = 18,
+		TextWrapped = true,
+		Visible = false,
+		ZIndex = 20,
+		Parent = regions.bottomLeft,
+	}, 2)
+	Theme.corner(reinforcementLabel, 8)
 
 	function api.onSquads()
-		local mine = ClientState.mySquads()
-		local controlledId = ClientActions.controlledId()
-		local seen = {}
-		local alive, total = 0, 0
-		for i, squad in mine do
-			seen[squad.id] = true
-			local card = selectorCards[squad.id]
-			if not card then
-				card = UnitCard.new(selector, squad.unitId, "Blue", { compact = true })
-				local id = squad.id
-				card.button.Activated:Connect(function()
-					ClientActions.cancelHold()
-					ClientActions.selectSquad(id)
-				end)
-				selectorCards[squad.id] = card
+		local squad = ClientState.squadsById[ClientActions.controlledId()]
+		-- the card shows your unit type (rebuilt only when it changes)
+		local unitId = if squad then squad.unitId elseif ClientState.recruit then ClientState.recruit.chosen else nil
+		if unitId and unitId ~= unitCardId then
+			if unitCard then
+				unitCard:destroy()
 			end
-			card.button.LayoutOrder = i
-			card:setName(squad.name)
-			card:setStars(squad.rank or 0)
-			card:setHealth(squad.hp)
-			local isControlled = squad.id == controlledId
-			card:setSelected(isControlled)
-			card:setSubtitle(
-				if isControlled then "★ YOUR COMMAND" elseif squad.state == "Routing" then "ROUTING" else "Ally AI",
-				if isControlled then C.Gold else STATE_COLORS[squad.state]
+			unitCard = UnitCard.new(regions.bottomLeft, unitId, "Blue", {})
+			unitCard.button.Position = UDim2.fromOffset(4, 10)
+			unitCardId = unitId
+		end
+		if unitCard and unitCardId then
+			local def = UnitDefinitions.get(unitCardId)
+			local rank = if squad then squad.rank or 0 else 0
+			unitCard:setName(def.displayName .. (if rank > 0 then " " .. ROMAN[math.min(rank, #ROMAN)] else ""))
+			unitCard:setStars(rank)
+			unitCard:setSubtitle(
+				"LVL " .. playerLevel .. (if squad then "  ·  " .. string.upper(squad.order) else ""),
+				C.Gold
 			)
-			alive += squad.soldiers
-			total += UnitDefinitions.get(squad.unitId).soldiers
+			unitCard:setValue(
+				if squad then string.format("%d/%d", squad.soldiers, def.soldiers) else "0/" .. def.soldiers
+			)
+			unitCard:setHealth(if squad then squad.hp else 0)
+			unitCard:setSelected(squad ~= nil)
 		end
-		for id, card in selectorCards do
-			if not seen[id] then
-				card:destroy()
-				selectorCards[id] = nil
+		for name, entry in orderTiles do
+			entry.stroke.Color = if squad and squad.order == name then C.Gold else BLACK
+		end
+	end
+
+	function api.refreshArmyCount()
+		api.onSquads()
+	end
+
+	local function renderReinforcements()
+		local recruit = ClientState.recruit
+		if ClientState.squadsById[ClientActions.controlledId()] or not recruit then
+			reinforcementLabel.Visible = false
+			return
+		end
+		reinforcementLabel.Visible = true
+		if recruit.reinforcementAt then
+			reinforcementLabel.Text = string.format(
+				"Reinforcements in %ds\n(%d left)",
+				math.max(0, math.ceil(recruit.reinforcementAt - Workspace:GetServerTimeNow())),
+				recruit.reinforcements
+			)
+		else
+			reinforcementLabel.Text = "Your unit is lost.\nNo reinforcements left!"
+		end
+	end
+
+	---------------------------------------------------------------- kill combo ("💀 KILL x58 · 482 XP")
+	local comboFrame = create(
+		"Frame",
+		{ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = regions.combo }
+	)
+	local comboScale = create("UIScale", { Parent = comboFrame })
+	local comboLabel = text({
+		Size = UDim2.new(1, 0, 0, 60),
+		Text = "💀 KILL x0",
+		Font = Theme.Display,
+		TextSize = 50,
+		TextColor3 = Color3.fromRGB(235, 30, 40),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = comboFrame,
+	})
+	local comboStroke = Theme.stroke(comboLabel, Color3.new(1, 1, 1), 3)
+	local comboXpLabel = outlined({
+		Position = UDim2.fromOffset(58, 60),
+		Size = UDim2.new(1, -58, 0, 30),
+		Font = Theme.Bold,
+		TextSize = 26,
+		TextColor3 = Color3.fromRGB(255, 225, 90),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = comboFrame,
+	}, 2)
+	local comboCount, comboXp, comboUntil = 0, 0, 0
+
+	function api.onKill(data: any)
+		local now = os.clock()
+		if now > comboUntil then
+			comboCount, comboXp = 0, 0
+		end
+		comboCount += data.kills
+		comboXp += data.xp
+		comboUntil = now + GameConfig.Rewards.KillComboWindow
+		comboLabel.Text = "💀 KILL x" .. comboCount
+		comboXpLabel.Text = comboXp .. " XP"
+		comboLabel.TextTransparency, comboXpLabel.TextTransparency, comboStroke.Transparency = 0, 0, 0
+		comboFrame.Visible = true
+		comboScale.Scale = 1.35
+		TweenService
+			:Create(comboScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+			:Play()
+	end
+
+	local function renderCombo()
+		if comboFrame.Visible and os.clock() > comboUntil then
+			local fade = math.clamp((os.clock() - comboUntil) / 0.6, 0, 1)
+			comboLabel.TextTransparency, comboXpLabel.TextTransparency, comboStroke.Transparency = fade, fade, fade
+			if fade >= 1 then
+				comboFrame.Visible = false
 			end
 		end
-		regions.topLeft.Visible = #mine > 0
-
-		-- gold outline on the commanded squad's current order
-		local current = ClientState.squadsById[controlledId]
-		for name, entry in orderTiles do
-			entry.stroke.Color = if current and current.order == name then C.Gold else BLACK
-		end
-		soldierCountLabel.Text = string.format("%d/%d", alive, total)
 	end
 
 	---------------------------------------------------------------- bottom centre: health bar + hotbar
@@ -403,23 +450,29 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = regions.bottomCenter,
 	})
-	local health = create("Frame", {
-		Name = "HealthBar",
-		LayoutOrder = 1,
-		Size = UDim2.fromOffset(560, 34),
-		BackgroundTransparency = 1,
-		Parent = regions.bottomCenter,
-	})
+	local health = create(
+		"Frame",
+		{
+			Name = "HealthBar",
+			LayoutOrder = 1,
+			Size = UDim2.fromOffset(560, 34),
+			BackgroundTransparency = 1,
+			Parent = regions.bottomCenter,
+		}
+	)
 	local hpBack, hpFill =
 		Theme.bar({ Position = UDim2.fromOffset(26, 5), Size = UDim2.new(1, -26, 0, 24), Parent = health }, C.Health)
 	Theme.corner(hpBack, 5)
 	Theme.corner(hpFill, 5)
 	Theme.border(hpBack, BLACK, 3)
-	create("UIGradient", {
-		Color = ColorSequence.new(Color3.fromRGB(255, 120, 120), Color3.fromRGB(200, 20, 25)),
-		Rotation = 90,
-		Parent = hpFill,
-	})
+	create(
+		"UIGradient",
+		{
+			Color = ColorSequence.new(Color3.fromRGB(255, 120, 120), Color3.fromRGB(200, 20, 25)),
+			Rotation = 90,
+			Parent = hpFill,
+		}
+	)
 	for i = 1, 7 do
 		create("Frame", {
 			Position = UDim2.new(i / 8, 0, 0, 0),
@@ -444,13 +497,16 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	Theme.border(heart, BLACK, 3)
 	text({ Size = UDim2.fromScale(1, 1), Text = "❤️", TextSize = 26, ZIndex = 5, Parent = heart })
 
-	local hotbar = create("Frame", {
-		Name = "CombatHotbar",
-		LayoutOrder = 2,
-		Size = UDim2.fromOffset(560, 100),
-		BackgroundTransparency = 1,
-		Parent = regions.bottomCenter,
-	})
+	local hotbar = create(
+		"Frame",
+		{
+			Name = "CombatHotbar",
+			LayoutOrder = 2,
+			Size = UDim2.fromOffset(560, 100),
+			BackgroundTransparency = 1,
+			Parent = regions.bottomCenter,
+		}
+	)
 	create("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -518,80 +574,6 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		end)
 	end
 
-	---------------------------------------------------------------- bottom left: character card
-	local card = create("Frame", {
-		Name = "CharacterCard",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		Parent = regions.bottomLeft,
-	})
-	Theme.corner(card, 8)
-	Theme.border(card, Color3.fromRGB(15, 5, 35), 3)
-	create("UIGradient", {
-		Color = ColorSequence.new(Color3.fromRGB(125, 85, 230), Color3.fromRGB(50, 22, 115)),
-		Rotation = 90,
-		Parent = card,
-	})
-	outlined({
-		Position = UDim2.fromOffset(10, 6),
-		Size = UDim2.new(0.6, 0, 0, 22),
-		Text = "Commander",
-		TextSize = 18,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Parent = card,
-	}, 2)
-	local levelLabel = outlined({
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -10, 0, 6),
-		Size = UDim2.new(0.4, 0, 0, 22),
-		Text = "LVL 1",
-		TextSize = 18,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		Parent = card,
-	}, 2)
-	local portrait = create("ImageLabel", {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 30),
-		Size = UDim2.fromOffset(130, 130),
-		BackgroundTransparency = 1,
-		Parent = card,
-	})
-	task.spawn(function()
-		local ok, image = pcall(function()
-			return Players:GetUserThumbnailAsync(
-				player.UserId,
-				Enum.ThumbnailType.AvatarBust,
-				Enum.ThumbnailSize.Size180x180
-			)
-		end)
-		if ok then
-			portrait.Image = image
-		end
-	end)
-	outlined({
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 10, 1, -10),
-		Size = UDim2.new(0.5, 0, 0, 18),
-		Text = "Soldiers",
-		TextSize = 14,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Parent = card,
-	}, 1.5)
-	soldierCountLabel = outlined({
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -10, 1, -6),
-		Size = UDim2.fromOffset(110, 32),
-		Text = "0/0",
-		Font = Theme.Bold,
-		TextSize = 28,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		Parent = card,
-	}, 2.5)
-
-	function api.refreshArmyCount()
-		api.onSquads()
-	end
-
 	---------------------------------------------------------------- XP bar (full width, very bottom)
 	local xpBack, xpFill = Theme.bar({
 		Name = "XPBar",
@@ -601,40 +583,49 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		Parent = root,
 	}, C.Gold)
 	Theme.border(xpBack, BLACK, 2)
-	create("UIGradient", {
-		Color = ColorSequence.new(Color3.fromRGB(255, 235, 90), Color3.fromRGB(235, 175, 20)),
-		Rotation = 90,
-		Parent = xpFill,
-	})
-	local xpLevel = outlined({
-		Position = UDim2.fromOffset(10, 0),
-		Size = UDim2.new(0, 120, 1, 0),
-		Text = "Level 1",
-		TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 2,
-		Parent = xpBack,
-	}, 1.5)
+	create(
+		"UIGradient",
+		{
+			Color = ColorSequence.new(Color3.fromRGB(255, 235, 90), Color3.fromRGB(235, 175, 20)),
+			Rotation = 90,
+			Parent = xpFill,
+		}
+	)
+	local xpLevel = outlined(
+		{
+			Position = UDim2.fromOffset(10, 0),
+			Size = UDim2.new(0, 120, 1, 0),
+			Text = "Level 1",
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			ZIndex = 2,
+			Parent = xpBack,
+		},
+		1.5
+	)
 	local xpText =
 		outlined({ Size = UDim2.fromScale(1, 1), Text = "0/100", TextSize = 13, ZIndex = 2, Parent = xpBack }, 1.5)
 
-	-- "+10 XP" popups rising in the empty centre-left area
 	local lastXp: number? = nil
 	local lastLevel: number? = nil
 	local function xpPopup(amount: number)
+		if comboFrame.Visible then
+			return -- the kill combo already shows the XP
+		end
 		local label = outlined({
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(0.24, math.random(-30, 30), 0.64, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, math.random(0, 40), 0.75, 0),
 			Size = UDim2.fromOffset(160, 36),
 			Text = "+" .. amount .. " XP",
 			Font = Theme.Bold,
 			TextSize = 30,
 			TextColor3 = Color3.fromRGB(255, 220, 70),
 			Rotation = math.random(-8, 4),
-			Parent = root,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = regions.combo,
 		}, 2.5)
 		TweenService:Create(label, TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Position = label.Position - UDim2.fromOffset(0, 70),
+			Position = label.Position - UDim2.fromOffset(0, 60),
 			TextTransparency = 1,
 		}):Play()
 		local s = label:FindFirstChildOfClass("UIStroke")
@@ -647,7 +638,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	end
 
 	function api.onProgress(progress: any)
-		levelLabel.Text = "LVL " .. progress.level
+		playerLevel = progress.level
 		xpLevel.Text = "Level " .. progress.level
 		xpText.Text = string.format("%d/%d", progress.xp, progress.xpNext)
 		xpFill.Size = UDim2.fromScale(math.clamp(progress.xp / math.max(1, progress.xpNext), 0, 1), 1)
@@ -658,15 +649,19 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			end
 		end
 		lastXp, lastLevel = progress.xp, progress.level
+		api.onSquads()
 	end
 
 	---------------------------------------------------------------- bottom right: notification feed + F1 hint
-	local feed = create("Frame", {
-		Name = "Notifications",
-		Size = UDim2.new(1, 0, 1, -24),
-		BackgroundTransparency = 1,
-		Parent = regions.bottomRight,
-	})
+	local feed = create(
+		"Frame",
+		{
+			Name = "Notifications",
+			Size = UDim2.new(1, 0, 1, -24),
+			BackgroundTransparency = 1,
+			Parent = regions.bottomRight,
+		}
+	)
 	create("UIListLayout", {
 		VerticalAlignment = Enum.VerticalAlignment.Bottom,
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
@@ -718,7 +713,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		Name = "ControlsHelp",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.47),
-		Size = UDim2.fromOffset(560, 440),
+		Size = UDim2.fromOffset(580, 430),
 		BackgroundColor3 = Color3.fromRGB(18, 18, 24),
 		BackgroundTransparency = 0.05,
 		Visible = false,
@@ -747,13 +742,13 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			"<b>Left click</b>  attack   ·   <b>F</b>  block   ·   <b>Q</b>  roll",
 			"<b>H</b>  heal & rally   ·   <b>G</b>  mount / dismount",
 			"",
-			"<b>Tab / Shift+Tab</b>  switch the squad you command",
-			"(click a squad card, top-left, to take command of it)",
-			"Your other squads fight on their own (ally AI).",
+			"You command ONE unit (bottom-left card). The rest of the army",
+			"is led by allied officers and fights on its own.",
 			"",
 			"<b>X</b>  Hold: preview on the ground, <b>1 / 2 / 3</b> Line / Column / Square,",
 			"      <b>X</b> again to confirm, <b>Backspace</b> to cancel",
-			"<b>C</b>  Follow   ·   <b>V</b>  Attack   ·   <b>B</b>  Rush",
+			"<b>C</b>  Follow   ·   <b>V</b>  Attack",
+			"<b>B</b>  Rush: aim the path, <b>left click</b> charge, <b>right click</b> cancel",
 			"",
 			"<b>M</b>  minimap   ·   <b>F1</b>  close this panel",
 		}, "\n"),
@@ -771,36 +766,32 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		end
 	end)
 
-	---------------------------------------------------------------- layout: scale + narrow-screen re-flow
+	---------------------------------------------------------------- layout: whole-screen scaling + re-flow
 	--[[
-		Everything is authored on a 1600×900 canvas. The UIScale keeps proportions; on narrow
-		screens (portrait / small phones) the squad selector moves under the top centre, the
-		banner is pushed below it, and the character card and minimap are hidden, so no two
-		regions ever share space.
+		Each region keeps its anchor on its screen edge and gets its own UIScale; edge offsets are
+		scaled too. (One UIScale on the full-screen frame would shrink the whole HUD towards the
+		top-left corner.) Narrow screens drop the lowest-priority regions instead of overlapping.
 	]]
 	function api.layout(viewport: Vector2)
-		local scale = math.clamp(math.min(viewport.X / 1600, viewport.Y / 900), 0.5, 1.25)
-		uiScale.Scale = scale
-		local width = viewport.X / scale -- canvas width in design units
-		local narrow = width < 1250
-		if narrow then
-			regions.topLeft.AnchorPoint = Vector2.new(0.5, 0)
-			regions.topLeft.Position = UDim2.new(0.5, 0, 0, 140)
-			regions.topLeft.Size = UDim2.fromOffset(math.min(540, width - 28), 170)
-			regions.banner.Position = UDim2.new(0.5, 0, 0, 320)
-			-- keep clear of the left column: the banner text shrinks to fit (TextScaled)
-			regions.banner.Size = UDim2.fromOffset(math.max(260, width - 460), 190)
-		else
-			regions.topLeft.AnchorPoint = Vector2.zero
-			regions.topLeft.Position = UDim2.fromOffset(14, 56)
-			-- never wider than the gap to the top-centre region
-			regions.topLeft.Size = UDim2.fromOffset(math.min(540, width / 2 - 210 - 30), 170)
-			regions.banner.Position = UDim2.new(0.5, 0, 0, 236)
-			regions.banner.Size = UDim2.fromOffset(math.min(1000, width - 460), 190)
+		local scale = math.clamp(math.min(viewport.X / 1600, viewport.Y / 900), 0.45, 1.35)
+		local width = viewport.X / scale -- screen width in design units
+		for frame, base in layoutBase do
+			local p = base.position
+			frame.Position = UDim2.new(p.X.Scale, p.X.Offset * scale, p.Y.Scale, p.Y.Offset * scale)
+			local size = base.size
+			if frame == regions.banner then
+				size = Vector2.new(math.clamp(width - 480, 300, 1000), size.Y)
+			end
+			frame.Size = UDim2.fromOffset(size.X, size.Y)
+			local regionScale = frame:FindFirstChild("RegionScale") :: UIScale
+			regionScale.Scale = scale
 		end
-		regions.bottomLeft.Visible = width >= 1100
-		regions.topRight.Visible = not narrow
-		regions.bottomRight.Visible = width >= 1300
+		help.Size = UDim2.fromOffset(580 * scale, 430 * scale)
+		xpBack.Size = UDim2.new(1, 0, 0, math.max(12, 18 * scale))
+		regions.bottomLeft.Visible = width >= 1150
+		regions.bottomRight.Visible = width >= 1400
+		regions.topRight.Visible = width >= 1000
+		regions.combo.Visible = width >= 1000
 	end
 
 	---------------------------------------------------------------- phase + per-frame
@@ -817,6 +808,8 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		if not root.Visible then
 			return
 		end
+		renderCombo()
+		renderReinforcements()
 		local info = ClientState.phase
 		if info then
 			timerLabel.Text = Theme.formatTime(info.endsAt - Workspace:GetServerTimeNow())
@@ -834,7 +827,9 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			holdLabel.Text = if hold.team == "Blue" then "HOLDING ALL ZONES" else "ENEMY HOLDS ALL ZONES!"
 		end
 
-		-- Hold mode: formation picks beside the Hold tile
+		if ClientActions.rushState().aiming then
+			orderTiles.Rush.stroke.Color = C.Gold
+		end
 		local holdState = ClientActions.holdState()
 		formationFrame.Visible = holdState.active
 		if holdState.active then

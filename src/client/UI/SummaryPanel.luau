@@ -108,7 +108,6 @@ function SummaryPanel.build(root: ScreenGui, ClientState: any): any
 			string.format("Soldiers lost: <b>%d</b>", s.killsTaken),
 			string.format("Zones held: <b>%d / %d</b>", s.zonesHeld, s.zonesTotal),
 			string.format("Time: <b>%s</b>", Theme.formatTime(s.timeTaken)),
-			string.format('Points earned: <font color="#FFCD28"><b>+%d</b></font>', s.pointsEarned),
 			string.format('XP earned: <font color="#FFCD28"><b>+%d</b></font>', s.xpEarned),
 		}
 		for _, name in s.unlocked or {} do

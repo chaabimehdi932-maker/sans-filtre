@@ -2,7 +2,7 @@
 	MapService
 	Everything the other services need to know about the battlefield.
 	The real map is built by hand in Studio; scripts only look for CollectionService tags:
-	  "CaptureZone"      Part (block or flat cylinder). Attributes: ZoneName, Bonus ("Income" |
+	  "CaptureZone"      Part (block or flat cylinder). Attributes: ZoneName, Bonus ("Reinforcements" |
 	                     "Morale" | "ArtilleryRange"), Order (number), Radius (optional)
 	  "PlayerDeployZone" Part where the player's army deploys
 	  "EnemyDeployZone"  Part where enemy squads spawn
@@ -265,9 +265,12 @@ local function buildPlaceholderMap()
 	-- texture variation: patches of darker grass, trampled mud and bare earth
 	for _ = 1, 90 do
 		local x, z = rng:NextNumber(-450, 450), rng:NextNumber(-450, 450)
-		local material = (
-			{ Enum.Material.LeafyGrass, Enum.Material.LeafyGrass, Enum.Material.Mud, Enum.Material.Ground }
-		)[rng:NextInteger(1, 4)]
+		local material = ({
+			Enum.Material.LeafyGrass,
+			Enum.Material.LeafyGrass,
+			Enum.Material.Mud,
+			Enum.Material.Ground,
+		})[rng:NextInteger(1, 4)]
 		local size = rng:NextNumber(14, 40)
 		terrain:FillCylinder(CFrame.new(x, -1.5, z), 3, size, material)
 	end
@@ -294,7 +297,7 @@ local function buildPlaceholderMap()
 	)
 
 	local zones = {
-		{ name = "Plains", position = Vector3.new(0, 0, -20), radius = 32, bonus = "Income", order = 1 },
+		{ name = "Plains", position = Vector3.new(0, 0, -20), radius = 32, bonus = "Reinforcements", order = 1 },
 		{ name = "Village", position = Vector3.new(-120, 0, -70), radius = 26, bonus = "Morale", order = 2 },
 		{ name = "Ridge", position = Vector3.new(120, 0, -70), radius = 26, bonus = "ArtilleryRange", order = 3 },
 	}
@@ -503,7 +506,7 @@ function MapService.deployPositions(
 	team: string,
 	count: number,
 	spacing: number
-): { { position: Vector3, yaw: number } }
+): { { position: Vector3, yaw: number, row: number, lateral: number } }
 	local center = deployCenter(team)
 	local part = MapService.getDeployPart(team)
 	local width = if part then math.max(part.Size.X, part.Size.Z) else 240
@@ -517,8 +520,13 @@ function MapService.deployPositions(
 		local inRow = math.min(perRow, count - row * perRow)
 		local col = (i - 1) % perRow
 		local lateral = (col - (inRow - 1) / 2) * spacing
-		local p = center + right * lateral + back * (row * 22)
-		table.insert(spots, { position = Vector3.new(p.X, MapService.groundY(p.X, p.Z), p.Z), yaw = yaw })
+		local p = center + right * lateral + back * (row * 30)
+		table.insert(spots, {
+			position = Vector3.new(p.X, MapService.groundY(p.X, p.Z), p.Z),
+			yaw = yaw,
+			row = row,
+			lateral = lateral, -- distance from the middle of the line (for sorting)
+		})
 	end
 	return spots
 end

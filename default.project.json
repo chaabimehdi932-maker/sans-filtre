@@ -55,6 +55,9 @@
         },
         "SelectSquad": {
           "$className": "RemoteEvent"
+        },
+        "KillFeed": {
+          "$className": "RemoteEvent"
         }
       }
     },

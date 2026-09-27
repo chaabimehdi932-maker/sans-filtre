@@ -88,7 +88,7 @@ local function buildZone(part: BasePart, index: number): any
 
 	local ring = flatDisc(radius * 2, position + Vector3.new(0, 0.12, 0), Teams.Neutral.color, 0.75)
 	local fill = flatDisc(0.5, position + Vector3.new(0, 0.2, 0), Teams.Neutral.color, 0.5)
-	local pole = newPart({
+	newPart({ -- flag pole
 		Name = "FlagPole",
 		Shape = Enum.PartType.Cylinder,
 		Size = Vector3.new(14, 0.4, 0.4),
@@ -105,77 +105,9 @@ local function buildZone(part: BasePart, index: number): any
 		Parent = visualsFolder,
 	})
 
-	-- Compact label: letter diamond on its own row ABOVE the name, so it never covers the text.
-	-- Pixel-sized (not stud-sized) so it stays readable far away and small up close.
+	-- No BillboardGui here: the client's objective marker (letter, name, distance, capture bar,
+	-- bonus) is the single label for a zone, so two labels can never overlap.
 	local letter = string.char(64 + index)
-	local teamColor = Teams.Neutral.color
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "ZoneInfo"
-	gui.Size = UDim2.fromOffset(150, 78)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 11, 0)
-	gui.AlwaysOnTop = true
-	gui.MaxDistance = 1500
-	gui.LightInfluence = 0
-	gui.Adornee = pole
-	local function stroked(label: TextLabel, thickness: number)
-		local stroke = Instance.new("UIStroke")
-		stroke.Thickness = thickness
-		stroke.Parent = label
-	end
-	local diamond = Instance.new("Frame")
-	diamond.Name = "Diamond"
-	diamond.AnchorPoint = Vector2.new(0.5, 0)
-	diamond.Position = UDim2.new(0.5, 0, 0, 4)
-	diamond.Size = UDim2.fromOffset(20, 20)
-	diamond.Rotation = 45
-	diamond.BackgroundColor3 = teamColor
-	diamond.Parent = gui
-	local diamondStroke = Instance.new("UIStroke")
-	diamondStroke.Color = Color3.new(1, 1, 1)
-	diamondStroke.Thickness = 2
-	diamondStroke.Parent = diamond
-	local letterLabel = Instance.new("TextLabel")
-	letterLabel.BackgroundTransparency = 1
-	letterLabel.AnchorPoint = Vector2.new(0.5, 0)
-	letterLabel.Position = UDim2.new(0.5, 0, 0, 2)
-	letterLabel.Size = UDim2.fromOffset(24, 24)
-	letterLabel.Font = Enum.Font.FredokaOne
-	letterLabel.TextSize = 16
-	letterLabel.TextColor3 = Color3.new(1, 1, 1)
-	letterLabel.Text = letter
-	letterLabel.ZIndex = 2
-	letterLabel.Parent = gui
-	stroked(letterLabel, 1.5)
-	local title = Instance.new("TextLabel")
-	title.BackgroundTransparency = 1
-	title.Position = UDim2.fromOffset(0, 30)
-	title.Size = UDim2.new(1, 0, 0, 18)
-	title.Font = Enum.Font.FredokaOne
-	title.TextSize = 17
-	title.TextColor3 = Color3.new(1, 1, 1)
-	title.Text = string.upper(name)
-	title.Parent = gui
-	stroked(title, 2)
-	local barBack = Instance.new("Frame")
-	barBack.Position = UDim2.fromOffset(25, 50)
-	barBack.Size = UDim2.new(1, -50, 0, 7)
-	barBack.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-	barBack.BorderSizePixel = 0
-	barBack.Parent = gui
-	local barFill = Instance.new("Frame")
-	barFill.Size = UDim2.fromScale(0, 1)
-	barFill.BorderSizePixel = 0
-	barFill.Parent = barBack
-	local status = Instance.new("TextLabel")
-	status.BackgroundTransparency = 1
-	status.Position = UDim2.fromOffset(0, 59)
-	status.Size = UDim2.new(1, 0, 0, 15)
-	status.Font = Enum.Font.FredokaOne
-	status.TextSize = 12
-	status.TextColor3 = Color3.new(1, 1, 1)
-	status.Parent = gui
-	stroked(status, 1.5)
-	gui.Parent = pole
 
 	return {
 		name = name,
@@ -188,7 +120,7 @@ local function buildZone(part: BasePart, index: number): any
 		owner = "Neutral",
 		contested = false,
 		letter = letter,
-		ui = { ring = ring, fill = fill, flag = flag, barFill = barFill, status = status, diamond = diamond },
+		ui = { ring = ring, fill = fill, flag = flag },
 		lastVisual = "",
 	}
 end
@@ -206,19 +138,9 @@ local function refreshVisuals(zone: any)
 
 	ui.ring.Color = ownerColor
 	ui.flag.Color = ownerColor
-	ui.diamond.BackgroundColor3 = ownerColor
 	ui.fill.Color = Teams[leaning].color
 	local diameter = math.max(0.5, zone.radius * 2 * fraction)
 	ui.fill.Size = Vector3.new(0.2, diameter, diameter)
-	ui.barFill.BackgroundColor3 = Teams[leaning].color
-	ui.barFill.Size = UDim2.fromScale(fraction, 1)
-
-	local bonusText = if zone.bonus then "  ·  +" .. zone.bonus else ""
-	if zone.contested then
-		ui.status.Text = "⚔ CONTESTED" .. bonusText
-	else
-		ui.status.Text = Teams[zone.owner].displayName .. bonusText
-	end
 end
 
 function ZoneService.init()
@@ -305,7 +227,7 @@ function ZoneService.allOwnedBy(team: string): boolean
 	return #zones > 0 and ZoneService.countOwned(team) == #zones
 end
 
--- Number of held zones granting `bonus` ("Income" | "Morale" | "ArtilleryRange") to `team`
+-- Number of held zones granting `bonus` ("Reinforcements" | "Morale" | "ArtilleryRange") to `team`
 function ZoneService.getTeamBonus(team: string, bonus: string): number
 	local count = 0
 	for _, zone in zones do

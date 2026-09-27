@@ -33,8 +33,8 @@ print(
 		.. require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("GameConfig")).Version
 )
 
--- Our own HUD replaces Roblox's health bar / backpack / player list (Tab switches squads)
-for _, coreType in { Enum.CoreGuiType.Health, Enum.CoreGuiType.Backpack, Enum.CoreGuiType.PlayerList } do
+-- Our own HUD replaces Roblox's health bar and backpack
+for _, coreType in { Enum.CoreGuiType.Health, Enum.CoreGuiType.Backpack } do
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(coreType, false)
 	end)
@@ -129,6 +129,8 @@ ClientState.Changed:Connect(function(key, a, b)
 		summary.onSummary()
 	elseif key == "Notify" then
 		hud.notify(a, b)
+	elseif key == "Kill" then
+		hud.onKill(a)
 	end
 end)
 

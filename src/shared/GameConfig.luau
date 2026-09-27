@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.5"
+GameConfig.Version = "0.6"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -16,29 +16,28 @@ GameConfig.Teams = {
 }
 
 GameConfig.Phases = {
-	RecruitmentTime = 40, -- seconds to spend points before deployment
+	RecruitmentTime = 40, -- seconds to pick your unit before deployment
 	BattleTimeLimit = 420, -- seconds before the battle ends on its own
 	RewardTime = 25, -- seconds the summary stays up (or until everyone clicks Continue)
 }
 
 GameConfig.Recruitment = {
-	StartingPoints = 400,
-	MaxSquadsPerPlayer = 8,
-	FreeSquadIfEmpty = "LineInfantry", -- given for free if a player recruits nothing
+	DefaultUnit = "LineInfantry", -- picked for you if you don't choose
+	Reinforcements = 3, -- times your squad comes back per battle after being wiped out
+	ReinforcementDelay = 15, -- seconds before the fresh squad arrives
 	DeploySpacing = 32, -- studs between squads when deploying
 	MaxVeteranRank = 3, -- stars earned by surviving battles
 	VeteranBonusPerRank = 0.08, -- +8% HP and damage per star
 }
 
 GameConfig.Rewards = {
-	BasePoints = 150,
-	PointsPerZoneHeld = 40,
-	PointsPerKill = 2, -- per enemy soldier killed
-	FastWinTime = 180, -- win faster than this (seconds) for the bonus
-	FastWinBonusPoints = 100,
+	FastWinTime = 180, -- win faster than this (seconds) for the bonus XP
+	FastWinBonusXP = 60,
+	XPPerZoneHeld = 25,
 	XPWin = 150,
 	XPLoss = 40,
-	XPPerKill = 4,
+	XPPerKill = 4, -- per enemy soldier killed by YOUR squad or by you
+	KillComboWindow = 6, -- seconds to chain kills into a combo
 	XPPerHeroDamage = 0.15, -- XP per point of damage the commander deals personally
 	XPPerZoneCapture = 40,
 }
@@ -84,7 +83,10 @@ GameConfig.Orders = {
 	List = { "Hold", "Follow", "Attack", "Rush" },
 	FollowDistance = 24, -- how far behind the commander following squads stand
 	FollowSpacing = 30, -- side-by-side spacing of several following squads
-	RushSpeedMult = 1.3,
+	RushSpeedMult = 2.1, -- rushing infantry sprint
+	RushCavalrySpeedMult = 1.7, -- cavalry at full gallop
+	RushMaxDistance = 220, -- furthest point a Rush can be aimed at (studs from the squad)
+	RushPierceMult = 1.4, -- rushing cavalry hit every squad they ride through (× charge damage)
 	RushDamageTakenMult = 1.2, -- rushing breaks formation discipline
 	AttackSearchRadius = 350,
 	HoldAhead = 16, -- the Hold preview is placed this far in front of the commander
@@ -133,8 +135,7 @@ GameConfig.Zones = {
 	MaxRateMult = 3,
 	HeroPresenceWeight = 1,
 	HoldTimeToWin = 20, -- seconds all zones must be held to win an attack round
-	IncomeInterval = 10,
-	IncomePoints = 15, -- points per Income zone held, every IncomeInterval
+	-- "Reinforcements" zones: each one held cuts your reinforcement delay by 40%
 	ArtilleryRangeBonus = 0.25, -- +25% artillery range per ArtilleryRange zone held
 	MoraleRegenBonus = 0.5, -- +50% morale regen per Morale zone held
 }
@@ -233,9 +234,17 @@ function GameConfig.getRound(round: number): any
 		table.insert(waves[#waves].units, boss)
 	end
 
+	-- Allied AI squads fighting beside you (PLACEHOLDER: a bit smaller than the enemy army)
+	local allies = {}
+	local allyCount = math.max(2, math.floor(#units * 0.75))
+	for i = 1, allyCount do
+		table.insert(allies, { unitId = units[(i - 1) % #units + 1].unitId })
+	end
+
 	return {
 		round = round,
 		side = side,
+		allies = allies,
 		winCondition = if side == "Attacker" then "CaptureZones" else "Eliminate",
 		waves = waves,
 		boss = boss,

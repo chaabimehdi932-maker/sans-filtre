@@ -18,21 +18,23 @@ zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.
 | Q | Roll: dodge with a short invulnerability window (on foot) |
 | H | Heal: restores 40% HP and boosts the morale of your squads nearby |
 | G | Mount / dismount |
-| **X / C / V / B** | Orders for the squad **you command**: **Hold / Follow / Attack / Rush** |
+| **X / C / V** | Orders for the unit **you command**: **Hold / Follow / Attack** |
+| **B → aim → left click** | **Rush**: a striped path shows where your unit will sprint; left click charges, right click cancels. Cavalry ride straight through every enemy squad on the way |
 | **X → 1 / 2 / 3 → X** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, X again confirms (Backspace cancels) |
-| **Tab / Shift+Tab** | Switch which squad you command (or click its card, top-left) |
 | F1 · M | Controls panel · minimap |
 
-You command **one squad at a time**. Your other squads are run by the **ally AI**: they take
-objectives, engage enemies and fall back when their morale breaks, like real allies.
+Before each battle you **choose one unit for free** — that is the squad you command. The rest
+of your army is led by allied officers (ally AI): they take objectives, engage enemies and fall
+back when their morale breaks. If your unit is wiped out, reinforcements bring a fresh one
+(3 per battle). Your unit earns a veteran star for every battle it survives.
 
 ## How a round plays
 
-1. **Recruitment** (40 s): spend points on squads in the shop. Surviving veterans stay in your army.
+1. **Choose your unit** (40 s): pick one unit card (free). Allied squads are added automatically.
 2. **Battle**: the big banner gives your objective (`ATTACKER — CAPTURE PLAINS`).
    - *Attacker* (odd rounds): capture **and hold** every zone for 20 s, or destroy the enemy.
    - *Defender* (even rounds): destroy the attackers before they take every zone.
-3. **Summary**: kills, losses, zones held, points and XP earned → next round.
+3. **Summary**: kills, losses, zones held and XP earned → next round.
    A defeat sends you back to round 1. Your level, best round and unlocked units are saved.
 
 Difficulty rises every round (more squads, cavalry from round 3, artillery from round 4,
@@ -52,7 +54,7 @@ reinforcement waves). Every 5th round is a boss round with a named general's squ
 - **Combat**: musket volleys, bayonets up close, cavalry charge bonus (then disengage and
   re-charge), artillery shells with splash damage. All of it runs server-side.
 - **Zones**: capture progress based on the presence weight of squads inside; frozen when
-  contested. Held zones give a bonus: *Income* (points), *Morale* (regen), *ArtilleryRange* (+25%).
+  contested. Held zones give a bonus: *Reinforcements* (faster), *Morale* (regen), *ArtilleryRange* (+25%).
 - **Enemy AI**: state machine Idle → Advancing → Engaging → Routing → Regrouping. It takes
   objectives, flanks Lines, sends cavalry at guns and exposed squads, forms square against
   cavalry, and falls back when morale is low.

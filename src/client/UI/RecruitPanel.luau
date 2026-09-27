@@ -1,8 +1,8 @@
 --[[
 	RecruitScreen — full-screen, shown ONLY during the Recruitment phase.
-	One UnitCard per unit (portrait, rarity border, veteran stars, cost badge, stats tooltip),
-	−/+ under each card, then your army, the enemy scouting report, the zones and their bonuses,
-	and the Ready button. Purchases are requests: the server validates points, unlocks and the cap.
+	Choose ONE unit (free): that is the squad you command. The rest of your army is AI-led.
+	Each card: 3D portrait, rarity border, veteran stars (your experience with that unit),
+	stats in the hover tooltip. Then the enemy scouting report, the objectives and READY.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,7 +19,7 @@ local C = Theme.Colors
 local create, outlined = Theme.create, Theme.outlined
 local BLACK = Color3.new(0, 0, 0)
 
-local requestRemote = Remotes.get("RequestRecruit")
+local chooseRemote = Remotes.get("RequestRecruit")
 local confirmRemote = Remotes.get("ConfirmRecruit")
 
 local RecruitPanel = {}
@@ -41,7 +41,7 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 		Name = "Panel",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(1020, 640),
+		Size = UDim2.fromOffset(1060, 620),
 		BackgroundColor3 = Color3.fromRGB(22, 22, 30),
 		BackgroundTransparency = 0.05,
 		ZIndex = 10,
@@ -54,8 +54,8 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 
 	local title = outlined({
 		Position = UDim2.fromOffset(28, 14),
-		Size = UDim2.new(0.6, 0, 0, 46),
-		Text = "RECRUITMENT",
+		Size = UDim2.new(0.7, 0, 0, 46),
+		Text = "CHOOSE YOUR UNIT",
 		Font = Theme.Display,
 		TextSize = 42,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -71,32 +71,20 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 		ZIndex = 11,
 		Parent = panel,
 	}, 1.5)
-	local pointsLabel = outlined({
+	local timerLabel = outlined({
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -28, 0, 14),
-		Size = UDim2.fromOffset(300, 44),
-		Font = Theme.Display,
-		TextSize = 36,
+		Position = UDim2.new(1, -28, 0, 22),
+		Size = UDim2.fromOffset(300, 30),
+		TextSize = 22,
 		TextColor3 = C.Gold,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		ZIndex = 11,
 		Parent = panel,
-	}, 3)
-	local timerLabel = outlined({
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -28, 0, 60),
-		Size = UDim2.fromOffset(300, 22),
-		TextSize = 17,
-		TextColor3 = Color3.fromRGB(200, 200, 215),
-		TextXAlignment = Enum.TextXAlignment.Right,
-		ZIndex = 11,
-		Parent = panel,
-	}, 1.5)
+	}, 2)
 
-	-- cards row
 	local row = create("Frame", {
 		Position = UDim2.fromOffset(28, 100),
-		Size = UDim2.new(1, -56, 0, 290),
+		Size = UDim2.new(1, -56, 0, 260),
 		BackgroundTransparency = 1,
 		ZIndex = 11,
 		Parent = panel,
@@ -104,63 +92,25 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 	create("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
-		Padding = UDim.new(0, 18),
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 22),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = row,
 	})
 	local cards = {}
 	for index, unitId in UnitDefinitions.Order do
-		local column = create("Frame", {
-			LayoutOrder = index,
-			Size = UDim2.fromOffset(172, 290),
-			BackgroundTransparency = 1,
-			ZIndex = 11,
-			Parent = row,
-		})
-		local card = UnitCard.new(column, unitId, "Blue", {})
-		card.button.Position = UDim2.fromOffset(0, 8)
-		local function stepButton(label: string, x: number, color: Color3, delta: number): TextButton
-			local button = Theme.tile({
-				Position = UDim2.new(0, x, 1, -42),
-				Size = UDim2.fromOffset(80, 40),
-				ZIndex = 12,
-				Parent = column,
-			})
-			local gradient = button:FindFirstChildOfClass("UIGradient")
-			if gradient then
-				gradient.Color = ColorSequence.new(color, color:Lerp(BLACK, 0.4))
-			end
-			Theme.border(button, BLACK, 3)
-			outlined(
-				{
-					Size = UDim2.fromScale(1, 1),
-					Text = label,
-					Font = Theme.Bold,
-					TextSize = 28,
-					ZIndex = 13,
-					Parent = button,
-				},
-				2
-			)
-			button.Activated:Connect(function()
-				requestRemote:FireServer(unitId, delta)
-			end)
-			return button
-		end
-		stepButton("−", 0, Color3.fromRGB(190, 55, 55), -1)
-		local plus = stepButton("+", 92, Color3.fromRGB(55, 170, 80), 1)
+		local card = UnitCard.new(row, unitId, "Blue", { layoutOrder = index })
 		card.button.Activated:Connect(function()
-			requestRemote:FireServer(unitId, 1) -- clicking the card also recruits one
+			chooseRemote:FireServer(unitId)
 		end)
-		cards[unitId] = { card = card, plus = plus, def = UnitDefinitions.get(unitId) }
+		cards[unitId] = card
 	end
 
-	-- info lines
 	local function infoLine(y: number, color: Color3?): TextLabel
 		return outlined({
 			Position = UDim2.new(0, 28, 0, y),
 			Size = UDim2.new(1, -330, 0, 40),
-			TextSize = 16,
+			TextSize = 17,
 			TextColor3 = color or C.Text,
 			TextWrapped = true,
 			RichText = true,
@@ -170,12 +120,12 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 			Parent = panel,
 		}, 1.5)
 	end
-	local armyLabel = infoLine(410)
-	local intelLabel = infoLine(456, Color3.fromRGB(255, 150, 140))
-	local zonesLabel = infoLine(502, Color3.fromRGB(170, 215, 255))
-	local noteLabel = infoLine(560, Color3.fromRGB(175, 175, 190))
-	noteLabel.Text =
-		"★ Veterans survived earlier battles: +8% HP and damage per star. Removing a new unit refunds it. Hover a card for its stats."
+	local chosenLabel = infoLine(385)
+	local intelLabel = infoLine(432, Color3.fromRGB(255, 150, 140))
+	local zonesLabel = infoLine(479, Color3.fromRGB(170, 215, 255))
+	local noteLabel = infoLine(530, Color3.fromRGB(175, 175, 190))
+	noteLabel.Text = "Units are free. The rest of your army is led by allied officers. "
+		.. "★ Your unit earns a star each battle it survives (+8% HP and damage). Hover a card for its stats."
 
 	local readyButton = Theme.tile({
 		AnchorPoint = Vector2.new(1, 1),
@@ -206,40 +156,29 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 		if not state then
 			return
 		end
-		pointsLabel.Text = "💰 " .. state.points
-		local counts, bestRank, veterans = {}, {}, {}
-		for _, entry in state.roster do
-			counts[entry.unitId] = (counts[entry.unitId] or 0) + 1
-			bestRank[entry.unitId] = math.max(bestRank[entry.unitId] or 0, entry.rank or 0)
-			if entry.carried then
-				veterans[entry.unitId] = (veterans[entry.unitId] or 0) + 1
-			end
-		end
-		local parts = {}
 		for _, unitId in UnitDefinitions.Order do
-			local entry = cards[unitId]
-			local n = counts[unitId] or 0
+			local card = cards[unitId]
+			local def = UnitDefinitions.get(unitId)
 			local unlocked = state.unlocked[unitId] ~= false
-			entry.card:setCount(n)
-			entry.card:setStars(bestRank[unitId] or 0)
-			entry.card:setSubtitle(if n > 0 then n .. " in your army" else "")
-			entry.card:setLocked(not unlocked, "🔒\nWin " .. tostring(entry.def.unlockRoundsWon) .. " rounds")
-			local affordable = unlocked and state.points >= entry.def.cost and #state.roster < state.maxSquads
-			entry.plus.BackgroundTransparency = if affordable then 0 else 0.5
-			if n > 0 then
-				local vet = veterans[unitId] or 0
-				table.insert(
-					parts,
-					string.format("%s ×%d%s", entry.def.displayName, n, if vet > 0 then " (" .. vet .. "★)" else "")
-				)
-			end
+			local chosen = state.chosen == unitId
+			card:setStars((state.ranks and state.ranks[unitId]) or 0)
+			card:setLocked(not unlocked, "🔒\nWin " .. tostring(def.unlockRoundsWon) .. " rounds")
+			card:setSelected(chosen)
+			card:setSubtitle(
+				if chosen then "✔ SELECTED" else def.soldiers .. " soldiers",
+				if chosen then C.Gold else nil
+			)
+			card:setValue(if chosen then "★" else "FREE")
 		end
-		armyLabel.Text = string.format(
-			"<b>YOUR ARMY (%d/%d):</b> %s",
-			#state.roster,
-			state.maxSquads,
-			if #parts > 0 then table.concat(parts, ", ") else "nobody yet: pick some units!"
-		)
+		local chosenDef = state.chosen and UnitDefinitions.get(state.chosen)
+		chosenLabel.Text = if chosenDef
+			then string.format(
+				"<b>YOU COMMAND:</b> %s %s  (%d soldiers)",
+				chosenDef.icon or "",
+				chosenDef.displayName,
+				chosenDef.soldiers
+			)
+			else "<b>Pick a unit to command.</b>"
 		readyLabel.Text = if state.ready then "WAITING…" else "READY ✔"
 		readyGradient.Color = if state.ready
 			then ColorSequence.new(Color3.fromRGB(90, 90, 100), Color3.fromRGB(50, 50, 58))
@@ -267,7 +206,7 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 		if info.phase ~= "Recruitment" then
 			return
 		end
-		title.Text = "RECRUITMENT — ROUND " .. info.round
+		title.Text = "ROUND " .. info.round .. " — CHOOSE YOUR UNIT"
 		subtitle.Text = if info.side == "Attacker"
 			then "You ATTACK: capture every zone and hold it, or destroy the enemy."
 			else "You DEFEND: destroy the attackers before they take every zone."
@@ -287,8 +226,7 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 
 	function api.render()
 		if frame.Visible and ClientState.phase then
-			timerLabel.Text = "Battle starts in "
-				.. Theme.formatTime(ClientState.phase.endsAt - Workspace:GetServerTimeNow())
+			timerLabel.Text = "Battle in " .. Theme.formatTime(ClientState.phase.endsAt - Workspace:GetServerTimeNow())
 		end
 	end
 

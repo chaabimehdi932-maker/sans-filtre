@@ -61,6 +61,11 @@ Remotes.get("RoundSummary").OnClientEvent:Connect(function(data)
 	changed:Fire("Summary")
 end)
 
+-- kills made by your squad / by you (combo counter)
+Remotes.get("KillFeed").OnClientEvent:Connect(function(data)
+	changed:Fire("Kill", data)
+end)
+
 Remotes.get("Notify").OnClientEvent:Connect(function(text, tone)
 	changed:Fire("Notify", text, tone)
 end)

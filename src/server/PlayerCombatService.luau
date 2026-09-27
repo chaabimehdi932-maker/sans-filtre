@@ -337,6 +337,7 @@ local function onAttack(player: Player)
 			kind = kind,
 			fromPosition = root.Position,
 			attackerTeam = "Blue",
+			creditPlayer = player,
 		})
 		PlayerCombatService.hooks.onDamageDealt(player, dealt)
 		vfxRemote:FireAllClients({ kind = "Hit", position = root.Position + look * 3 + Vector3.new(0, 1, 0) })
@@ -456,6 +457,15 @@ function PlayerCombatService.damageHero(player: Player, amount: number, fromPosi
 		amount *= Hero.MountedDamageTakenMult
 	end
 	humanoid:TakeDamage(amount)
+	if amount >= 0.5 then
+		vfxRemote:FireAllClients({
+			kind = "DamageNumber",
+			position = root.Position + Vector3.new(math.random() * 2 - 1, 4, math.random() * 2 - 1),
+			amount = math.floor(amount + 0.5),
+			victimTeam = "Blue",
+			hero = true,
+		})
+	end
 end
 
 -- Living commanders, used by squads (targets, morale) and zones (presence)

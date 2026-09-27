@@ -44,7 +44,8 @@ SquadService.hooks = {
 	getTeamBonus = function(_team: string, _bonus: string): number
 		return 0
 	end,
-	onCasualties = function(_squad: Squad, _soldiersLost: number, _attackerTeam: string?) end,
+	-- creditPlayer = the player whose own squad (or commander) caused the casualties, if any
+	onCasualties = function(_squad: Squad, _soldiersLost: number, _attackerTeam: string?, _creditPlayer: Player?) end,
 	onSquadDestroyed = function(_squad: Squad, _attackerTeam: string?) end,
 	onRout = function(_squad: Squad) end,
 }
@@ -307,7 +308,7 @@ local function destroySquad(squad: Squad, attackerTeam: string?)
 	SquadService.hooks.onSquadDestroyed(squad, attackerTeam)
 end
 
-local function refreshSoldierCount(squad: Squad, attackerTeam: string?)
+local function refreshSoldierCount(squad: Squad, attackerTeam: string?, creditPlayer: Player?)
 	local desired = if squad.health <= 0
 		then 0
 		else math.max(1, math.ceil(squad.def.soldiers * squad.health / squad.maxHealth))
@@ -317,7 +318,7 @@ local function refreshSoldierCount(squad: Squad, attackerTeam: string?)
 		if desired > 0 then
 			recomputeRadius(squad)
 		end
-		SquadService.hooks.onCasualties(squad, lost, attackerTeam)
+		SquadService.hooks.onCasualties(squad, lost, attackerTeam, creditPlayer)
 	end
 end
 
@@ -349,7 +350,8 @@ end
 
 --[[
 	info = { kind = "Ranged" | "Melee" | "Charge" | "Artillery" | "Hero",
-	         fromPosition = Vector3?, attackerTeam = string?, attacker = Squad? }
+	         fromPosition = Vector3?, attackerTeam = string?, attacker = Squad?, creditPlayer = Player? }
+	Clients get a DamageNumber effect where the damage landed.
 	Returns the damage actually dealt after modifiers.
 ]]
 function SquadService.applyDamage(squad: Squad, amount: number, info: any): number
@@ -402,7 +404,20 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 	end
 	squad.morale = math.max(0, squad.morale - moraleLoss)
 
-	refreshSoldierCount(squad, info.attackerTeam)
+	-- floating damage number at the spot that was hit
+	if dealt >= 0.5 then
+		local offset = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5) * squad.radius
+		vfxRemote:FireAllClients({
+			kind = "DamageNumber",
+			position = squad.position + offset + Vector3.new(0, 6, 0),
+			amount = math.floor(dealt + 0.5),
+			victimTeam = squad.team,
+			big = kind == "Charge" or kind == "Artillery" or kind == "Hero",
+		})
+	end
+
+	local creditPlayer = info.creditPlayer or (info.attacker and info.attacker.owner)
+	refreshSoldierCount(squad, info.attackerTeam, creditPlayer)
 	if squad.health <= 0 then
 		destroySquad(squad, info.attackerTeam)
 	elseif squad.morale <= 0 and not squad.routing then
@@ -567,6 +582,41 @@ local function doMelee(squad: Squad, target: any, now: number)
 		})
 	end
 	dealDamage(squad, target, damage, kind, now)
+end
+
+-- Rushing cavalry ride straight through enemy squads, hitting each one once per rush
+local function pierce(squad: Squad, now: number): boolean
+	if not (squad.rushing and squad.rushTarget and squad.def.attackType == "Melee" and squad.isMoving) then
+		return false
+	end
+	squad.pierced = squad.pierced or {}
+	for _, other in table.clone(squadList) do
+		if other.alive and other.team ~= squad.team and not squad.pierced[other.id] then
+			if MathUtil.flatDistance(squad.position, other.position) <= squad.radius + other.radius then
+				squad.pierced[other.id] = true
+				local damage = squad.def.meleeDamage
+					* squad.def.chargeMultiplier
+					* GameConfig.Orders.RushPierceMult
+					* squad.damageMult
+					* strengthFactor(squad)
+					* damageRoll()
+				SquadService.applyDamage(other, damage, {
+					kind = "Charge",
+					fromPosition = squad.position,
+					attackerTeam = squad.team,
+					attacker = squad,
+				})
+				squad.inCombatUntil = now + Morale.CombatCooldown
+				vfxRemote:FireAllClients({
+					kind = "ChargeImpact",
+					position = other.position,
+					squadId = squad.id,
+					targetId = other.id,
+				})
+			end
+		end
+	end
+	return true -- keep galloping: no stopping to fight while piercing
 end
 
 local function attemptAttack(squad: Squad, target: any, now: number)
@@ -800,6 +850,23 @@ function SquadService.update(dt: number)
 	for _, squad in squadList do
 		stepMovement(squad, dt, now)
 	end
+	-- friendly squads don't stack on top of each other: overlapping ones drift apart
+	for i, a in squadList do
+		for j = i + 1, #squadList do
+			local b = squadList[j]
+			if a.team == b.team then
+				local offset = MathUtil.flat(a.position - b.position)
+				local distance = offset.Magnitude
+				local minimum = (a.radius + b.radius) * 0.85
+				if distance < minimum then
+					local push = (if distance > 0.01 then offset / distance else Vector3.new(1, 0, 0))
+						* math.min(minimum - distance, 6 * dt)
+					a.position += push
+					b.position -= push
+				end
+			end
+		end
+	end
 
 	combatTimer += dt
 	if combatTimer < Combat.TickInterval then
@@ -812,7 +879,7 @@ function SquadService.update(dt: number)
 	for _, squad in table.clone(squadList) do
 		if squad.alive then
 			updateMorale(squad, tickDt, now, heroes)
-			if squad.alive and not squad.routing and now >= squad.formingUntil then
+			if squad.alive and not squad.routing and now >= squad.formingUntil and not pierce(squad, now) then
 				local target = findTarget(squad, heroes)
 				if target then
 					attemptAttack(squad, target, now)

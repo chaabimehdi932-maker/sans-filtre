@@ -37,6 +37,7 @@ local squadStateRemote = Remotes.get("UpdateSquadState")
 local zoneStateRemote = Remotes.get("UpdateZoneState")
 local summaryRemote = Remotes.get("RoundSummary")
 local notifyRemote = Remotes.get("Notify")
+local killFeedRemote = Remotes.get("KillFeed")
 
 local function notifyAll(text: string, tone: string?)
 	notifyRemote:FireAllClients(text, tone or "info")
@@ -56,13 +57,20 @@ local battle: any = nil -- per-battle stats and state, nil outside the Battle ph
 SquadService.hooks.getHeroes = PlayerCombatService.getHeroes
 SquadService.hooks.damageHero = PlayerCombatService.damageHero
 SquadService.hooks.getTeamBonus = ZoneService.getTeamBonus
-SquadService.hooks.onCasualties = function(squad, lost)
-	if battle then
-		if squad.team == "Red" then
-			battle.killsDealt += lost
-		else
-			battle.killsTaken += lost
-		end
+SquadService.hooks.onCasualties = function(squad, lost, _attackerTeam, creditPlayer)
+	if not battle then
+		return
+	end
+	if squad.team == "Red" then
+		battle.killsDealt += lost
+	else
+		battle.killsTaken += lost
+	end
+	-- kills made by YOUR squad or by you: live XP + the "KILL xN" combo on your screen
+	if creditPlayer and squad.team == "Red" and creditPlayer.Parent then
+		local xp = lost * Rewards.XPPerKill
+		DataService.addXP(creditPlayer, xp)
+		killFeedRemote:FireClient(creditPlayer, { kills = lost, xp = xp })
 	end
 end
 SquadService.hooks.onRout = function(squad)
@@ -74,9 +82,9 @@ SquadService.hooks.onRout = function(squad)
 end
 SquadService.hooks.onSquadDestroyed = function(squad)
 	if squad.owner then
-		notifyRemote:FireClient(squad.owner, squad.name .. " was destroyed", "bad")
-		if squad.isPlayerControlled then
-			CommandService.ensureControlled(squad.owner) -- take command of another squad
+		notifyRemote:FireClient(squad.owner, "Your " .. squad.name .. " was wiped out!", "bad")
+		if battle and not battle.result then
+			RecruitmentService.onPlayerSquadLost(squad.owner) -- reinforcements, if any left
 		end
 	elseif squad.team == "Red" then
 		notifyAll("Enemy " .. squad.name .. " destroyed!", "good")
@@ -95,6 +103,14 @@ ZoneService.hooks.onOwnerChanged = function(zone, newOwner, oldOwner)
 	elseif oldOwner == "Blue" then
 		notifyAll(zone.name .. " is being lost!", "bad")
 	end
+end
+
+RecruitmentService.hooks.onReinforced = function(player, squad)
+	CommandService.setControlled(player, squad)
+	notifyRemote:FireClient(player, "Reinforcements have arrived: you command a fresh " .. squad.name .. "!", "good")
+end
+RecruitmentService.hooks.getReinforcementBonus = function()
+	return ZoneService.getTeamBonus("Blue", "Reinforcements")
 end
 
 PlayerCombatService.hooks.getSpawnCFrame = function()
@@ -213,7 +229,7 @@ end)
 -- Frame loop
 ---------------------------------------------------------------------------
 
-local timers = { command = 0, zone = 0, snapshot = 0, income = 0 }
+local timers = { command = 0, zone = 0, snapshot = 0 }
 local holdInfo: any = nil
 
 local function updateHold(step: number)
@@ -255,17 +271,6 @@ RunService.Heartbeat:Connect(function(dt)
 		if inBattle then
 			ZoneService.tick(step)
 			updateHold(step)
-		end
-	end
-
-	timers.income += dt
-	if timers.income >= Zones.IncomeInterval then
-		timers.income = 0
-		local held = ZoneService.getTeamBonus("Blue", "Income")
-		if inBattle and held > 0 then
-			for _, player in Players:GetPlayers() do
-				RecruitmentService.addPoints(player, held * Zones.IncomePoints)
-			end
 		end
 	end
 
@@ -319,11 +324,11 @@ local function pendingWaves(): boolean
 end
 
 local function runBattle(cfg: any): string
-	RecruitmentService.deployAll()
+	local playerSquads = RecruitmentService.deployAll(cfg)
 	PlayerCombatService.teleportAll(MapService.spawnCFrame("Blue"))
 	for _, player in Players:GetPlayers() do
 		CommandService.setControlled(player, nil)
-		CommandService.ensureControlled(player) -- command the first squad, the rest follow the ally AI
+		CommandService.setControlled(player, playerSquads[player]) -- your unit; allies run on the ally AI
 		DataService.recordRoundReached(player, round)
 	end
 	EnemyAIController.setTuning(cfg.ai)
@@ -351,7 +356,7 @@ local function runBattle(cfg: any): string
 	while not battle.result do
 		task.wait(0.25)
 		spawnDueWaves()
-		if #SquadService.getByTeam("Blue") == 0 then
+		if #SquadService.getByTeam("Blue") == 0 and not RecruitmentService.reinforcementsPending() then
 			battle.result = "Defeat"
 		elseif #SquadService.getByTeam("Red") == 0 and not pendingWaves() then
 			battle.result = "Victory"
@@ -367,13 +372,14 @@ local function runBattle(cfg: any): string
 		end
 	end
 	SquadService.setPaused(true)
+	RecruitmentService.cancelReinforcements()
 	return battle.result
 end
 
 local function runReward(cfg: any, result: string)
 	local victory = result == "Victory"
 	if victory then
-		RecruitmentService.collectSurvivors()
+		RecruitmentService.recordSurvivors() -- your unit earns a veteran star if it survived
 	end
 	local zonesHeld = ZoneService.countOwned("Blue")
 	local zonesTotal = #ZoneService.getZones()
@@ -381,18 +387,12 @@ local function runReward(cfg: any, result: string)
 
 	table.clear(continueVotes)
 	for _, player in Players:GetPlayers() do
-		local points = 0
-		if victory then
-			points = Rewards.BasePoints
-				+ zonesHeld * Rewards.PointsPerZoneHeld
-				+ battle.killsDealt * Rewards.PointsPerKill
-			if elapsed <= Rewards.FastWinTime then
-				points += Rewards.FastWinBonusPoints
-			end
+		-- (kill XP was already given live, see onCasualties)
+		local xp = if victory then Rewards.XPWin + zonesHeld * Rewards.XPPerZoneHeld else Rewards.XPLoss
+		if victory and elapsed <= Rewards.FastWinTime then
+			xp += Rewards.FastWinBonusXP
 		end
-		local xp = (if victory then Rewards.XPWin else Rewards.XPLoss) + battle.killsDealt * Rewards.XPPerKill
 		local unlocked = if victory then DataService.recordRoundWon(player) else {}
-		RecruitmentService.addPoints(player, points)
 		DataService.addXP(player, xp)
 		summaryRemote:FireClient(player, {
 			victory = victory,
@@ -403,7 +403,6 @@ local function runReward(cfg: any, result: string)
 			zonesHeld = zonesHeld,
 			zonesTotal = zonesTotal,
 			timeTaken = elapsed,
-			pointsEarned = points,
 			xpEarned = xp,
 			unlocked = unlocked,
 			nextRound = if victory then round + 1 else 1,

@@ -3,11 +3,11 @@
 	(recruitment shop, squad selector), so the whole game looks consistent.
 	  • portrait: the real soldier model rendered in a ViewportFrame
 	  • rarity border coloured by unit tier (grey / blue / purple / gold)
-	  • veteran stars bottom-left, cost badge bottom-right, count badge top-right
+	  • veteran stars bottom-left, value bottom-right (e.g. soldiers 28/28), count badge top-right
 	  • stats + description in a hover tooltip instead of always-on text
 
 	UnitCard.new(parent, unitId, team, { compact = bool, layoutOrder = n }) → card
-	card:setCount(n) · setStars(n) · setLocked(bool, text?) · setSelected(bool)
+	card:setCount(n) · setStars(n) · setValue(text) · setLocked(bool, text?) · setSelected(bool)
 	card:setHealth(fraction?) · setSubtitle(text) · setKey(text?) · card.button.Activated
 ]]
 
@@ -204,31 +204,18 @@ function UnitCard.new(parent: Instance, unitId: string, team: string, options: a
 		Parent = button,
 	}, 1.5)
 
-	-- cost badge (bottom-right)
-	local cost = nil
-	if not compact then
-		cost = create("Frame", {
-			AnchorPoint = Vector2.new(1, 1),
-			Position = UDim2.new(1, -6, 1, -6),
-			Size = UDim2.fromOffset(74, 26),
-			BackgroundColor3 = Color3.fromRGB(30, 26, 12),
-			ZIndex = 4,
-			Parent = button,
-		})
-		Theme.corner(cost, 13)
-		Theme.border(cost, C.Gold, 2)
-		outlined(
-			{
-				Size = UDim2.fromScale(1, 1),
-				Text = "💰 " .. def.cost,
-				TextSize = 15,
-				TextColor3 = C.Gold,
-				ZIndex = 5,
-				Parent = cost,
-			},
-			1.5
-		)
-	end
+	-- value (bottom-right): soldiers alive on the HUD card, "FREE" / stars in the shop
+	local value = outlined({
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -8, 1, -4),
+		Size = UDim2.fromOffset(90, 26),
+		Text = "",
+		Font = Theme.Bold,
+		TextSize = if compact then 15 else 24,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		ZIndex = 4,
+		Parent = button,
+	}, 2)
 
 	-- count badge (top-right)
 	local countBadge = create("Frame", {
@@ -281,7 +268,7 @@ function UnitCard.new(parent: Instance, unitId: string, team: string, options: a
 		border = border,
 		scale = scale,
 		stars = stars,
-		cost = cost,
+		value = value,
 		name = name,
 		subtitle = subtitle,
 		countBadge = countBadge,
@@ -344,6 +331,10 @@ end
 function UnitCard:setSubtitle(text: string, color: Color3?)
 	self.subtitle.Text = text
 	self.subtitle.TextColor3 = color or Color3.fromRGB(200, 200, 215)
+end
+
+function UnitCard:setValue(text: string)
+	self.value.Text = text
 end
 
 function UnitCard:setName(text: string)

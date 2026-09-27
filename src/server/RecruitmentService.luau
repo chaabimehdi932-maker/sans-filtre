@@ -1,11 +1,11 @@
 --[[
 	RecruitmentService
-	Per-player army budget and roster, validated server-side.
-	  • points carry over between rounds (+ rewards, + Income zones during battle)
-	  • surviving squads of a won round come back as "veterans" in the next roster
-	  • a defeat resets points and roster to the starting values
-	Deployment is automatic for v1: squads are spread across the PlayerDeployZone.
-	-- STRETCH GOAL: let players click to place each squad inside the deploy zone.
+	Before each battle every player picks ONE unit (free) — that is the squad they command.
+	The rest of the army is AI: allied squads come from the round config, like the enemy's.
+	  • veteran stars: each round your unit survives, that unit type earns a star (session)
+	  • reinforcements: when your squad is wiped out, a fresh one of the same unit arrives at
+	    the deployment zone after a delay (limited per battle; "Reinforcements" zones speed it up)
+	Deployment is automatic: your squad in the middle of the line, allies around it.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,11 +25,17 @@ local stateRemote = Remotes.get("RecruitState")
 
 local RecruitmentService = {}
 
+RecruitmentService.hooks = {
+	-- called when a reinforcement squad arrives for a player
+	onReinforced = function(_player: Player, _squad: any) end,
+	-- zones held granting faster reinforcements
+	getReinforcementBonus = function(): number
+		return 0
+	end,
+}
+
 local sessions: { [Player]: any } = {}
 local phaseOpen = false
-
--- Front row first, guns at the back
-local DEPLOY_PRIORITY = { LineInfantry = 1, EliteGuard = 2, Skirmishers = 3, Cavalry = 4, Artillery = 5 }
 
 local function sendState(player: Player)
 	local session = sessions[player]
@@ -40,22 +46,19 @@ local function sendState(player: Player)
 	for unitId in UnitDefinitions.Units do
 		unlocked[unitId] = DataService.isUnlocked(player, unitId)
 	end
-	local roster = {}
-	for _, entry in session.roster do
-		table.insert(roster, { unitId = entry.unitId, carried = entry.carried, rank = entry.rank or 0 })
-	end
 	stateRemote:FireClient(player, {
-		points = math.floor(session.points),
-		roster = roster,
-		maxSquads = R.MaxSquadsPerPlayer,
+		chosen = session.unitId,
 		unlocked = unlocked,
+		ranks = session.ranks,
 		ready = session.ready,
 		open = phaseOpen,
+		reinforcements = session.reinforcements,
+		reinforcementAt = session.reinforcementAt,
 	})
 end
 
 function RecruitmentService.initPlayer(player: Player)
-	sessions[player] = { points = R.StartingPoints, roster = {}, ready = false }
+	sessions[player] = { unitId = R.DefaultUnit, ready = false, reinforcements = R.Reinforcements, ranks = {} }
 	sendState(player)
 end
 
@@ -67,6 +70,9 @@ function RecruitmentService.openPhase()
 	phaseOpen = true
 	for player, session in sessions do
 		session.ready = false
+		session.reinforcements = R.Reinforcements
+		session.reinforcementAt = nil
+		session.squad = nil
 		sendState(player)
 	end
 end
@@ -89,65 +95,23 @@ function RecruitmentService.allReady(): boolean
 	return any
 end
 
-function RecruitmentService.addPoints(player: Player, amount: number)
-	local session = sessions[player]
-	if session and amount ~= 0 then
-		session.points += amount
-		sendState(player)
-	end
-end
-
+-- After a defeat, veteran stars are lost
 function RecruitmentService.resetAll()
 	for player, session in sessions do
-		session.points = R.StartingPoints
-		session.roster = {}
+		session.ranks = {}
 		sendState(player)
 	end
 end
 
-Remotes.get("RequestRecruit").OnServerEvent:Connect(function(player: Player, unitId: unknown, delta: unknown)
+Remotes.get("RequestRecruit").OnServerEvent:Connect(function(player: Player, unitId: unknown)
 	local session = sessions[player]
-	if not phaseOpen or not session or session.ready then
+	if not phaseOpen or not session or session.ready or typeof(unitId) ~= "string" then
 		return
 	end
-	if typeof(unitId) ~= "string" or typeof(delta) ~= "number" then
-		return
+	if UnitDefinitions.get(unitId) and DataService.isUnlocked(player, unitId) then
+		session.unitId = unitId
+		sendState(player)
 	end
-	local def = UnitDefinitions.get(unitId)
-	if not def then
-		return
-	end
-	if delta > 0 then
-		if #session.roster >= R.MaxSquadsPerPlayer then
-			return
-		end
-		if not DataService.isUnlocked(player, unitId) or session.points < def.cost then
-			return
-		end
-		session.points -= def.cost
-		table.insert(session.roster, { unitId = unitId, carried = false })
-	elseif delta < 0 then
-		-- Undo the latest purchase of that type (refunded); otherwise dismiss a veteran (no refund)
-		local removed = false
-		for i = #session.roster, 1, -1 do
-			local entry = session.roster[i]
-			if entry.unitId == unitId and not entry.carried then
-				table.remove(session.roster, i)
-				session.points += def.cost
-				removed = true
-				break
-			end
-		end
-		if not removed then
-			for i = #session.roster, 1, -1 do
-				if session.roster[i].unitId == unitId then
-					table.remove(session.roster, i)
-					break
-				end
-			end
-		end
-	end
-	sendState(player)
 end)
 
 Remotes.get("ConfirmRecruit").OnServerEvent:Connect(function(player: Player)
@@ -158,56 +122,106 @@ Remotes.get("ConfirmRecruit").OnServerEvent:Connect(function(player: Player)
 	end
 end)
 
--- Spawns every player's roster in the player deployment zone. Returns the created squads.
-function RecruitmentService.deployAll(): { any }
-	local entries = {}
-	for player, session in sessions do
-		if #session.roster == 0 and R.FreeSquadIfEmpty then
-			table.insert(session.roster, { unitId = R.FreeSquadIfEmpty, carried = false })
-		end
-		for _, entry in session.roster do
-			table.insert(entries, { player = player, unitId = entry.unitId, rank = entry.rank or 0 })
-		end
+local function spawnPlayerSquad(player: Player, spot: any): any
+	local session = sessions[player]
+	local rank = session.ranks[session.unitId] or 0
+	local squad = SquadService.create({
+		unitId = session.unitId,
+		team = "Blue",
+		position = spot.position,
+		yaw = spot.yaw,
+		owner = player,
+		rank = rank,
+		-- veterans are a bit tougher and hit a bit harder
+		statMultiplier = 1 + rank * R.VeteranBonusPerRank,
+		damageMultiplier = 1 + rank * R.VeteranBonusPerRank,
+	})
+	session.squad = squad
+	return squad
+end
+
+--[[
+	Deploys every player's chosen squad plus the round's allied AI squads.
+	Returns { [Player] = squad }.
+]]
+function RecruitmentService.deployAll(cfg: any): { [Player]: any }
+	local players = {}
+	for player in sessions do
+		table.insert(players, player)
 	end
-	table.sort(entries, function(a, b)
-		return (DEPLOY_PRIORITY[a.unitId] or 9) < (DEPLOY_PRIORITY[b.unitId] or 9)
+	local allies = cfg.allies or {}
+	local spots = MapService.deployPositions("Blue", #players + #allies, R.DeploySpacing)
+	-- players get the spots closest to the centre of the front line
+	local order = {}
+	for i in spots do
+		table.insert(order, i)
+	end
+	table.sort(order, function(a, b)
+		if spots[a].row ~= spots[b].row then
+			return spots[a].row < spots[b].row
+		end
+		return math.abs(spots[a].lateral) < math.abs(spots[b].lateral)
 	end)
-	local spots = MapService.deployPositions("Blue", #entries, R.DeploySpacing)
 	local created = {}
-	for i, entry in entries do
-		local squad = SquadService.create({
-			unitId = entry.unitId,
-			team = "Blue",
-			position = spots[i].position,
-			yaw = spots[i].yaw,
-			owner = entry.player,
-			rank = entry.rank,
-			-- veterans are a bit tougher and hit a bit harder
-			statMultiplier = 1 + entry.rank * R.VeteranBonusPerRank,
-			damageMultiplier = 1 + entry.rank * R.VeteranBonusPerRank,
-		})
-		squad.order = "Hold"
-		table.insert(created, squad)
+	local next = 1
+	for _, player in players do
+		created[player] = spawnPlayerSquad(player, spots[order[next]])
+		next += 1
+	end
+	for _, ally in allies do
+		local spot = spots[order[next]]
+		next += 1
+		SquadService.create({ unitId = ally.unitId, team = "Blue", position = spot.position, yaw = spot.yaw })
 	end
 	return created
 end
 
--- After a win: every surviving squad returns next round as a veteran
-function RecruitmentService.collectSurvivors()
-	for _, session in sessions do
-		session.roster = {}
+-- Called when a player's squad is destroyed during a battle
+function RecruitmentService.onPlayerSquadLost(player: Player)
+	local session = sessions[player]
+	if not session or session.reinforcements <= 0 or session.reinforcementAt then
+		return
 	end
-	for _, squad in SquadService.getByTeam("Blue") do
-		local session = squad.owner and sessions[squad.owner]
-		if session then
-			table.insert(session.roster, {
-				unitId = squad.unitId,
-				carried = true,
-				rank = math.min(R.MaxVeteranRank, (squad.rank or 0) + 1),
-			})
+	session.reinforcements -= 1
+	local delay = R.ReinforcementDelay * math.max(0.3, 1 - RecruitmentService.hooks.getReinforcementBonus() * 0.4)
+	session.reinforcementAt = workspace:GetServerTimeNow() + delay
+	sendState(player)
+	task.delay(delay, function()
+		if sessions[player] ~= session or not session.reinforcementAt then
+			return -- the battle ended meanwhile
+		end
+		session.reinforcementAt = nil
+		local spot = MapService.deployPositions("Blue", 1, R.DeploySpacing)[1]
+		local squad = spawnPlayerSquad(player, spot)
+		sendState(player)
+		RecruitmentService.hooks.onReinforced(player, squad)
+	end)
+end
+
+-- Can the Blue side still get squads back?
+function RecruitmentService.reinforcementsPending(): boolean
+	for _, session in sessions do
+		if session.reinforcementAt or session.reinforcements > 0 then
+			return true
 		end
 	end
-	for player in sessions do
+	return false
+end
+
+function RecruitmentService.cancelReinforcements()
+	for player, session in sessions do
+		session.reinforcementAt = nil
+		sendState(player)
+	end
+end
+
+-- After a win: if your unit survived it earns a veteran star
+function RecruitmentService.recordSurvivors()
+	for player, session in sessions do
+		local squad = session.squad
+		if squad and squad.alive then
+			session.ranks[squad.unitId] = math.min(R.MaxVeteranRank, (session.ranks[squad.unitId] or 0) + 1)
+		end
 		sendState(player)
 	end
 end

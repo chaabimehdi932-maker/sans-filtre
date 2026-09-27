@@ -1,35 +1,19 @@
 --[[
-	Which ONE of your squads you command directly.
-	  Tab / Shift+Tab : next / previous squad   ·   click a card in the squad selector (HUD)
-	The server hands the previous squad back to the ally AI and publishes the new one in the
-	"ControlledSquad" attribute. The commanded squad gets a gold outline.
+	Outlines the squad you command (gold Highlight) so you can always spot it in the melee.
+	(You command one unit per battle, chosen before the battle; reinforcements replace it.)
 ]]
-
-local UserInputService = game:GetService("UserInputService")
 
 local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
 local ClientState = require(script.Parent:WaitForChild("ClientState"))
 local SquadRenderer = require(script.Parent:WaitForChild("SquadRenderer"))
 
-UserInputService.InputBegan:Connect(function(input)
-	-- (gameProcessed is ignored for Tab: Roblox may flag it for its player list, which we hide)
-	if input.KeyCode ~= Enum.KeyCode.Tab or UserInputService:GetFocusedTextBox() then
-		return
-	end
-	local shift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
-		or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-	ClientActions.cancelHold()
-	ClientActions.selectSquad(if shift then "prev" else "next")
-end)
-
--- Gold outline on the commanded squad
 local highlight = Instance.new("Highlight")
 highlight.Name = "CommandedSquad"
 highlight.FillColor = Color3.fromRGB(255, 225, 110)
-highlight.FillTransparency = 0.82
+highlight.FillTransparency = 0.88
 highlight.OutlineColor = Color3.fromRGB(255, 235, 140)
-highlight.OutlineTransparency = 0.05
-highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+highlight.OutlineTransparency = 0.15
+highlight.DepthMode = Enum.HighlightDepthMode.Occluded
 
 local function refresh()
 	local model = SquadRenderer.getModel(ClientActions.controlledId())

@@ -91,6 +91,10 @@ local function dash()
 end
 
 function ClientActions.attack()
+	if ClientActions.rushState().aiming then
+		ClientActions.confirmRush() -- left click confirms the rush instead of swinging
+		return
+	end
 	if ClientActions.blocking or not ready("Attack") then
 		return
 	end
@@ -213,16 +217,64 @@ function ClientActions.confirmHold()
 	changed:Fire("Order", "Hold")
 end
 
+---------------------------------------------------------------------------
+-- Rush aiming: B shows a path on the ground towards where you aim (RushPreviewController),
+-- left click / B confirms, right click / Backspace cancels.
+---------------------------------------------------------------------------
+
+local rush = { aiming = false, target = nil :: Vector3? }
+
+function ClientActions.rushState(): any
+	return rush
+end
+
+function ClientActions.beginRush()
+	ClientActions.cancelHold()
+	rush.aiming = true
+	changed:Fire("Rush", true)
+end
+
+function ClientActions.cancelRush()
+	if rush.aiming then
+		rush.aiming = false
+		changed:Fire("Rush", false)
+	end
+end
+
+function ClientActions.confirmRush()
+	if not rush.aiming then
+		return
+	end
+	rush.aiming = false
+	changed:Fire("Rush", false)
+	local target = rush.target
+	if target then
+		orderRemote:FireServer("Rush", { x = target.X, z = target.Z })
+	else
+		orderRemote:FireServer("Rush")
+	end
+	changed:Fire("Order", "Rush")
+end
+
 function ClientActions.order(order: string)
 	if order == "Hold" then
+		ClientActions.cancelRush()
 		if hold.active then
 			ClientActions.confirmHold()
 		else
 			ClientActions.beginHold()
 		end
 		return
+	elseif order == "Rush" then
+		if rush.aiming then
+			ClientActions.confirmRush()
+		else
+			ClientActions.beginRush()
+		end
+		return
 	end
 	ClientActions.cancelHold()
+	ClientActions.cancelRush()
 	orderRemote:FireServer(order)
 	changed:Fire("Order", order)
 end

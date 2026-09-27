@@ -33,6 +33,7 @@ local controlled: { [Player]: any } = {}
 
 -- Reset the per-order state so the squad starts clean under its new controller
 local function clearOrderState(squad: any)
+	squad.rushTarget = nil
 	squad.preferredTarget = nil
 	squad.holdPosition = nil
 	squad.pendingFormation = nil
@@ -148,6 +149,22 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 	end
 	clearOrderState(squad)
 	squad.order = order
+	squad.rushTarget = nil
+	if order == "Rush" and typeof(data) == "table" then
+		local x, z = (data :: any).x, (data :: any).z
+		if typeof(x) == "number" and typeof(z) == "number" and x == x and z == z then
+			local target = Vector3.new(x, squad.position.Y, z)
+			local offset = MathUtil.flat(target - squad.position)
+			if offset.Magnitude > Orders.RushMaxDistance then
+				target = squad.position + offset.Unit * Orders.RushMaxDistance
+			end
+			if offset.Magnitude > 1 then
+				squad.rushTarget = target
+				squad.rushYaw = MathUtil.yawFromDirection(offset)
+				squad.pierced = {} -- each enemy squad can be pierced once per rush
+			end
+		end
+	end
 	if order == "Hold" then
 		squad.idleYaw = squad.yaw
 		squad.holdYaw = squad.yaw
@@ -238,7 +255,36 @@ local function doAttack(squad: any)
 	end
 end
 
+local function rushSpeed(squad: any): number
+	return if squad.def.attackType == "Melee" then Orders.RushCavalrySpeedMult else Orders.RushSpeedMult
+end
+
 local function doRush(squad: any)
+	-- Aimed rush (the client's path preview): sprint to the point, cavalry pierce through enemies
+	local target = squad.rushTarget
+	if target then
+		if MathUtil.flatDistance(squad.position, target) <= 3 then
+			-- arrived: hold there, facing the direction of the charge
+			squad.rushTarget = nil
+			squad.rushing = false
+			squad.order = "Hold"
+			squad.holdPosition = nil
+			squad.holdYaw = squad.rushYaw or squad.yaw
+			SquadService.stop(squad)
+			return
+		end
+		if squad.def.attackType ~= "Melee" then
+			-- infantry crash into the first enemy they meet and fight it out with bayonets
+			local enemy = nearestEnemy(squad, squad.radius + 12)
+			if enemy then
+				squad.preferredTarget = enemy
+				SquadService.moveTo(squad, enemy.position, squad.radius + enemy.radius + 1, rushSpeed(squad))
+				return
+			end
+		end
+		SquadService.moveTo(squad, target, 1, rushSpeed(squad))
+		return
+	end
 	-- Charge the closest enemy if one is near, else the nearest objective not held by us
 	local enemy = nearestEnemy(squad, Orders.RushEnemyRadius)
 	if enemy then

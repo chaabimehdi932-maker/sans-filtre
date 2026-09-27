@@ -199,6 +199,66 @@ function handlers.Heal(data)
 	}, 30)
 end
 
+-- Floating damage numbers where the damage landed.
+-- Yellow/white = damage you dealt, red = damage your side took, bigger for charges / cannons.
+local numbersFolder = Instance.new("Folder")
+numbersFolder.Name = "DamageNumbers"
+numbersFolder.Parent = effectsFolder
+local activeNumbers = 0
+function handlers.DamageNumber(data)
+	local camera = Workspace.CurrentCamera
+	if not camera or activeNumbers > 45 or (camera.CFrame.Position - data.position).Magnitude > 350 then
+		return
+	end
+	activeNumbers += 1
+	local attachment = attachmentAt(data.position, 1.4)
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(120, 50)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.MaxDistance = 350
+	gui.Adornee = attachment
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.Font = Enum.Font.LuckiestGuy
+	label.Text = tostring(data.amount)
+	local ours = data.victimTeam == "Blue"
+	label.TextColor3 = if data.hero
+		then Color3.fromRGB(255, 70, 70)
+		elseif ours then Color3.fromRGB(255, 110, 100)
+		elseif data.big then Color3.fromRGB(255, 205, 60)
+		else Color3.new(1, 1, 1)
+	label.TextSize = if data.big or data.hero then 34 else 26
+	label.Rotation = math.random(-10, 10)
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 2.5
+	stroke.Parent = label
+	label.Parent = gui
+	gui.Parent = attachment
+	local rise = Vector3.new(0, 3.5, 0)
+	TweenService
+		:Create(
+			gui,
+			TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ StudsOffsetWorldSpace = rise }
+		)
+		:Play()
+	TweenService:Create(
+		label,
+		TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 0.6),
+		{ TextTransparency = 1 }
+	):Play()
+	TweenService:Create(
+		stroke,
+		TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 0.6),
+		{ Transparency = 1 }
+	):Play()
+	task.delay(1.2, function()
+		activeNumbers -= 1
+	end)
+end
+
 Remotes.get("VFX").OnClientEvent:Connect(function(data)
 	local handler = typeof(data) == "table" and handlers[data.kind]
 	if handler then

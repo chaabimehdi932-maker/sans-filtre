@@ -38,55 +38,80 @@ function Markers.build(root: Instance, ClientState: any, ClientActions: any, reg
 	})
 	local markers: { [string]: any } = {}
 
+	-- One label per zone (the server draws none): letter diamond on top, then name + distance,
+	-- a capture bar and the zone bonus. Stacked vertically, so nothing covers the name.
 	local function markerFor(name: string, letter: string): any
 		local marker = markers[name]
 		if marker then
 			return marker
 		end
 		local frame = create("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.fromOffset(70, 80),
+			AnchorPoint = Vector2.new(0.5, 1),
+			Size = UDim2.fromOffset(170, 96),
 			BackgroundTransparency = 1,
 			Parent = layer,
 		})
+		local scale = create("UIScale", { Parent = frame })
 		local diamond = create("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(0.5, 0, 0, 26),
-			Size = UDim2.fromOffset(36, 36),
+			Position = UDim2.new(0.5, 0, 0, 22),
+			Size = UDim2.fromOffset(28, 28),
 			Rotation = 45,
 			BackgroundColor3 = OWNER_COLORS.Neutral,
 			Parent = frame,
 		})
-		Theme.corner(diamond, 5)
+		Theme.corner(diamond, 4)
 		Theme.border(diamond, Color3.new(1, 1, 1), 3)
 		local ring = create("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(0.5, 0, 0, 26),
-			Size = UDim2.fromOffset(52, 52),
+			Position = UDim2.new(0.5, 0, 0, 22),
+			Size = UDim2.fromOffset(50, 50),
 			BackgroundTransparency = 1,
 			Parent = frame,
 		})
 		Theme.round(ring)
 		local ringStroke = Theme.border(ring, Color3.new(1, 1, 1), 2)
-		ringStroke.Transparency = 0.4
 		local icon = Theme.outlined({
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(0.5, 0, 0, 26),
-			Size = UDim2.fromOffset(36, 36),
+			Position = UDim2.new(0.5, 0, 0, 22),
+			Size = UDim2.fromOffset(30, 30),
 			Text = letter,
 			Font = Theme.Bold,
-			TextSize = 24,
+			TextSize = 22,
 			ZIndex = 2,
 			Parent = frame,
 		}, 2)
-		local distance = Theme.outlined({
-			Position = UDim2.fromOffset(-30, 56),
-			Size = UDim2.new(1, 60, 0, 18),
+		local title = Theme.outlined({
+			Position = UDim2.fromOffset(0, 44),
+			Size = UDim2.new(1, 0, 0, 20),
 			Font = Theme.Bold,
-			TextSize = 15,
+			TextSize = 18,
+			Parent = frame,
+		}, 2)
+		local barBack, barFill = Theme.bar(
+			{ Position = UDim2.new(0.5, -45, 0, 67), Size = UDim2.fromOffset(90, 7), Parent = frame },
+			OWNER_COLORS.Neutral
+		)
+		Theme.corner(barBack, 4)
+		Theme.corner(barFill, 4)
+		Theme.border(barBack, Color3.new(0, 0, 0), 1.5)
+		local bonus = Theme.outlined({
+			Position = UDim2.fromOffset(0, 77),
+			Size = UDim2.new(1, 0, 0, 16),
+			TextSize = 13,
+			TextColor3 = Color3.fromRGB(215, 225, 255),
 			Parent = frame,
 		}, 1.5)
-		marker = { frame = frame, circle = diamond, icon = icon, distance = distance, ring = ringStroke }
+		marker = {
+			frame = frame,
+			scale = scale,
+			circle = diamond,
+			icon = icon,
+			title = title,
+			bar = barFill,
+			bonus = bonus,
+			ring = ringStroke,
+		}
 		markers[name] = marker
 		return marker
 	end
@@ -224,20 +249,21 @@ function Markers.build(root: Instance, ClientState: any, ClientActions: any, reg
 		end
 		local left = regions.left.AbsolutePosition.X + regions.left.AbsoluteSize.X + 30
 		local right = viewport.X - 60
-		local top = math.max(bottomOf(regions.topLeft), bottomOf(regions.topCenter), bottomOf(regions.topRight)) + 40
+		local top = math.max(bottomOf(regions.topCenter), bottomOf(regions.topRight)) + 100
 		local bottom = regions.bottomCenter.AbsolutePosition.Y - 50
 		local seen = {}
 		local showMarkers = ClientState.phaseName() == "Battle"
 		layer.Visible = showMarkers
+		local uiScale = math.clamp(math.min(viewport.X / 1600, viewport.Y / 900), 0.45, 1.35)
 		for index, zone in ClientState.zones do
 			seen[zone.name] = true
 			local marker = markerFor(zone.name, string.char(64 + index))
 			local zonePosition = Vector3.new(zone.x, zone.y, zone.z)
 			local distance = (rootPosition - zonePosition).Magnitude
-			local screen, onScreen = camera:WorldToViewportPoint(zonePosition + Vector3.new(0, 16, 0))
-			local nearAndVisible = onScreen and distance < 220
-			marker.frame.Visible = showMarkers and not nearAndVisible and right > left and bottom > top
+			local screen, onScreen = camera:WorldToViewportPoint(zonePosition + Vector3.new(0, 14, 0))
+			marker.frame.Visible = showMarkers and right > left and bottom > top
 			if marker.frame.Visible then
+				marker.scale.Scale = uiScale
 				local position = Vector2.new(screen.X, screen.Y)
 				local center = Vector2.new((left + right) / 2, (top + bottom) / 2)
 				local inside = onScreen
@@ -253,17 +279,23 @@ function Markers.build(root: Instance, ClientState: any, ClientActions: any, reg
 					if direction.Magnitude < 1 then
 						direction = Vector2.new(0, -1)
 					end
-					local scale = math.min(
+					local fit = math.min(
 						(right - left) / 2 / math.max(math.abs(direction.X), 0.001),
 						(bottom - top) / 2 / math.max(math.abs(direction.Y), 0.001)
 					)
-					position = center + direction * scale
+					position = center + direction * fit
 				end
 				marker.frame.Position = UDim2.fromOffset(position.X, position.Y)
-				marker.circle.BackgroundColor3 = OWNER_COLORS[zone.owner] or OWNER_COLORS.Neutral
+				local owner = OWNER_COLORS[zone.owner] or OWNER_COLORS.Neutral
+				marker.circle.BackgroundColor3 = owner
+				marker.title.Text = string.format("%s  %dm", string.upper(zone.name), distance * STUDS_TO_METERS)
+				local leaning = if zone.control > 0 then "Blue" elseif zone.control < 0 then "Red" else "Neutral"
+				marker.bar.BackgroundColor3 = OWNER_COLORS[leaning]
+				marker.bar.Size = UDim2.fromScale(math.abs(zone.control) / 100, 1)
+				marker.bonus.Text = (if zone.contested then "⚔ CONTESTED  " else "")
+					.. (if zone.bonus then "+" .. zone.bonus else "")
 				-- contested zones pulse
 				marker.ring.Transparency = if zone.contested then 0.2 + math.abs(math.sin(os.clock() * 5)) * 0.8 else 1
-				marker.distance.Text = string.format("%s  %dm", zone.name, distance * STUDS_TO_METERS)
 			end
 		end
 		for name, marker in markers do
