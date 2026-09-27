@@ -157,7 +157,8 @@ function Theme.outlined(props: { [string]: any }, thickness: number?): TextLabel
 	return label
 end
 
--- An icon from Modules.Icons (ImageLabel) or, while its slot is empty, the emoji fallback
+-- An icon: uploaded image from Modules.Icons if set, else a drawn silhouette (IconArt),
+-- else the emoji
 function Theme.icon(name: string, emoji: string, props: { [string]: any }): GuiObject
 	local id = Icons.get(name)
 	if id ~= "" then
@@ -173,6 +174,12 @@ function Theme.icon(name: string, emoji: string, props: { [string]: any }): GuiO
 		end
 		return Theme.create("ImageLabel", image)
 	end
+	-- no uploaded image: draw a silhouette with UI shapes, emoji only as a last resort
+	local IconArt = require(script.Parent:WaitForChild("IconArt"))
+	local drawn = IconArt.draw(name, props)
+	if drawn then
+		return drawn
+	end
 	props.Text = emoji
 	return Theme.text(props)
 end
@@ -183,6 +190,13 @@ function Theme.setIconTransparency(icon: GuiObject, value: number)
 		icon.ImageTransparency = value
 	elseif icon:IsA("TextLabel") then
 		icon.TextTransparency = value
+	else
+		-- drawn icon: fade every shape
+		for _, child in icon:GetChildren() do
+			if child:IsA("Frame") then
+				child.BackgroundTransparency = if child:GetAttribute("Outline") then 1 else value
+			end
+		end
 	end
 end
 
