@@ -3,10 +3,12 @@
 	Builds every screen inside PlayerGui.MainHUD (one ScreenGui) and routes server state
 	(via ClientState) to them. No game state lives in the UI.
 
-	Phase router — exactly one screen is visible at a time (Visible = false on the others,
-	never just transparency):
-	  Waiting → WaitingScreen · Recruitment → RecruitScreen · Battle → BattleHUD
-	  Reward → SummaryScreen
+	Screen router — exactly one screen is visible at a time (Visible = false on the others,
+	never just transparency). The campaign view comes first:
+	  Creation  → CreationScreen (choose your employer)
+	  Overworld → OverworldHUD (map panels; the map itself is OverworldController)
+	  Battle    → by battle phase: Recruitment → DeployScreen · Battle → BattleHUD
+	              Reward → SummaryScreen · Waiting → WaitingScreen
 	The battle HUD re-flows on every viewport change (Hud.layout), panels fit the screen.
 ]]
 
@@ -17,7 +19,9 @@ local Workspace = game:GetService("Workspace")
 
 local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
 local ClientState = require(script.Parent:WaitForChild("ClientState"))
+local SoldierModels = require(script.Parent:WaitForChild("SoldierModels"))
 local UI = script.Parent:WaitForChild("UI")
+local CampaignPanels = require(UI:WaitForChild("CampaignPanels"))
 local Effects = require(UI:WaitForChild("Effects"))
 local Hud = require(UI:WaitForChild("Hud"))
 local Markers = require(UI:WaitForChild("Markers"))
@@ -45,6 +49,9 @@ local markers = Markers.build(screen, ClientState, ClientActions, hud.regions)
 local recruit = RecruitPanel.build(screen, ClientState)
 local summary = SummaryPanel.build(screen, ClientState)
 local effects = Effects.build(screen)
+local campaign = CampaignPanels.build(screen, ClientState, ClientActions)
+local CampaignConfig =
+	require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("CampaignConfig"))
 UnitCard.attachTooltipLayer(screen)
 
 local waiting = Theme.create("Frame", {
@@ -69,10 +76,22 @@ local SCREENS = {
 	Recruitment = recruit.frame,
 	Battle = hud.frame,
 	Reward = summary.frame,
+	Creation = campaign.creation,
+	Overworld = campaign.frame,
 }
 local currentPhase = nil
 
-local function showPhase(phase: string)
+-- the screen to show: the campaign view, or the battle phase while in a battle
+local function currentScreen(): string
+	local view = ClientState.view()
+	if view == "Creation" or view == "Overworld" then
+		return view
+	end
+	return ClientState.phaseName()
+end
+
+local function showPhase(_phase: string?)
+	local phase = currentScreen()
 	if phase == currentPhase then
 		return
 	end
@@ -94,6 +113,7 @@ local function layout()
 	end
 	local viewport = camera.ViewportSize
 	hud.layout(viewport)
+	campaign.layout(viewport)
 	for _, panel in { recruit.panel, summary.panel } do
 		local fit = panel:FindFirstChild("FitScale") :: UIScale?
 		if fit then
@@ -104,7 +124,20 @@ end
 Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(layout)
 layout()
 
+-- battle uniforms: your employer's colours vs the enemy faction's (bandits in brown)
+local function applyUniforms(teamFactions: any?)
+	local view = ClientState.campaign
+	local blue = (teamFactions and teamFactions.Blue) or (view and view.faction)
+	local red = teamFactions and teamFactions.Red
+	SoldierModels.setTeamUniform(
+		"Blue",
+		blue and CampaignConfig.Factions[blue] and CampaignConfig.Factions[blue].uniform
+	)
+	SoldierModels.setTeamUniform("Red", red and CampaignConfig.Factions[red] and CampaignConfig.Factions[red].uniform)
+end
+
 local function onPhase(info: any)
+	applyUniforms(info.teamFactions)
 	showPhase(info.phase)
 	hud.onPhase(info)
 	recruit.onPhase(info)
@@ -122,13 +155,31 @@ ClientState.Changed:Connect(function(key, a, b)
 		recruit.onZones()
 	elseif key == "Recruit" then
 		recruit.onRecruit()
+		campaign.onRecruit()
 		hud.refreshArmyCount()
+	elseif key == "Campaign" then
+		if not (ClientState.phase and ClientState.phase.teamFactions) then
+			applyUniforms(nil)
+		end
+		campaign.onCampaign()
+		showPhase(nil)
+		if ClientState.view() ~= "Overworld" then
+			campaign.hideEncounter()
+		end
+	elseif key == "CampaignTick" then
+		campaign.onTick()
+	elseif key == "Encounter" then
+		campaign.onEncounter(a)
 	elseif key == "Progress" then
 		hud.onProgress(ClientState.progress)
 	elseif key == "Summary" then
 		summary.onSummary()
 	elseif key == "Notify" then
-		hud.notify(a, b)
+		if ClientState.view() == "Overworld" then
+			campaign.notify(a, b)
+		else
+			hud.notify(a, b)
+		end
 	elseif key == "Kill" then
 		hud.onKill(a)
 	end

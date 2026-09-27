@@ -147,19 +147,63 @@ end
 -- Army: orders, formations, selection
 ---------------------------------------------------------------------------
 
--- One squad at a time is under your direct command (the others follow the ally AI).
--- The server publishes its id in the player attribute "ControlledSquad".
+-- You directly command a group of squads (1 at first, more with reputation); the others follow
+-- the ally AI. The server publishes the group in player attributes: "ControlledSquad" (main
+-- squad id), "ControlledSquads" ("3,5,8") and "MaxControlled".
 function ClientActions.controlledId(): number
 	local id = player:GetAttribute("ControlledSquad")
 	return if typeof(id) == "number" then id else 0
 end
-player:GetAttributeChangedSignal("ControlledSquad"):Connect(function()
-	changed:Fire("Controlled")
-end)
 
--- Take command of a squad (id) or cycle ("next" / "prev")
+function ClientActions.controlledIds(): { number }
+	local ids = {}
+	local raw = player:GetAttribute("ControlledSquads")
+	if typeof(raw) == "string" then
+		for id in string.gmatch(raw, "%d+") do
+			table.insert(ids, tonumber(id) :: number)
+		end
+	end
+	return ids
+end
+
+function ClientActions.isControlled(id: number): boolean
+	return table.find(ClientActions.controlledIds(), id) ~= nil
+end
+
+function ClientActions.maxControlled(): number
+	local n = player:GetAttribute("MaxControlled")
+	return if typeof(n) == "number" then n else 1
+end
+
+for _, attribute in { "ControlledSquad", "ControlledSquads", "MaxControlled" } do
+	player:GetAttributeChangedSignal(attribute):Connect(function()
+		changed:Fire("Controlled")
+	end)
+end
+
+-- Command only this squad (id) or cycle ("next" / "prev")
 function ClientActions.selectSquad(which: number | string)
 	selectRemote:FireServer(which)
+end
+
+-- Add / remove a squad to the group you command (Shift + click a card)
+function ClientActions.togglePin(id: number)
+	selectRemote:FireServer({ pin = id })
+end
+
+-- Add the next free squad to the group (T)
+function ClientActions.pinNext()
+	selectRemote:FireServer("pinNext")
+end
+
+---------------------------------------------------------------------------
+-- Campaign (overworld) actions — validated by CampaignService
+---------------------------------------------------------------------------
+
+local campaignRemote = Remotes.get("CampaignAction")
+
+function ClientActions.campaign(action: string, arg: any?)
+	campaignRemote:FireServer(action, arg)
 end
 
 ---------------------------------------------------------------------------

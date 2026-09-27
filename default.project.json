@@ -58,6 +58,15 @@
         },
         "KillFeed": {
           "$className": "RemoteEvent"
+        },
+        "CampaignState": {
+          "$className": "RemoteEvent"
+        },
+        "CampaignTick": {
+          "$className": "RemoteEvent"
+        },
+        "CampaignAction": {
+          "$className": "RemoteEvent"
         }
       }
     },

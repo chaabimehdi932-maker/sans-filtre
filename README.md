@@ -1,8 +1,10 @@
 # Napoleonic Commander
 
-Roblox mass-battle game (Mount & Blade / UEBS feel): you are the commander, on horseback in
-third person, fighting alongside your squads while giving them orders. Win rounds by capturing
-zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.space).
+Roblox mass-battle game (Mount & Blade / UEBS feel): you are a **mercenary commander** for hire,
+on horseback in third person, fighting alongside your squads while giving them orders. Between
+battles you march your company across a Bannerlord-style overworld, take contracts from the
+faction you serve, get paid and grow your reputation and your army.
+The code is managed with [Rojo](https://rojo.space).
 
 > **Systems-first pass.** Soldiers, horses and the map are placeholder blocks.
 > **Every balance number is a `PLACEHOLDER`**: see "Tuning" below.
@@ -18,27 +20,49 @@ zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.
 | Q | Roll: dodge with a short invulnerability window (on foot) |
 | H | Heal: restores 40% HP and boosts the morale of your squads nearby |
 | G | Mount / dismount |
-| **X / C / V** | Orders for the unit **you command**: **Hold / Follow / Attack** |
+| **X / C / V** | Orders for the squads **you command**: **Hold / Follow / Attack** |
+| **Tab / Shift+Tab** | Command the next / previous squad (alone) |
+| **T** · Shift+click a squad card | Add a squad to the group you command (as many as your reputation allows) |
 | **B → aim → left click** | **Rush**: a striped path shows where your unit will sprint; left click charges, right click cancels. Cavalry ride straight through every enemy squad on the way. 15 s cooldown |
 | **X → 1 / 2 / 3 → Left click** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, left click confirms (right click or X cancels) |
 | F1 · M | Controls panel · minimap |
 
-Before each battle you **choose one unit for free** — that is the squad you command. The rest
-of your army is led by allied officers (ally AI): they take objectives, engage enemies and fall
-back when their morale breaks. If your unit is wiped out, reinforcements bring a fresh one
-(3 per battle). Your unit earns a veteran star for every battle it survives.
+Your whole company deploys in every battle. You command the squads outlined in gold (1 at the
+start, more as your reputation grows); your other squads and allied troops are led by the ally
+AI: they take objectives, engage enemies and fall back when their morale breaks.
 
-## How a round plays
+**Overworld (map screen):** left click the map or a place's name to march · mouse wheel zoom ·
+right-drag rotate · WASD pan · Space recentre · ⏳ WAIT lets time pass where you stand.
 
-1. **Choose your unit** (40 s): pick one unit card (free). Allied squads are added automatically.
-2. **Battle**: the big banner gives your objective (`ATTACKER — CAPTURE PLAINS`).
-   - *Attacker* (odd rounds): capture **and hold** every zone for 20 s, or destroy the enemy.
-   - *Defender* (even rounds): destroy the attackers before they take every zone.
-3. **Summary**: kills, losses, zones held and XP earned → next round.
-   A defeat sends you back to round 1. Your level, best round and unlocked units are saved.
+## The mercenary campaign
 
-Difficulty rises every round (more squads, cavalry from round 3, artillery from round 4,
-reinforcement waves). Every 5th round is a boss round with a named general's squad.
+1. **Choose your employer**: Francia, Albion or Borussia (same units, different colours). You
+   start in their town with two squads and some gold. Every faction is at war with the other two;
+   bandits are hostile to everyone.
+2. **Overworld**: time passes while you march (or wait). Bandit warbands roam around their camps,
+   faction patrols travel between their castles; hostile parties chase you and a contact means
+   battle. Leaving the roads makes random encounters much more likely.
+3. **Quest board** (your employer's town) — accept or decline freely:
+   - **Raid**: storm an enemy castle (biggest pay, hardest fight). Won castles become your employer's.
+   - **Bounty**: hunt a named bandit warband (its leader fights as a boss squad).
+   - **Escort**: the caravan leaves when you join it; bandits ambush it on the way, stay close
+     or it's plundered.
+   - **Garrison**: be at one of your castles on the attack day and defend it (or it falls).
+   Success pays gold + reputation; failure (deadline, caravan lost, castle fallen, abandoned)
+   costs reputation. Losing a battle outside a contract costs no reputation.
+4. **Battle**: deploy (READY) → fight → summary with the campaign report.
+   **Defeat**: you lose a share of your gold and fall back to your town. **Any squad wiped out is
+   gone for good**; survivors keep their casualties and their XP.
+5. **Town**: hire new squads (up to 6) and replenish casualties with gold.
+6. **Reputation** unlocks commanding more squads at once (rank table in `CampaignConfig`).
+7. **Squad evolution**: each squad earns XP (kills, survival, victories). Every ★ is an evolution
+   tier: more HP, damage and morale, and better kit (chevrons → gold epaulettes, brass musket and
+   long bayonet / polished sabre → gold facings and tall plume). Casualties never reset the tier.
+
+Commander level/XP, unlocks and the whole campaign (faction, gold, reputation, day, castle
+owners, roster with each squad's XP and headcount) are saved. ☰ → New campaign starts over.
+For a solo experience set **Max Players = 1** (Game Settings → Places); with several players,
+each runs their own campaign and battles take turns on the one battlefield.
 
 ## Systems
 
@@ -66,28 +90,31 @@ reinforcement waves). Every 5th round is a boss round with a named general's squ
 
 ```
 ServerScriptService/                    (src/server)
-  GameManager (Script)                  round state machine, win/lose, service wiring, Heartbeat
+  GameManager (Script)                  battle state machine (queued campaign battles), win/lose, wiring
+  CampaignService                       overworld per player: travel, days, parties, encounters, battles
+  QuestService                          quest board, Raid / Bounty / Escort / Garrison contracts
+  ReputationService                     reputation per faction → max squads commanded
   SquadService                          squads, movement/pathfinding, combat, morale, visuals
   EnemyAIController                     enemy squad AI
   SquadController                       one decision path per squad: player orders OR AI
-  CommandService                        the commanded squad (IsPlayerControlled), hotkey orders
+  CommandService                        the commanded group (IsPlayerControlled on 1..N squads), orders
   AllyAIController / EnemyAIController  your other squads / the enemy, both on SquadAI
   SquadAI                               shared tactics + state machine (team-agnostic)
   PlayerCombatService                   commander combat (attack, block, roll, heal, horse)
   ZoneService                           capture zones and bonuses
-  RecruitmentService                    points, validated purchases, deployment
-  DataService                           DataStoreService (level, best round, unlocks)
+  RecruitmentService                    saved roster: deployment, hiring, replenishing, squad XP/evolution
+  DataService                           DataStoreService (level, unlocks, profile.Campaign)
   MapService                            CollectionService tags + placeholder map
 ReplicatedStorage/
   Modules/                              (src/shared) UnitDefinitions, FormationDefinitions,
-                                        SoldierAnimationIds, GameConfig, MathUtil, Remotes
+                                        SoldierAnimationIds, GameConfig, CampaignConfig, MathUtil, Remotes
   RemoteEvents/                         declared in default.project.json
 StarterPlayerScripts/                   (src/client)
   PlayerCombatController, ArmyCommandController, CameraController, UIController, VFXController,
   CharacterAnimator (rider pose, horse gait, sabre swing, block, roll), SquadRenderController,
-  SquadSelectionController (Tab / click), HoldPreviewController
+  SquadSelectionController (gold outline), HoldPreviewController, OverworldController (map + camera)
   ClientState, ClientActions, SquadRenderer, SoldierModels, SoldierAnimationService,
-  UI/* (Hud, UnitCard, RecruitPanel, SummaryPanel, Markers, Effects, Theme)   (client modules)
+  UI/* (Hud, UnitCard, RecruitPanel, SummaryPanel, CampaignPanels, Markers, Effects, Theme)
 StarterGui/MainHUD                      single ScreenGui; UIController builds its frames
 ```
 
@@ -103,7 +130,11 @@ zones 0.5 s, paths 2 s.
 
 - `src/shared/UnitDefinitions.luau`: HP, speed, damage, range, reload, cost, morale for each unit
 - `src/shared/FormationDefinitions.luau`: formation bonuses and penalties
-- `src/shared/GameConfig.luau`: rounds and difficulty (`getRound`), commander, morale, zones, AI,
+- `src/shared/CampaignConfig.luau`: **the campaign** — travel speed and time, encounter chances,
+  parties, battle strengths, gold (start, hire/replenish prices, loss penalty, loot), contract
+  rewards/penalties/deadlines, **reputation → squads table**, **evolution XP curve and stat bumps**,
+  and the map (locations, roads). Every number there is marked `PLACEHOLDER`.
+- `src/shared/GameConfig.luau`: army composition by strength (`getRound`), commander, morale, zones, AI,
   rewards, sounds (`GameConfig.Sounds`: put real asset ids there, including `Music`)
 
 ## Building your own map in Studio

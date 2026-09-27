@@ -1,9 +1,12 @@
 --[[
 	GameManager
-	Round state machine and win/lose conditions. Wires the services together.
+	Battle state machine and win/lose conditions. Wires the services together.
 
-	  Waiting → Recruitment (timed) → Battle → Reward (summary) → next round
-	  Victory: round + 1, surviving squads carry over.   Defeat: back to round 1.
+	The campaign (CampaignService / QuestService) runs on the overworld, one per player.
+	When a player's army meets a hostile party, assaults a castle, etc., the battle is queued
+	and this loop plays it on the battlefield, one battle at a time:
+	  Deployment (timed, "Recruitment" phase) → Battle → Reward (summary) → back to the map
+	Only the battle's participants see its phases; everyone else stays on their overworld.
 
 	Heartbeat drives SquadService every frame; expensive systems are throttled:
 	  CommandService 0.3 s · EnemyAIController 0.5 s · ZoneService 0.5 s · client snapshots 0.25 s
@@ -18,13 +21,16 @@ local Modules = ReplicatedStorage:WaitForChild("Modules")
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local Remotes = require(Modules:WaitForChild("Remotes"))
 
+local CampaignService = require(script.Parent:WaitForChild("CampaignService"))
 local CommandService = require(script.Parent:WaitForChild("CommandService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local EnemyAIController = require(script.Parent:WaitForChild("EnemyAIController"))
 local SquadController = require(script.Parent:WaitForChild("SquadController"))
 local MapService = require(script.Parent:WaitForChild("MapService"))
 local PlayerCombatService = require(script.Parent:WaitForChild("PlayerCombatService"))
+require(script.Parent:WaitForChild("QuestService")) -- plugs into CampaignService hooks
 local RecruitmentService = require(script.Parent:WaitForChild("RecruitmentService"))
+local ReputationService = require(script.Parent:WaitForChild("ReputationService"))
 local SquadService = require(script.Parent:WaitForChild("SquadService"))
 local ZoneService = require(script.Parent:WaitForChild("ZoneService"))
 
@@ -39,8 +45,18 @@ local summaryRemote = Remotes.get("RoundSummary")
 local notifyRemote = Remotes.get("Notify")
 local killFeedRemote = Remotes.get("KillFeed")
 
+-- players fighting the current battle (empty between battles)
+local participants: { Player } = {}
+
+local function isParticipant(player: Player): boolean
+	return table.find(participants, player) ~= nil
+end
+
+-- "all" = everyone in the current battle
 local function notifyAll(text: string, tone: string?)
-	notifyRemote:FireAllClients(text, tone or "info")
+	for _, player in participants do
+		notifyRemote:FireClient(player, text, tone or "info")
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -54,7 +70,18 @@ print("[Napoleonic Commander] map ready:", #ZoneService.getZones(), "capture zon
 
 local battle: any = nil -- per-battle stats and state, nil outside the Battle phase
 
-SquadService.hooks.getHeroes = PlayerCombatService.getHeroes
+-- only commanders on the battlefield can be hit / capture zones
+local function battleHeroes(): { any }
+	local list = {}
+	for _, hero in PlayerCombatService.getHeroes() do
+		if isParticipant(hero.player) then
+			table.insert(list, hero)
+		end
+	end
+	return list
+end
+
+SquadService.hooks.getHeroes = battleHeroes
 SquadService.hooks.damageHero = PlayerCombatService.damageHero
 SquadService.hooks.getTeamBonus = ZoneService.getTeamBonus
 SquadService.hooks.onCasualties = function(squad, lost, _attackerTeam, creditPlayer)
@@ -84,18 +111,19 @@ SquadService.hooks.onSquadDestroyed = function(squad)
 	if squad.owner then
 		notifyRemote:FireClient(squad.owner, "Your " .. squad.name .. " was wiped out!", "bad")
 		if battle and not battle.result then
-			RecruitmentService.onPlayerSquadLost(squad.owner) -- reinforcements, if any left
+			CommandService.ensureControlled(squad.owner) -- take over another squad if needed
+			RecruitmentService.onPlayerSquadLost(squad.owner, squad) -- reinforcements, if any left
 		end
 	elseif squad.team == "Red" then
 		notifyAll("Enemy " .. squad.name .. " destroyed!", "good")
 	end
 end
 
-ZoneService.hooks.getHeroes = PlayerCombatService.getHeroes
+ZoneService.hooks.getHeroes = battleHeroes
 ZoneService.hooks.onOwnerChanged = function(zone, newOwner, oldOwner)
 	if newOwner == "Blue" then
 		notifyAll(zone.name .. " captured!", "good")
-		for _, player in Players:GetPlayers() do
+		for _, player in participants do
 			DataService.addXP(player, Rewards.XPPerZoneCapture)
 		end
 	elseif newOwner == "Red" then
@@ -113,12 +141,31 @@ RecruitmentService.hooks.getReinforcementBonus = function()
 	return ZoneService.getTeamBonus("Blue", "Reinforcements")
 end
 
-PlayerCombatService.hooks.getSpawnCFrame = function()
-	return MapService.spawnCFrame("Blue")
+PlayerCombatService.hooks.getSpawnCFrame = function(player: Player)
+	return if isParticipant(player) then MapService.spawnCFrame("Blue") else CampaignService.CampCFrame
 end
 PlayerCombatService.hooks.getLevel = DataService.getLevel
 PlayerCombatService.hooks.onDamageDealt = function(player, amount)
 	DataService.addXP(player, amount * Rewards.XPPerHeroDamage)
+end
+
+CommandService.hooks.getMaxControlled = ReputationService.maxControllableSquads
+CommandService.hooks.notify = function(player, text, tone)
+	notifyRemote:FireClient(player, text, tone)
+end
+
+ReputationService.hooks.onChanged = function(player, _value, _delta, tierUp)
+	local camp = CampaignService.get(player)
+	if camp then
+		CampaignService.markDirty(camp)
+	end
+	if tierUp then
+		notifyRemote:FireClient(
+			player,
+			string.format("Reputation rank: %s! You can now command %d squads at once.", tierUp.title, tierUp.maxSquads),
+			"good"
+		)
+	end
 end
 
 DataService.hooks.onLevelUp = function(player, level)
@@ -130,8 +177,8 @@ end
 -- Phase broadcasting
 ---------------------------------------------------------------------------
 
-local round = 1
-local phaseInfo: any = { phase = "Waiting", round = round, endsAt = 0 }
+local phaseInfo: any = { phase = "Waiting", round = 1, endsAt = 0 }
+local IDLE_PHASE = { phase = "Waiting", round = 1, endsAt = 0 }
 local continueVotes: { [Player]: boolean } = {}
 
 local function enemyPreview(cfg: any): { [string]: number }
@@ -160,7 +207,9 @@ end
 local function setPhase(phase: string, duration: number, cfg: any, banner: boolean, extra: any?)
 	phaseInfo = {
 		phase = phase,
-		round = round,
+		round = cfg.round,
+		title = cfg.title,
+		teamFactions = cfg.teamFactions,
 		endsAt = Workspace:GetServerTimeNow() + duration,
 		side = cfg.side,
 		winCondition = cfg.winCondition,
@@ -170,7 +219,9 @@ local function setPhase(phase: string, duration: number, cfg: any, banner: boole
 		banner = banner,
 		result = if extra then extra.result else nil,
 	}
-	roundStateRemote:FireAllClients(phaseInfo)
+	for _, player in participants do
+		roundStateRemote:FireClient(player, phaseInfo)
+	end
 end
 
 -- Re-announce the objective (big banner) when it changes mid-battle
@@ -179,7 +230,9 @@ local function refreshObjective(cfg: any)
 	if phaseInfo.phase == "Battle" and objective ~= phaseInfo.objective then
 		phaseInfo.objective = objective
 		phaseInfo.banner = true
-		roundStateRemote:FireAllClients(phaseInfo)
+		for _, player in participants do
+			roundStateRemote:FireClient(player, phaseInfo)
+		end
 	end
 end
 
@@ -196,7 +249,8 @@ local function onPlayerAdded(player: Player)
 	RecruitmentService.initPlayer(player)
 	PlayerCombatService.refreshMaxHealth(player)
 	DataService.sendProgress(player)
-	roundStateRemote:FireClient(player, phaseInfo)
+	roundStateRemote:FireClient(player, IDLE_PHASE)
+	CampaignService.initPlayer(player)
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
@@ -208,6 +262,7 @@ Players.PlayerRemoving:Connect(function(player)
 	SquadService.removeOwnedBy(player)
 	RecruitmentService.removePlayer(player)
 	PlayerCombatService.removePlayer(player)
+	CampaignService.removePlayer(player)
 	DataService.release(player)
 	continueVotes[player] = nil
 end)
@@ -220,7 +275,7 @@ end)
 DataService.startAutosave()
 
 Remotes.get("ContinueRound").OnServerEvent:Connect(function(player)
-	if phaseInfo.phase == "Reward" then
+	if phaseInfo.phase == "Reward" and isParticipant(player) then
 		continueVotes[player] = true
 	end
 end)
@@ -275,10 +330,14 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 
 	timers.snapshot += dt
-	if timers.snapshot >= GameConfig.Network.SnapshotInterval then
+	if timers.snapshot >= GameConfig.Network.SnapshotInterval and #participants > 0 then
 		timers.snapshot = 0
-		squadStateRemote:FireAllClients(SquadService.snapshot())
-		zoneStateRemote:FireAllClients({ zones = ZoneService.snapshot(), hold = holdInfo })
+		local squads = SquadService.snapshot()
+		local zones = { zones = ZoneService.snapshot(), hold = holdInfo }
+		for _, player in participants do
+			squadStateRemote:FireClient(player, squads)
+			zoneStateRemote:FireClient(player, zones)
+		end
 	end
 end)
 
@@ -286,16 +345,26 @@ end)
 -- Round loop
 ---------------------------------------------------------------------------
 
+local function present(): { Player }
+	local list = {}
+	for _, player in participants do
+		if player.Parent then
+			table.insert(list, player)
+		end
+	end
+	return list
+end
+
 local function runRecruitment(cfg: any)
 	SquadService.clearAll()
 	SquadService.setPaused(false)
-	-- Attack rounds: the enemy holds the field. Defence rounds: we do.
+	-- Attack battles: the enemy holds the field. Defence battles: we do.
 	ZoneService.reset(if cfg.side == "Attacker" then "Red" else "Blue")
 	holdInfo = nil
-	RecruitmentService.openPhase()
+	RecruitmentService.openPhase(participants, cfg)
 	setPhase("Recruitment", Phases.RecruitmentTime, cfg, false)
 	local deadline = time() + Phases.RecruitmentTime
-	while time() < deadline and not RecruitmentService.allReady() do
+	while time() < deadline and not RecruitmentService.allReady(present()) and #present() > 0 do
 		task.wait(0.25)
 	end
 	RecruitmentService.closePhase()
@@ -324,12 +393,12 @@ local function pendingWaves(): boolean
 end
 
 local function runBattle(cfg: any): string
-	local playerSquads = RecruitmentService.deployAll(cfg)
-	PlayerCombatService.teleportAll(MapService.spawnCFrame("Blue"))
-	for _, player in Players:GetPlayers() do
-		CommandService.setControlled(player, nil)
-		CommandService.setControlled(player, playerSquads[player]) -- your unit; allies run on the ally AI
-		DataService.recordRoundReached(player, round)
+	local playerSquads = RecruitmentService.deployAll(cfg, participants)
+	PlayerCombatService.teleport(participants, MapService.spawnCFrame("Blue"))
+	for _, player in participants do
+		-- you command as many squads as your reputation allows; the rest run on the ally AI
+		CommandService.setGroup(player, {})
+		CommandService.setGroup(player, playerSquads[player] or {})
 	end
 	EnemyAIController.setTuning(cfg.ai)
 
@@ -356,7 +425,9 @@ local function runBattle(cfg: any): string
 	while not battle.result do
 		task.wait(0.25)
 		spawnDueWaves()
-		if #SquadService.getByTeam("Blue") == 0 and not RecruitmentService.reinforcementsPending() then
+		if #present() == 0 then
+			battle.result = "Abandoned" -- the commander left the game
+		elseif #SquadService.getByTeam("Blue") == 0 and not RecruitmentService.reinforcementsPending(participants) then
 			battle.result = "Defeat"
 		elseif #SquadService.getByTeam("Red") == 0 and not pendingWaves() then
 			battle.result = "Victory"
@@ -376,27 +447,24 @@ local function runBattle(cfg: any): string
 	return battle.result
 end
 
-local function runReward(cfg: any, result: string)
+local function runReward(cfg: any, result: string, campaignLines: { string })
 	local victory = result == "Victory"
-	if victory then
-		RecruitmentService.recordSurvivors() -- your unit earns a veteran star if it survived
-	end
 	local zonesHeld = ZoneService.countOwned("Blue")
 	local zonesTotal = #ZoneService.getZones()
 	local elapsed = time() - battle.startTime
 
 	table.clear(continueVotes)
-	for _, player in Players:GetPlayers() do
+	for _, player in present() do
 		-- (kill XP was already given live, see onCasualties)
 		local xp = if victory then Rewards.XPWin + zonesHeld * Rewards.XPPerZoneHeld else Rewards.XPLoss
 		if victory and elapsed <= Rewards.FastWinTime then
 			xp += Rewards.FastWinBonusXP
 		end
-		local unlocked = if victory then DataService.recordRoundWon(player) else {}
 		DataService.addXP(player, xp)
 		summaryRemote:FireClient(player, {
 			victory = victory,
-			round = round,
+			round = cfg.round,
+			title = cfg.title,
 			side = cfg.side,
 			killsDealt = battle.killsDealt,
 			killsTaken = battle.killsTaken,
@@ -404,8 +472,7 @@ local function runReward(cfg: any, result: string)
 			zonesTotal = zonesTotal,
 			timeTaken = elapsed,
 			xpEarned = xp,
-			unlocked = unlocked,
-			nextRound = if victory then round + 1 else 1,
+			campaign = campaignLines,
 		})
 	end
 
@@ -413,7 +480,7 @@ local function runReward(cfg: any, result: string)
 	local deadline = time() + Phases.RewardTime
 	while time() < deadline do
 		local everyone = true
-		for _, player in Players:GetPlayers() do
+		for _, player in present() do
 			if not continueVotes[player] then
 				everyone = false
 			end
@@ -423,26 +490,43 @@ local function runReward(cfg: any, result: string)
 		end
 		task.wait(0.25)
 	end
-
 	battle = nil
-	if victory then
-		round += 1
-	else
-		round = 1
-		RecruitmentService.resetAll()
-	end
 end
 
 print("[Napoleonic Commander] server ready")
 task.spawn(function()
 	while true do
-		while #Players:GetPlayers() == 0 do
-			task.wait(1)
+		local spec = CampaignService.waitForBattle()
+		participants = { spec.player }
+		CampaignService.setCurrentBattle(spec.player)
+		CampaignService.onBattleStarting(spec)
+		local ok, err = pcall(function()
+			local cfg = spec.cfg
+			runRecruitment(cfg)
+			local result = runBattle(cfg)
+			if result ~= "Abandoned" then
+				notifyAll(
+					if result == "Victory" then "VICTORY!" else "DEFEAT",
+					if result == "Victory" then "good" else "bad"
+				)
+				local lines = CampaignService.resolveBattle(spec, result == "Victory")
+				runReward(cfg, result, lines)
+			end
+		end)
+		if not ok then
+			warn("[Napoleonic Commander] battle error:", err)
 		end
-		local cfg = GameConfig.getRound(round)
-		runRecruitment(cfg)
-		local result = runBattle(cfg)
-		notifyAll(if result == "Victory" then "VICTORY!" else "DEFEAT", if result == "Victory" then "good" else "bad")
-		runReward(cfg, result)
+		battle = nil
+		SquadService.clearAll()
+		holdInfo = nil
+		for _, player in present() do
+			CommandService.setGroup(player, {})
+			roundStateRemote:FireClient(player, IDLE_PHASE)
+		end
+		phaseInfo = IDLE_PHASE
+		CampaignService.onBattleFinished(spec)
+		CampaignService.setCurrentBattle(nil)
+		participants = {}
+		squadStateRemote:FireAllClients({})
 	end
 end)

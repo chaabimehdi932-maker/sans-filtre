@@ -1,7 +1,9 @@
 --[[
 	DataService
 	DataStoreService wrapper for meta-progression that survives between sessions:
-	commander level/XP, best round reached, total rounds won, unlocked units.
+	commander level/XP, best round reached, total rounds (battles) won, unlocked units,
+	and the mercenary campaign (profile.Campaign): employer faction, gold, reputation,
+	day, castle owners and the squad roster with each squad's XP (= evolution tier).
 	To test saving in Studio: Game Settings > Security > "Enable Studio Access to API Services".
 ]]
 
@@ -12,6 +14,7 @@ local Modules = ReplicatedStorage:WaitForChild("Modules")
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local Remotes = require(Modules:WaitForChild("Remotes"))
 local UnitDefinitions = require(Modules:WaitForChild("UnitDefinitions"))
+local CampaignConfig = require(Modules:WaitForChild("CampaignConfig"))
 
 local progressRemote = Remotes.get("PlayerProgress")
 
@@ -41,8 +44,24 @@ local function key(player: Player): string
 	return "player_" .. player.UserId
 end
 
+-- Campaign schema (added in v0.8; older saves get it filled in on load)
+--   Roster = { { id, unitId, xp, soldiers } }  soldiers = current headcount
+local function defaultCampaign(): any
+	return {
+		Faction = nil, -- employer, chosen at character creation
+		Gold = CampaignConfig.Economy.StartingGold,
+		Reputation = {}, -- [factionId] = number
+		Day = 0,
+		CastleOwners = {}, -- [locationId] = factionId (only castles that changed hands)
+		Roster = {},
+		NextSquadId = 1,
+		BattlesWon = 0,
+		ContractsCompleted = 0,
+	}
+end
+
 local function defaultProfile(): any
-	return { Level = 1, XP = 0, BestRound = 0, RoundsWon = 0, Unlocked = {} }
+	return { Level = 1, XP = 0, BestRound = 0, RoundsWon = 0, Unlocked = {}, Campaign = defaultCampaign() }
 end
 
 function DataService.load(player: Player)
@@ -64,6 +83,16 @@ function DataService.load(player: Player)
 	if ok and typeof(data) == "table" then
 		for field, value in data do
 			profile[field] = value
+		end
+	end
+	-- fill campaign fields missing from older saves
+	if typeof(profile.Campaign) ~= "table" then
+		profile.Campaign = defaultCampaign()
+	else
+		for field, value in defaultCampaign() do
+			if profile.Campaign[field] == nil then
+				profile.Campaign[field] = value
+			end
 		end
 	end
 	if not ok then
@@ -92,6 +121,20 @@ function DataService.release(player: Player)
 	DataService.save(player)
 	profiles[player] = nil
 	loadFailed[player] = nil
+end
+
+-- The player's campaign table (mutable: changes are saved with the profile). nil until loaded.
+function DataService.getCampaign(player: Player): any
+	local profile = profiles[player]
+	return if profile then profile.Campaign else nil
+end
+
+-- Wipe the campaign (new character)
+function DataService.resetCampaign(player: Player)
+	local profile = profiles[player]
+	if profile then
+		profile.Campaign = defaultCampaign()
+	end
 end
 
 function DataService.getLevel(player: Player): number

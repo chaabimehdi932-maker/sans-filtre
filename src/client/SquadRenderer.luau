@@ -76,17 +76,18 @@ end
 local function newSoldier(r: any, index: number): any
 	local rig
 	if r.def.visual == "Cavalry" then
-		rig = SoldierModels.cavalry(r.model, r.team, r.def)
+		rig = SoldierModels.cavalry(r.model, r.team, r.def, r.rank)
 	elseif r.def.visual == "Artillery" then
 		rig = SoldierModels.infantry(
 			r.model,
 			r.team,
 			r.def,
 			false,
-			if index == 1 then "Rammer" elseif index == 2 then "Linstock" else nil
+			if index == 1 then "Rammer" elseif index == 2 then "Linstock" else nil,
+			r.rank
 		)
 	else
-		rig = SoldierModels.infantry(r.model, r.team, r.def, true)
+		rig = SoldierModels.infantry(r.model, r.team, r.def, true, nil, r.rank)
 	end
 	local soldier = {
 		rig = rig,
@@ -186,6 +187,7 @@ local function createRender(s: any, shown: number): any
 	local r: any = {
 		id = s.id,
 		team = s.team,
+		rank = s.rank or 0, -- evolution tier: better uniforms and weapons
 		def = def,
 		model = model,
 		pos = position,

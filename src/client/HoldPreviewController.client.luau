@@ -106,9 +106,11 @@ stroke2.Parent = subtitle
 
 local function selectedEntries(): ({ any }, { any })
 	local squads = {}
-	local squad = ClientState.squadsById[ClientActions.controlledId()]
-	if squad and squad.state ~= "Routing" then
-		table.insert(squads, squad)
+	for _, id in ClientActions.controlledIds() do
+		local squad = ClientState.squadsById[id]
+		if squad and squad.state ~= "Routing" then
+			table.insert(squads, squad)
+		end
 	end
 	local entries = {}
 	for _, s in squads do

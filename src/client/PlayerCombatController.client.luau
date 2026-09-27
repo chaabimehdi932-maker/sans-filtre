@@ -3,10 +3,11 @@
 local UserInputService = game:GetService("UserInputService")
 
 local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
+local ClientState = require(script.Parent:WaitForChild("ClientState"))
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then
-		return
+	if gameProcessed or ClientState.phaseName() ~= "Battle" or ClientState.view() == "Overworld" then
+		return -- battle controls only on the battlefield
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		ClientActions.attack()

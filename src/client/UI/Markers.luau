@@ -211,7 +211,7 @@ function Markers.build(root: Instance, ClientState: any, ClientActions: any, reg
 				)
 				squadDots[i] = dot
 			end
-			local isSelected = squad.id == ClientActions.controlledId()
+			local isSelected = ClientActions.isControlled(squad.id)
 			dot.Visible = true
 			dot.Size = UDim2.fromOffset(if isSelected then 9 else 6, if isSelected then 9 else 6)
 			dot.Position = toMap(squad.x, squad.z)

@@ -1,14 +1,19 @@
 --[[
 	CommandService
-	The player commands ONE squad at a time (squad.isPlayerControlled = true). That squad obeys
-	the X Hold · C Follow · V Attack · B Rush hotkeys; every other friendly squad is run by
+	The player directly commands a GROUP of squads (squad.isPlayerControlled = true), up to
+	hooks.getMaxControlled(player) at once — 1 at the start of the campaign, more as your
+	reputation grows (CampaignConfig.Reputation.Tiers). Every squad in the group obeys the
+	X Hold · C Follow · V Attack · B Rush hotkeys together; every other friendly squad is run by
 	AllyAIController. SquadController decides each tick which of the two drives a squad, so
 	there is a single code path per squad and the handoff is just this flag.
 
-	Switching: SelectSquad remote (Tab / Shift+Tab / clicking a squad card). The previous squad
-	goes back to AI control instantly; the new one holds where it stands until given an order.
-	The controlled squad id is published in the player attribute "ControlledSquad".
-	-- STRETCH GOAL: command radius model — also order every friendly squad within N studs.
+	Switching (SelectSquad remote):
+	  id            command only that squad            (click a squad card)
+	  "next"/"prev" command only the next/prev squad    (Tab)
+	  { pin = id }  add/remove that squad to the group  (Shift + click a card)
+	  "pinNext"     add the next free squad to the group (T)
+	The group is published in player attributes: "ControlledSquad" (first id),
+	"ControlledSquads" ("3,5,8") and "MaxControlled".
 ]]
 
 local Players = game:GetService("Players")
@@ -27,9 +32,16 @@ local Orders = GameConfig.Orders
 
 local CommandService = {}
 
+CommandService.hooks = {
+	getMaxControlled = function(_player: Player): number
+		return 1
+	end,
+	notify = function(_player: Player, _text: string, _tone: string) end,
+}
+
 local VALID_ORDERS = { Hold = true, Follow = true, Attack = true, Rush = true }
 
-local controlled: { [Player]: any } = {}
+local groups: { [Player]: { any } } = {}
 
 -- Reset the per-order state so the squad starts clean under its new controller
 local function clearOrderState(squad: any)
@@ -41,43 +53,112 @@ local function clearOrderState(squad: any)
 	squad.speedMult = 1
 end
 
+-- Living squads of the player's command group (first = the "main" one)
+function CommandService.getControlledList(player: Player): { any }
+	local list = {}
+	for _, squad in (groups[player] or {}) :: { any } do
+		if squad.alive then
+			table.insert(list, squad)
+		end
+	end
+	return list
+end
+
 function CommandService.getControlled(player: Player): any
-	local squad = controlled[player]
-	if squad and squad.alive then
-		return squad
-	end
-	return nil
+	return CommandService.getControlledList(player)[1]
 end
 
--- Hand direct command of `squad` (or nothing) to the player
-function CommandService.setControlled(player: Player, squad: any)
-	local previous = controlled[player]
-	if previous == squad then
-		return
+local function publish(player: Player)
+	local list = CommandService.getControlledList(player)
+	local ids = {}
+	for _, squad in list do
+		table.insert(ids, tostring(squad.id))
 	end
-	if previous and previous.alive then
-		previous.isPlayerControlled = false -- back to AllyAIController
-		clearOrderState(previous)
-	end
-	controlled[player] = squad
-	if squad then
-		squad.isPlayerControlled = true
+	player:SetAttribute("ControlledSquad", if list[1] then list[1].id else 0)
+	player:SetAttribute("ControlledSquads", table.concat(ids, ","))
+	player:SetAttribute("MaxControlled", CommandService.hooks.getMaxControlled(player))
+end
+
+local function takeCommand(squad: any)
+	squad.isPlayerControlled = true
+	clearOrderState(squad)
+	squad.order = "Hold"
+	squad.holdYaw = squad.yaw
+	squad.idleYaw = squad.yaw
+	SquadService.stop(squad)
+end
+
+local function releaseCommand(squad: any)
+	if squad.alive then
+		squad.isPlayerControlled = false -- back to AllyAIController
 		clearOrderState(squad)
-		squad.order = "Hold"
-		squad.holdYaw = squad.yaw
-		squad.idleYaw = squad.yaw
-		SquadService.stop(squad)
 	end
-	player:SetAttribute("ControlledSquad", if squad then squad.id else 0)
 end
 
--- Make sure the player commands a living squad (first owned one), e.g. after it was destroyed
-function CommandService.ensureControlled(player: Player)
-	if CommandService.getControlled(player) then
+-- Command exactly these squads (trimmed to the player's limit). {} = none.
+function CommandService.setGroup(player: Player, squads: { any })
+	local limit = CommandService.hooks.getMaxControlled(player)
+	local wanted = {}
+	for _, squad in squads do
+		if #wanted < limit and squad.alive and not table.find(wanted, squad) then
+			table.insert(wanted, squad)
+		end
+	end
+	for _, squad in (groups[player] or {}) :: { any } do
+		if not table.find(wanted, squad) then
+			releaseCommand(squad)
+		end
+	end
+	for _, squad in wanted do
+		if not table.find(groups[player] or {}, squad) then
+			takeCommand(squad)
+		end
+	end
+	groups[player] = wanted
+	publish(player)
+end
+
+-- Hand direct command of `squad` alone (or nothing) to the player
+function CommandService.setControlled(player: Player, squad: any)
+	CommandService.setGroup(player, if squad then { squad } else {})
+end
+
+-- Add / remove one squad from the command group
+function CommandService.togglePin(player: Player, squad: any)
+	local list = CommandService.getControlledList(player)
+	local index = table.find(list, squad)
+	if index then
+		if #list > 1 then
+			table.remove(list, index)
+			CommandService.setGroup(player, list)
+		end
 		return
 	end
-	controlled[player] = nil
-	CommandService.setControlled(player, SquadService.getOwnedBy(player)[1])
+	local limit = CommandService.hooks.getMaxControlled(player)
+	if #list >= limit then
+		CommandService.hooks.notify(
+			player,
+			string.format(
+				"You can command %d squad%s at once. Earn reputation for more.",
+				limit,
+				if limit > 1 then "s" else ""
+			),
+			"info"
+		)
+		return
+	end
+	table.insert(list, squad)
+	CommandService.setGroup(player, list)
+end
+
+-- Make sure the player commands at least one living squad (e.g. after one was destroyed)
+function CommandService.ensureControlled(player: Player)
+	local list = CommandService.getControlledList(player)
+	if #list == 0 then
+		local owned = SquadService.getOwnedBy(player)
+		list = if owned[1] then { owned[1] } else {}
+	end
+	CommandService.setGroup(player, list)
 end
 
 -- Rush is on a cooldown so it cannot be spammed
@@ -85,11 +166,10 @@ local lastRushAt: { [Player]: number } = {}
 local feedbackRemote = Remotes.get("CombatFeedback")
 
 function CommandService.removePlayer(player: Player)
-	controlled[player] = nil
+	groups[player] = nil
 	lastRushAt[player] = nil
 end
 
--- SelectSquad(id) takes command of that squad; SelectSquad("next" | "prev") cycles
 Remotes.get("SelectSquad").OnServerEvent:Connect(function(player: Player, which: unknown)
 	local owned = SquadService.getOwnedBy(player)
 	if #owned == 0 then
@@ -104,12 +184,25 @@ Remotes.get("SelectSquad").OnServerEvent:Connect(function(player: Player, which:
 		local index = table.find(owned, CommandService.getControlled(player)) or 0
 		local step = if which == "prev" then -1 else 1
 		CommandService.setControlled(player, owned[(index - 1 + step) % #owned + 1])
+	elseif which == "pinNext" then
+		local list = CommandService.getControlledList(player)
+		for _, squad in owned do
+			if not table.find(list, squad) then
+				CommandService.togglePin(player, squad)
+				return
+			end
+		end
+	elseif typeof(which) == "table" and typeof((which :: any).pin) == "number" then
+		local squad = SquadService.getById((which :: any).pin)
+		if squad and squad.alive and squad.owner == player then
+			CommandService.togglePin(player, squad)
+		end
 	end
 end)
 
--- Hold with a placement (from the client preview): the squad marches to the spot, then forms up
--- in the chosen formation. Without placement data it holds where it stands.
-local function holdAt(player: Player, squad: any, data: any): boolean
+-- Hold with a placement (from the client preview): the squads march to the spot, side by side,
+-- then form up in the chosen formation. Without placement data they hold where they stand.
+local function holdAt(player: Player, squads: { any }, data: any): boolean
 	if typeof(data) ~= "table" then
 		return false
 	end
@@ -129,15 +222,22 @@ local function holdAt(player: Player, squad: any, data: any): boolean
 	if MathUtil.flatDistance(anchor, root.Position) > Orders.HoldMaxDistance then
 		return false
 	end
-	local placement = FormationDefinitions.placeSquads({
-		{ soldiers = squad.soldierCount, spacingMult = squad.def.spacingMult, formations = squad.def.formations },
-	}, anchor, yaw, formation)[1]
-	clearOrderState(squad)
-	squad.order = "Hold"
-	squad.holdPosition = placement.center
-	squad.holdYaw = yaw
-	squad.idleYaw = yaw
-	squad.pendingFormation = placement.formation
+	local entries = {}
+	for _, squad in squads do
+		table.insert(
+			entries,
+			{ soldiers = squad.soldierCount, spacingMult = squad.def.spacingMult, formations = squad.def.formations }
+		)
+	end
+	local placements = FormationDefinitions.placeSquads(entries, anchor, yaw, formation)
+	for i, squad in squads do
+		clearOrderState(squad)
+		squad.order = "Hold"
+		squad.holdPosition = placements[i].center
+		squad.holdYaw = yaw
+		squad.idleYaw = yaw
+		squad.pendingFormation = placements[i].formation
+	end
 	return true
 end
 
@@ -145,11 +245,16 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 	if typeof(order) ~= "string" or not VALID_ORDERS[order] then
 		return
 	end
-	local squad = CommandService.getControlled(player)
-	if not squad or squad.routing then -- routing squads ignore orders
+	local squads = {}
+	for _, squad in CommandService.getControlledList(player) do
+		if not squad.routing then -- routing squads ignore orders
+			table.insert(squads, squad)
+		end
+	end
+	if #squads == 0 then
 		return
 	end
-	if order == "Hold" and holdAt(player, squad, data) then
+	if order == "Hold" and holdAt(player, squads, data) then
 		return
 	end
 	if order == "Rush" then
@@ -161,28 +266,41 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 		end
 		lastRushAt[player] = now
 	end
-	clearOrderState(squad)
-	squad.order = order
-	squad.rushTarget = nil
+	-- aimed rush: every squad of the group gets its own lane next to the aimed point
+	local rushPoint: Vector3? = nil
 	if order == "Rush" and typeof(data) == "table" then
 		local x, z = (data :: any).x, (data :: any).z
 		if typeof(x) == "number" and typeof(z) == "number" and x == x and z == z then
-			local target = Vector3.new(x, squad.position.Y, z)
+			rushPoint = Vector3.new(x, squads[1].position.Y, z)
+		end
+	end
+	local center = Vector3.zero
+	for _, squad in squads do
+		center += squad.position / #squads
+	end
+	for i, squad in squads do
+		clearOrderState(squad)
+		squad.order = order
+		if rushPoint then
+			local direction = MathUtil.flat(rushPoint - center)
+			local yaw = if direction.Magnitude > 0.01 then MathUtil.yawFromDirection(direction) else squad.yaw
+			local lateral = (i - (#squads + 1) / 2) * Orders.FollowSpacing
+			local target = rushPoint + MathUtil.rightFromYaw(yaw) * lateral
 			local offset = MathUtil.flat(target - squad.position)
 			if offset.Magnitude > Orders.RushMaxDistance then
 				target = squad.position + offset.Unit * Orders.RushMaxDistance
 			end
 			if offset.Magnitude > 1 then
-				squad.rushTarget = target
+				squad.rushTarget = Vector3.new(target.X, squad.position.Y, target.Z)
 				squad.rushYaw = MathUtil.yawFromDirection(offset)
 				squad.pierced = {} -- each enemy squad can be pierced once per rush
 			end
 		end
-	end
-	if order == "Hold" then
-		squad.idleYaw = squad.yaw
-		squad.holdYaw = squad.yaw
-		SquadService.stop(squad)
+		if order == "Hold" then
+			squad.idleYaw = squad.yaw
+			squad.holdYaw = squad.yaw
+			SquadService.stop(squad)
+		end
 	end
 end)
 
@@ -329,7 +447,7 @@ local function doRush(squad: any)
 	end
 end
 
--- Turn the controlled squad's standing order into movement (called by SquadController)
+-- Turn a controlled squad's standing order into movement (called by SquadController)
 function CommandService.applyOrder(squad: any)
 	squad.rushing = squad.order == "Rush"
 	if time() < squad.regroupUntil then
@@ -339,7 +457,9 @@ function CommandService.applyOrder(squad: any)
 	if order == "Hold" then
 		doHold(squad)
 	elseif order == "Follow" then
-		doFollow(squad, 1, 1)
+		-- squads of the same group follow side by side
+		local list = if squad.owner then CommandService.getControlledList(squad.owner) else { squad }
+		doFollow(squad, table.find(list, squad) or 1, math.max(1, #list))
 	elseif order == "Attack" then
 		doAttack(squad)
 	elseif order == "Rush" then

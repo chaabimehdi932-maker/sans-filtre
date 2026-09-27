@@ -126,7 +126,9 @@ end
 ---------------------------------------------------------------------------
 
 --[[
-	params = { unitId, team, position, yaw, formation?, owner?, name?, statMultiplier?, damageMultiplier? }
+	params = { unitId, team, position, yaw, formation?, owner?, name?, statMultiplier?, damageMultiplier?,
+	           rank?, rosterId?, healthFraction? }
+	healthFraction < 1 starts the squad under strength (campaign squads keep their casualties).
 ]]
 function SquadService.create(params: any): Squad
 	local def = UnitDefinitions.get(params.unitId)
@@ -145,12 +147,12 @@ function SquadService.create(params: any): Squad
 		owner = params.owner,
 		name = params.name or def.displayName,
 		maxHealth = def.health * statMult,
-		health = def.health * statMult,
+		health = def.health * statMult * math.clamp(params.healthFraction or 1, 0.01, 1),
 		maxMorale = def.morale * statMult,
 		morale = def.morale * statMult,
 		damageMult = params.damageMultiplier or 1,
 		alive = true,
-		soldierCount = def.soldiers,
+		soldierCount = math.max(1, math.ceil(def.soldiers * math.clamp(params.healthFraction or 1, 0.01, 1))),
 		radius = 2,
 
 		position = position,
@@ -190,9 +192,10 @@ function SquadService.create(params: any): Squad
 		aiRegrouping = false,
 		order = "Hold", -- used while isPlayerControlled: Hold | Follow | Attack | Rush
 		isPlayerControlled = false, -- true = obeys its owner's hotkeys, false = AI (SquadController)
-		rank = params.rank or 0, -- veteran stars
+		rank = params.rank or 0, -- veteran stars = evolution tier
+		rosterId = params.rosterId, -- campaign roster entry this squad was deployed from
 		aiMemory = {},
-		stats = { damageDealt = 0 },
+		stats = { damageDealt = 0, kills = 0 },
 	}
 	recomputeRadius(squad)
 	squadsById[squad.id] = squad
@@ -308,7 +311,7 @@ local function destroySquad(squad: Squad, attackerTeam: string?)
 	SquadService.hooks.onSquadDestroyed(squad, attackerTeam)
 end
 
-local function refreshSoldierCount(squad: Squad, attackerTeam: string?, creditPlayer: Player?)
+local function refreshSoldierCount(squad: Squad, attackerTeam: string?, creditPlayer: Player?): number
 	local desired = if squad.health <= 0
 		then 0
 		else math.max(1, math.ceil(squad.def.soldiers * squad.health / squad.maxHealth))
@@ -319,7 +322,9 @@ local function refreshSoldierCount(squad: Squad, attackerTeam: string?, creditPl
 			recomputeRadius(squad)
 		end
 		SquadService.hooks.onCasualties(squad, lost, attackerTeam, creditPlayer)
+		return lost
 	end
+	return 0
 end
 
 local function startRout(squad: Squad)
@@ -417,7 +422,10 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 	end
 
 	local creditPlayer = info.creditPlayer or (info.attacker and info.attacker.owner)
-	refreshSoldierCount(squad, info.attackerTeam, creditPlayer)
+	local lost = refreshSoldierCount(squad, info.attackerTeam, creditPlayer)
+	if lost > 0 and info.attacker then
+		info.attacker.stats.kills += lost -- squad XP (campaign evolution)
+	end
 	if squad.health <= 0 then
 		destroySquad(squad, info.attackerTeam)
 	elseif squad.morale <= 0 and not squad.routing then

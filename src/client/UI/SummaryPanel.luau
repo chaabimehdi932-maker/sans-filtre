@@ -1,5 +1,6 @@
 -- SummaryScreen — full-screen, shown ONLY during the Reward phase: casualties, zones held,
--- time, XP/points earned, Continue button.
+-- time, XP, then the campaign report (loot, gold lost, contract outcome, squads lost / evolved)
+-- and a button back to the overworld map.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -31,7 +32,7 @@ function SummaryPanel.build(root: ScreenGui, ClientState: any): any
 		Name = "Panel",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(560, 460),
+		Size = UDim2.fromOffset(640, 600),
 		BackgroundColor3 = C.Panel,
 		BackgroundTransparency = 0.05,
 		ZIndex = 20,
@@ -60,9 +61,10 @@ function SummaryPanel.build(root: ScreenGui, ClientState: any): any
 	})
 	local lines = text({
 		Position = UDim2.fromOffset(60, 136),
-		Size = UDim2.new(1, -120, 0, 210),
+		Size = UDim2.new(1, -120, 0, 360),
 		Font = Theme.Semi,
-		TextSize = 19,
+		TextSize = 18,
+		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		LineHeight = 1.25,
@@ -102,7 +104,11 @@ function SummaryPanel.build(root: ScreenGui, ClientState: any): any
 		voted = false
 		title.Text = if s.victory then "VICTORY" else "DEFEAT"
 		title.TextColor3 = if s.victory then C.Gold else C.Red
-		subtitle.Text = string.format("Round %d · %s", s.round, if s.side == "Attacker" then "Attack" else "Defence")
+		subtitle.Text = string.format(
+			"%s · %s",
+			s.title or ("Round " .. tostring(s.round)),
+			if s.side == "Attacker" then "Attack" else "Defence"
+		)
 		local rows = {
 			string.format("Enemy soldiers killed: <b>%d</b>", s.killsDealt),
 			string.format("Soldiers lost: <b>%d</b>", s.killsTaken),
@@ -110,14 +116,14 @@ function SummaryPanel.build(root: ScreenGui, ClientState: any): any
 			string.format("Time: <b>%s</b>", Theme.formatTime(s.timeTaken)),
 			string.format('XP earned: <font color="#FFCD28"><b>+%d</b></font>', s.xpEarned),
 		}
-		for _, name in s.unlocked or {} do
-			table.insert(rows, string.format('<font color="#78E682"><b>New unit unlocked: %s!</b></font>', name))
-		end
-		if not s.victory then
-			table.insert(rows, '<font color="#FF8070">Your army is lost. The campaign restarts at round 1.</font>')
+		if s.campaign and #s.campaign > 0 then
+			table.insert(rows, "")
+			for _, line in s.campaign do
+				table.insert(rows, line)
+			end
 		end
 		lines.Text = table.concat(rows, "\n")
-		button.Text = if s.victory then "CONTINUE TO ROUND " .. s.nextRound else "TRY AGAIN"
+		button.Text = "RETURN TO THE MAP"
 		button.BackgroundColor3 = C.Green
 	end
 

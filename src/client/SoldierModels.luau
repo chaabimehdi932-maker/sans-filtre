@@ -39,6 +39,13 @@ local UNIFORMS = {
 		saddlecloth = Color3.fromRGB(150, 30, 30),
 	},
 }
+-- Campaign factions recolour the two battle teams (SoldierModels.setTeamUniform)
+local DEFAULT_UNIFORMS = { Blue = UNIFORMS.Blue, Red = UNIFORMS.Red }
+
+function SoldierModels.setTeamUniform(team: string, uniform: any?)
+	UNIFORMS[team] = uniform or DEFAULT_UNIFORMS[team]
+end
+
 local SKINS = {
 	Color3.fromRGB(234, 184, 146),
 	Color3.fromRGB(215, 160, 120),
@@ -57,6 +64,7 @@ local BLACK = Color3.fromRGB(22, 22, 24)
 local BRASS = Color3.fromRGB(205, 165, 60)
 local WOOD = Color3.fromRGB(95, 62, 35)
 local STEEL = Color3.fromRGB(195, 195, 205)
+local GOLD = Color3.fromRGB(255, 200, 45)
 local LEATHER = Color3.fromRGB(80, 52, 30)
 local WHITE = Color3.fromRGB(242, 242, 236)
 local IRON = Color3.fromRGB(45, 45, 50)
@@ -184,8 +192,18 @@ local function attach(part0: BasePart, part1: BasePart, c0: CFrame)
 end
 
 -- R6 body: torso on the root, head, arms, legs + uniform details. Returns torso, head, armR.
-local function body(rig: any, team: string, def: any, torsoParent: BasePart, torsoC0: CFrame, cavalry: boolean)
+-- rank = evolution tier (veteran stars): ★ chevrons · ★★ gold epaulettes · ★★★ gold facings + tall plume
+local function body(
+	rig: any,
+	team: string,
+	def: any,
+	torsoParent: BasePart,
+	torsoC0: CFrame,
+	cavalry: boolean,
+	rank: number
+)
 	local uniform = UNIFORMS[team]
+	local facing = if rank >= 3 then GOLD else uniform.facing
 	local skin = SKINS[math.random(1, #SKINS)]
 	local coat = def.coatColor or uniform.coat
 
@@ -214,12 +232,36 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 		local arm = part(rig, sideName .. " Arm", Vector3.new(1, 2, 1), coat)
 		r6Motor(rig, "arm" .. side, sideName .. " Shoulder", torso, arm)
 		attach(arm, part(rig, "Hand", Vector3.new(1.04, 0.45, 1.04), skin), CFrame.new(0, -0.8, 0))
-		attach(arm, part(rig, "Cuff", Vector3.new(1.06, 0.2, 1.06), uniform.facing), CFrame.new(0, -0.5, 0))
-		attach(
-			arm,
-			part(rig, "Epaulette", Vector3.new(1.1, 0.25, 1.1), uniform.facing, Enum.Material.Fabric),
-			CFrame.new(0, 0.9, 0)
-		)
+		attach(arm, part(rig, "Cuff", Vector3.new(1.06, 0.2, 1.06), facing), CFrame.new(0, -0.5, 0))
+		if rank >= 2 then
+			-- veterans: gold fringed epaulettes
+			attach(
+				arm,
+				part(rig, "Epaulette", Vector3.new(1.25, 0.3, 1.2), GOLD, Enum.Material.Metal),
+				CFrame.new(0, 0.95, 0)
+			)
+			attach(
+				arm,
+				part(rig, "Fringe", Vector3.new(1.3, 0.25, 1.25), GOLD, Enum.Material.Fabric),
+				CFrame.new(0, 0.7, 0)
+			)
+		else
+			attach(
+				arm,
+				part(rig, "Epaulette", Vector3.new(1.1, 0.25, 1.1), facing, Enum.Material.Fabric),
+				CFrame.new(0, 0.9, 0)
+			)
+		end
+		if rank >= 1 and side == "L" then
+			-- service chevrons, one per star
+			for i = 1, math.min(rank, 3) do
+				attach(
+					arm,
+					part(rig, "Chevron", Vector3.new(1.08, 0.12, 1.08), GOLD, Enum.Material.Fabric),
+					CFrame.new(0, 0.35 - i * 0.2, 0)
+				)
+			end
+		end
 		local leg = part(rig, sideName .. " Leg", Vector3.new(1, 2, 1), uniform.trousers)
 		r6Motor(rig, "leg" .. side, sideName .. " Hip", torso, leg)
 		local bootHeight = if cavalry then 1.3 else 0.7
@@ -232,7 +274,7 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 
 	-- crossbelt, collar, buttons, backpack
 	attach(torso, part(rig, "Belt", Vector3.new(0.32, 2.7, 1.06), WHITE), CFrame.Angles(0, 0, math.rad(-40)))
-	attach(torso, part(rig, "Collar", Vector3.new(2.04, 0.3, 1.04), uniform.facing), CFrame.new(0, 0.85, 0))
+	attach(torso, part(rig, "Collar", Vector3.new(2.04, 0.3, 1.04), facing), CFrame.new(0, 0.85, 0))
 	attach(
 		torso,
 		part(rig, "Buttons", Vector3.new(0.18, 1.5, 1.06), BRASS, Enum.Material.Metal),
@@ -267,8 +309,14 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 		)
 		attach(
 			head,
-			part(rig, "Crest", Vector3.new(0.3, 0.6, 1.5), BLACK, Enum.Material.Fabric),
-			CFrame.new(0, 1.1, 0.1)
+			part(
+				rig,
+				"Crest",
+				Vector3.new(0.3, if rank >= 3 then 0.9 else 0.6, 1.5),
+				if rank >= 3 then Color3.fromRGB(200, 30, 30) else BLACK,
+				Enum.Material.Fabric
+			),
+			CFrame.new(0, if rank >= 3 then 1.25 else 1.1, 0.1)
 		)
 	else
 		local hatHeight = (def.hatHeight or 0.7) * 1.4
@@ -287,10 +335,17 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 			part(rig, "Plate", Vector3.new(0.45, 0.45, 0.1), BRASS, Enum.Material.Metal),
 			CFrame.new(0, 0.55 + hatHeight * 0.45, -0.6)
 		)
+		local plumeHeight = if rank >= 3 then 1.4 else 0.75
 		attach(
 			head,
-			part(rig, "Plume", Vector3.new(0.28, 0.75, 0.28), def.plumeColor or uniform.plume, Enum.Material.Fabric),
-			CFrame.new(0, 0.9 + hatHeight, -0.2)
+			part(
+				rig,
+				"Plume",
+				Vector3.new(if rank >= 3 then 0.36 else 0.28, plumeHeight, if rank >= 3 then 0.36 else 0.28),
+				def.plumeColor or uniform.plume,
+				Enum.Material.Fabric
+			),
+			CFrame.new(0, 0.55 + hatHeight + plumeHeight / 2, -0.2)
 		)
 	end
 	return torso
@@ -354,9 +409,18 @@ end
 
 -- Line infantry, skirmishers, grenadiers; artillery crew with withGun = false.
 -- crewTool: "Rammer" (loader) or "Linstock" (gunner) held in the right hand.
-function SoldierModels.infantry(parent: Instance, team: string, def: any, withGun: boolean, crewTool: string?): any
+-- rank = evolution tier (0–3): better uniform, and from ★★ a brass-fitted musket with a long bayonet
+function SoldierModels.infantry(
+	parent: Instance,
+	team: string,
+	def: any,
+	withGun: boolean,
+	crewTool: string?,
+	rank: number?
+): any
+	local stars = rank or 0
 	local rig = newRig(parent, if withGun then "Infantry" else "Crew", Vector3.new(2, 2, 1), nil)
-	local torso = body(rig, team, def, rig.root, CFrame.new(), false)
+	local torso = body(rig, team, def, rig.root, CFrame.new(), false, stars)
 	local hand = rig.motors.armR.Part1
 	if crewTool == "Rammer" then
 		-- continues the line of the arm, like the cavalry sabre
@@ -382,19 +446,21 @@ function SoldierModels.infantry(parent: Instance, team: string, def: any, withGu
 		motor(rig, "gun", torso, musket, CFrame.new(), CFrame.new(0, -2.2, 0))
 		attach(
 			musket,
-			part(rig, "Barrel", Vector3.new(0.16, 2.2, 0.16), STEEL, Enum.Material.Metal),
+			part(rig, "Barrel", Vector3.new(0.16, 2.2, 0.16), if stars >= 2 then BRASS else STEEL, Enum.Material.Metal),
 			CFrame.new(0, 1.1, -0.1)
 		)
-		attach(
-			musket,
-			part(rig, "Bayonet", Vector3.new(0.08, 1.1, 0.08), STEEL, Enum.Material.Metal),
-			CFrame.new(0, 2.75, -0.12)
-		)
+		local bayonetLength = if stars >= 2 then 1.6 else 1.1
+		local bayonet = part(rig, "Bayonet", Vector3.new(0.08, bayonetLength, 0.08), STEEL, Enum.Material.Metal)
+		if stars >= 2 then
+			bayonet.Reflectance = 0.35
+		end
+		attach(musket, bayonet, CFrame.new(0, 2.2 + bayonetLength / 2, -0.12))
 	end
 	return rig
 end
 
-function SoldierModels.cavalry(parent: Instance, team: string, def: any): any
+function SoldierModels.cavalry(parent: Instance, team: string, def: any, rank: number?): any
+	local stars = rank or 0
 	local uniform = UNIFORMS[team]
 	local coatColors = HORSES[math.random(1, #HORSES)]
 	local coat, dark = coatColors[1], coatColors[2]
@@ -451,15 +517,21 @@ function SoldierModels.cavalry(parent: Instance, team: string, def: any): any
 	)
 
 	-- R6 rider sitting in the saddle (the "rider" joint)
-	body(rig, team, def, horseBody, CFrame.new(0, 2.35, 0.2), true)
+	body(rig, team, def, horseBody, CFrame.new(0, 2.35, 0.2), true, stars)
 	-- sabre continues the line of the right arm, so raising the arm raises the blade
 	local armR = rig.motors.armR.Part1
+	-- veterans (★★) carry a longer, polished sabre with a gilded guard
+	local sabreLength = if stars >= 2 then 4 else 3.4
+	local sabre = part(rig, "Sabre", Vector3.new(0.12, sabreLength, 0.3), STEEL, Enum.Material.Metal)
+	if stars >= 2 then
+		sabre.Reflectance = 0.35
+	end
+	attach(armR, sabre, CFrame.new(0, -1.05 - sabreLength / 2, -0.1))
 	attach(
 		armR,
-		part(rig, "Sabre", Vector3.new(0.12, 3.4, 0.3), STEEL, Enum.Material.Metal),
-		CFrame.new(0, -2.75, -0.1)
+		part(rig, "Guard", Vector3.new(0.55, 0.14, 0.4), if stars >= 2 then GOLD else BRASS, Enum.Material.Metal),
+		CFrame.new(0, -1.05, 0)
 	)
-	attach(armR, part(rig, "Guard", Vector3.new(0.55, 0.14, 0.4), BRASS, Enum.Material.Metal), CFrame.new(0, -1.05, 0))
 	return rig
 end
 

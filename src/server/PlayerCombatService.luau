@@ -491,6 +491,16 @@ function PlayerCombatService.teleportAll(cframe: CFrame)
 	end
 end
 
+-- Teleport only these players (battle participants)
+function PlayerCombatService.teleport(players: { Player }, cframe: CFrame)
+	for index, player in players do
+		local character = getParts(player)
+		if character then
+			character:PivotTo(cframe * CFrame.new((index - 1) * 6, 0, 0))
+		end
+	end
+end
+
 local function onCharacterAdded(player: Player, character: Model)
 	local state = states[player]
 	if not state then

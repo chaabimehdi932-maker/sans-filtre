@@ -3,6 +3,7 @@
 	Latest game state pushed by the server. UI/VFX scripts read from here and listen to
 	`Changed(key, ...)`. Nothing here is trusted by the server: it's display state only.
 	Keys: "Phase" | "Squads" | "Zones" | "Recruit" | "Progress" | "Summary" | "Notify"
+	      | "Campaign" (overworld state) | "CampaignTick" (positions, 5×/s) | "Encounter"
 ]]
 
 local Players = game:GetService("Players")
@@ -22,6 +23,8 @@ local ClientState: { [string]: any } = {
 	recruit = nil,
 	progress = nil,
 	summary = nil,
+	campaign = nil, -- { view, faction, gold, reputation, tier, nextTier, day, owners, atLocation, contract, board, … }
+	world = nil, -- { day, x, z, moving, waiting, dest?, parties }
 }
 ClientState.Changed = changed.Event
 
@@ -69,6 +72,25 @@ end)
 Remotes.get("Notify").OnClientEvent:Connect(function(text, tone)
 	changed:Fire("Notify", text, tone)
 end)
+
+Remotes.get("CampaignState").OnClientEvent:Connect(function(data)
+	if data.encounter then
+		changed:Fire("Encounter", data.encounter)
+		return
+	end
+	ClientState.campaign = data
+	changed:Fire("Campaign")
+end)
+
+Remotes.get("CampaignTick").OnClientEvent:Connect(function(data)
+	ClientState.world = data
+	changed:Fire("CampaignTick")
+end)
+
+-- "Creation" | "Overworld" | "Battle" (nil until the server sent it)
+function ClientState.view(): string?
+	return if ClientState.campaign then ClientState.campaign.view else nil
+end
 
 function ClientState.phaseName(): string
 	return if ClientState.phase then ClientState.phase.phase else "Waiting"

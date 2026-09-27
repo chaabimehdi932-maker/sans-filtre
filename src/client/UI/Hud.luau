@@ -35,7 +35,7 @@ local ROMAN = { "I", "II", "III", "IV", "V" }
 
 local Hud = {}
 
-local PHASE_NAMES = { Waiting = "WAITING", Recruitment = "RECRUITMENT", Battle = "BATTLE", Reward = "RESULTS" }
+local PHASE_NAMES = { Waiting = "WAITING", Recruitment = "DEPLOYMENT", Battle = "BATTLE", Reward = "RESULTS" }
 
 -- Draws a formation as little dots (the 1/2/3 formation buttons)
 local function formationIcon(parent: GuiObject, formation: string)
@@ -93,6 +93,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		bottomLeft = region("BottomLeft", Vector2.new(0, 1), UDim2.new(0, 14, 1, -26), Vector2.new(180, 250)),
 		bottomCenter = region("BottomCenter", Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -26), Vector2.new(600, 150)),
 		bottomRight = region("BottomRight", Vector2.new(1, 1), UDim2.new(1, -14, 1, -26), Vector2.new(380, 190)),
+		army = region("ArmyStrip", Vector2.new(0, 0), UDim2.new(0, 14, 0, 66), Vector2.new(420, 100)),
 	}
 	api.regions = regions
 
@@ -331,6 +332,125 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		end
 	end)
 
+	---------------------------------------------------------------- top left: your army (all your squads)
+	-- gold = under your direct command. Click: command only it · Shift+click: add / remove
+	local SHORT =
+		{ LineInfantry = "LINE", Skirmishers = "SKIRM", Cavalry = "CAV", Artillery = "GUNS", EliteGuard = "GUARD" }
+	local armyTitle = outlined({
+		Size = UDim2.new(1, 0, 0, 20),
+		Text = "YOUR ARMY",
+		Font = Theme.Bold,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = regions.army,
+	}, 1.5)
+	local armyRow = create("Frame", {
+		Position = UDim2.fromOffset(0, 22),
+		Size = UDim2.new(1, 0, 0, 74),
+		BackgroundTransparency = 1,
+		Parent = regions.army,
+	})
+	create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = armyRow,
+	})
+	local chips: { [number]: any } = {}
+	local function chip(squad: any): any
+		local entry = chips[squad.id]
+		if entry then
+			return entry
+		end
+		local button = create("TextButton", {
+			Size = UDim2.fromOffset(62, 72),
+			BackgroundColor3 = Color3.fromRGB(26, 26, 34),
+			BackgroundTransparency = 0.15,
+			AutoButtonColor = true,
+			Text = "",
+			Parent = armyRow,
+		})
+		Theme.corner(button, 8)
+		local stroke = Theme.border(button, BLACK, 3)
+		local name = outlined({
+			Position = UDim2.fromOffset(0, 4),
+			Size = UDim2.new(1, 0, 0, 18),
+			Text = SHORT[squad.unitId] or squad.unitId,
+			Font = Theme.Bold,
+			TextSize = 15,
+			Parent = button,
+		}, 1.5)
+		local count = outlined({
+			Position = UDim2.fromOffset(0, 22),
+			Size = UDim2.new(1, 0, 0, 20),
+			Text = "",
+			Font = Theme.Bold,
+			TextSize = 17,
+			Parent = button,
+		}, 1.5)
+		local stars = outlined({
+			Position = UDim2.fromOffset(0, 42),
+			Size = UDim2.new(1, 0, 0, 14),
+			Text = "",
+			TextSize = 12,
+			TextColor3 = C.Gold,
+			Parent = button,
+		}, 1.2)
+		local hpBack, hpFill = Theme.bar({
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -5),
+			Size = UDim2.new(1, -12, 0, 6),
+			Parent = button,
+		}, Color3.fromRGB(90, 160, 255))
+		Theme.corner(hpBack, 3)
+		Theme.corner(hpFill, 3)
+		button.Activated:Connect(function()
+			if
+				UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+				or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+			then
+				ClientActions.togglePin(squad.id)
+			else
+				ClientActions.selectSquad(squad.id)
+			end
+		end)
+		entry = { button = button, stroke = stroke, name = name, count = count, stars = stars, hpFill = hpFill }
+		chips[squad.id] = entry
+		return entry
+	end
+	local function refreshArmy()
+		local mine = ClientState.mySquads()
+		local alive = {}
+		local commanded = 0
+		for index, squad in mine do
+			alive[squad.id] = true
+			local entry = chip(squad)
+			entry.button.LayoutOrder = index
+			local controlled = ClientActions.isControlled(squad.id)
+			if controlled then
+				commanded += 1
+			end
+			entry.stroke.Color = if controlled then C.Gold else BLACK
+			entry.stroke.Thickness = if controlled then 4 else 3
+			entry.count.Text = tostring(squad.soldiers)
+			entry.stars.Text = string.rep("★", squad.rank or 0)
+			entry.hpFill.Size = UDim2.fromScale(math.clamp(squad.hp, 0, 1), 1)
+			entry.name.TextColor3 = if squad.state == "Routing" then C.Red else C.Text
+		end
+		for id, entry in chips do
+			if not alive[id] then
+				entry.button:Destroy()
+				chips[id] = nil
+			end
+		end
+		armyTitle.Text = string.format(
+			"YOUR ARMY  ·  commanding %d / %d   (Tab · T · Shift+click)",
+			commanded,
+			ClientActions.maxControlled()
+		)
+		regions.army.Visible = #mine > 0 and ClientState.phaseName() == "Battle"
+	end
+
 	---------------------------------------------------------------- bottom left: the unit you command
 	local unitCard: any = nil
 	local unitCardId: string? = nil
@@ -353,7 +473,8 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	function api.onSquads()
 		local squad = ClientState.squadsById[ClientActions.controlledId()]
 		-- the card shows your unit type (rebuilt only when it changes)
-		local unitId = if squad then squad.unitId elseif ClientState.recruit then ClientState.recruit.chosen else nil
+		refreshArmy()
+		local unitId = if squad then squad.unitId else nil
 		if unitId and unitId ~= unitCardId then
 			if unitCard then
 				unitCard:destroy()
@@ -400,7 +521,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 				recruit.reinforcements
 			)
 		else
-			reinforcementLabel.Text = "Your unit is lost.\nNo reinforcements left!"
+			reinforcementLabel.Text = "All your squads have fallen.\nFight on, commander!"
 		end
 	end
 
@@ -751,8 +872,10 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			"<b>Left click</b>  attack   ·   <b>F</b>  block   ·   <b>Q</b>  roll",
 			"<b>H</b>  heal & rally   ·   <b>G</b>  mount / dismount",
 			"",
-			"You command ONE unit (bottom-left card). The rest of the army",
-			"is led by allied officers and fights on its own.",
+			"You command the squads outlined in gold (more with reputation);",
+			"your other squads and allies fight on their own.",
+			"<b>Tab</b>  command next squad   ·   <b>T</b>  add a squad to your group",
+			"<b>Click</b> a squad card: command it   ·   <b>Shift+click</b>: add / remove",
 			"",
 			"<b>X</b>  Hold: preview on the ground, <b>1 / 2 / 3</b> Line / Column / Square,",
 			"      <b>Left click</b> to confirm, <b>right click</b> or <b>X</b> to cancel",
@@ -822,7 +945,11 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		local info = ClientState.phase
 		if info then
 			timerLabel.Text = Theme.formatTime(info.endsAt - Workspace:GetServerTimeNow())
-			phaseLabel.Text = string.format("ROUND %d  ·  %s", info.round or 1, PHASE_NAMES[info.phase] or info.phase)
+			phaseLabel.Text = string.format(
+				"%s  ·  %s",
+				string.upper(info.title or ("Round " .. (info.round or 1))),
+				PHASE_NAMES[info.phase] or info.phase
+			)
 		else
 			timerLabel.Text = "--:--"
 			phaseLabel.Text = "Waiting for the server… (v" .. GameConfig.Version .. ")"

@@ -1,8 +1,8 @@
 --[[
-	RecruitScreen — full-screen, shown ONLY during the Recruitment phase.
-	Choose ONE unit (free): that is the squad you command. The rest of your army is AI-led.
-	Each card: 3D portrait, rarity border, veteran stars (your experience with that unit),
-	stats in the hover tooltip. Then the enemy scouting report, the objectives and READY.
+	DeployScreen — full-screen, shown ONLY during the deployment ("Recruitment") phase.
+	Your whole roster marches to battle: one card per squad with its portrait, evolution stars,
+	headcount and XP. Then the enemy scouting report, the objectives and READY.
+	(Hiring and replenishing happen on the overworld, in your employer's towns.)
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,7 +19,6 @@ local C = Theme.Colors
 local create, outlined = Theme.create, Theme.outlined
 local BLACK = Color3.new(0, 0, 0)
 
-local chooseRemote = Remotes.get("RequestRecruit")
 local confirmRemote = Remotes.get("ConfirmRecruit")
 
 local RecruitPanel = {}
@@ -55,7 +54,7 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 	local title = outlined({
 		Position = UDim2.fromOffset(28, 14),
 		Size = UDim2.new(0.7, 0, 0, 46),
-		Text = "CHOOSE YOUR UNIT",
+		Text = "DEPLOY YOUR ARMY",
 		Font = Theme.Display,
 		TextSize = 42,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -97,14 +96,7 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = row,
 	})
-	local cards = {}
-	for index, unitId in UnitDefinitions.Order do
-		local card = UnitCard.new(row, unitId, "Blue", { layoutOrder = index })
-		card.button.Activated:Connect(function()
-			chooseRemote:FireServer(unitId)
-		end)
-		cards[unitId] = card
-	end
+	local cards: { [number]: any } = {}
 
 	local function infoLine(y: number, color: Color3?): TextLabel
 		return outlined({
@@ -124,8 +116,8 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 	local intelLabel = infoLine(432, Color3.fromRGB(255, 150, 140))
 	local zonesLabel = infoLine(479, Color3.fromRGB(170, 215, 255))
 	local noteLabel = infoLine(530, Color3.fromRGB(175, 175, 190))
-	noteLabel.Text = "Units are free. The rest of your army is led by allied officers. "
-		.. "★ Your unit earns a star each battle it survives (+8% HP and damage). Hover a card for its stats."
+	noteLabel.Text = "Squads wiped out in battle are lost forever. Survivors keep their casualties and earn XP: "
+		.. "each ★ is an evolution tier (more HP, damage and morale, better kit). Hover a card for its stats."
 
 	local readyButton = Theme.tile({
 		AnchorPoint = Vector2.new(1, 1),
@@ -150,32 +142,50 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 
 	function api.onRecruit()
 		local state = ClientState.recruit
-		if not state then
+		if not state or not state.roster then
 			return
 		end
-		for _, unitId in UnitDefinitions.Order do
-			local card = cards[unitId]
-			local def = UnitDefinitions.get(unitId)
-			local unlocked = state.unlocked[unitId] ~= false
-			local chosen = state.chosen == unitId
-			card:setStars((state.ranks and state.ranks[unitId]) or 0)
-			card:setLocked(not unlocked, "🔒\nWin " .. tostring(def.unlockRoundsWon) .. " rounds")
-			card:setSelected(chosen)
+		local seen = {}
+		for index, entry in state.roster do
+			seen[entry.id] = true
+			local card = cards[entry.id]
+			if card and card.def.id ~= entry.unitId then
+				card:destroy()
+				card = nil
+			end
+			if not card then
+				card = UnitCard.new(row, entry.unitId, "Blue", { layoutOrder = index, compact = #state.roster > 5 })
+				cards[entry.id] = card
+			end
+			card.button.LayoutOrder = index
+			card:setName(entry.name)
+			card:setStars(entry.stars)
 			card:setSubtitle(
-				if chosen then "✔ SELECTED" else def.soldiers .. " soldiers",
-				if chosen then C.Gold else nil
+				if entry.nextXP
+					then string.format("XP %d / %d", entry.xp, entry.nextXP)
+					else "XP " .. entry.xp .. " · MAX",
+				C.Gold
 			)
-			card:setValue(if chosen then "★" else "FREE")
+			card:setValue(string.format("%d/%d", entry.soldiers, entry.maxSoldiers))
+			card:setHealth(entry.soldiers / entry.maxSoldiers)
 		end
-		local chosenDef = state.chosen and UnitDefinitions.get(state.chosen)
-		chosenLabel.Text = if chosenDef
-			then string.format(
-				"<b>YOU COMMAND:</b> %s %s  (%d soldiers)",
-				chosenDef.icon or "",
-				chosenDef.displayName,
-				chosenDef.soldiers
-			)
-			else "<b>Pick a unit to command.</b>"
+		for id, card in cards do
+			if not seen[id] then
+				card:destroy()
+				cards[id] = nil
+			end
+		end
+		local total = 0
+		for _, entry in state.roster do
+			total += entry.soldiers
+		end
+		chosenLabel.Text = string.format(
+			"<b>YOUR ARMY:</b> %d squad%s, %d soldiers. You command up to %d at once (reputation), the rest follow your officers.",
+			#state.roster,
+			if #state.roster == 1 then "" else "s",
+			total,
+			(game:GetService("Players").LocalPlayer:GetAttribute("MaxControlled") or 1) :: number
+		)
 		readyLabel.Text = if state.ready then "WAITING…" else "READY ✔"
 		readyGradient.Color = if state.ready
 			then ColorSequence.new(Color3.fromRGB(90, 90, 100), Color3.fromRGB(50, 50, 58))
@@ -203,7 +213,7 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 		if info.phase ~= "Recruitment" then
 			return
 		end
-		title.Text = "ROUND " .. info.round .. " — CHOOSE YOUR UNIT"
+		title.Text = string.upper(info.title or "Battle")
 		subtitle.Text = if info.side == "Attacker"
 			then "You ATTACK: capture every zone and hold it, or destroy the enemy."
 			else "You DEFEND: destroy the attackers before they take every zone."

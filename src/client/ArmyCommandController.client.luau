@@ -8,6 +8,7 @@
 local UserInputService = game:GetService("UserInputService")
 
 local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
+local ClientState = require(script.Parent:WaitForChild("ClientState"))
 
 local ORDER_KEYS = {
 	[Enum.KeyCode.X] = "Hold",
@@ -22,10 +23,19 @@ local FORMATION_KEYS = {
 }
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then
-		return
+	if gameProcessed or ClientState.phaseName() ~= "Battle" or ClientState.view() == "Overworld" then
+		return -- battle controls only on the battlefield
 	end
 	local key = input.KeyCode
+	if key == Enum.KeyCode.Tab then
+		local shift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+			or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+		ClientActions.selectSquad(if shift then "prev" else "next")
+		return
+	elseif key == Enum.KeyCode.T then
+		ClientActions.pinNext()
+		return
+	end
 	local order = ORDER_KEYS[key]
 	if order then
 		ClientActions.order(order)
