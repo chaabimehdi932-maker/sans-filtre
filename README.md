@@ -3,29 +3,24 @@
 Jeu Roblox géré avec [Rojo](https://rojo.space) : le code vit dans ce dépôt Git
 et se synchronise automatiquement dans Roblox Studio.
 
-## Installation (une seule fois)
+## Installation automatique (une seule fois)
 
-1. Installe [Rokit](https://github.com/rojo-rbx/rokit) (gestionnaire d'outils Roblox).
-2. Dans le dossier du projet :
-   ```
-   rokit install
-   ```
-   Ça installe les versions de Rojo, Selene et StyLua indiquées dans `rokit.toml`.
-3. Installe le **plugin Rojo** dans Roblox Studio :
-   ```
-   rojo plugin install
-   ```
-   (ou depuis la boutique de plugins Roblox : « Rojo »).
-4. Recommandé : [VS Code](https://code.visualstudio.com) avec les extensions proposées
-   dans `.vscode/extensions.json` (Rojo, Luau LSP, StyLua, Selene).
+1. Télécharge le projet : sur GitHub, choisis la branche `claude/roblox-studio-c4irid`,
+   puis **Code → Download ZIP** et décompresse-le (ou `git clone`).
+2. **Windows** : double-clic sur **`INSTALLER.bat`**.
+   **Mac** : ouvre un terminal dans le dossier et lance `./installer.sh`.
+
+   Le script installe Rokit, Rojo, Selene, StyLua et le plugin Rojo pour Studio,
+   puis lance `rojo serve`.
+3. Ouvre (ou redémarre) Roblox Studio → ouvre ton jeu → onglet **Plugins** → **Rojo** → **Connect**.
+
+Recommandé : [VS Code](https://code.visualstudio.com) avec les extensions proposées
+dans `.vscode/extensions.json` (Rojo, Luau LSP, StyLua, Selene).
 
 ## Travailler au quotidien
 
-1. Lance le serveur Rojo :
-   ```
-   rojo serve
-   ```
-2. Ouvre ton jeu dans Roblox Studio → onglet **Plugins** → **Rojo** → **Connect**.
+1. **Windows** : double-clic sur **`DEMARRER.bat`** (Mac : `rojo serve` dans un terminal).
+2. Dans Studio : **Plugins** → **Rojo** → **Connect**.
 3. Modifie les fichiers dans `src/` : les changements apparaissent **instantanément** dans Studio.
 
 Pour générer un fichier de jeu complet sans Studio :
