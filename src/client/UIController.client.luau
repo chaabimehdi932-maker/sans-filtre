@@ -78,13 +78,14 @@ local SCREENS = {
 	Reward = summary.frame,
 	Creation = campaign.creation,
 	Overworld = campaign.frame,
+	Town = campaign.frame, -- same panels, town mode (walk + talk)
 }
 local currentPhase = nil
 
 -- the screen to show: the campaign view, or the battle phase while in a battle
 local function currentScreen(): string
 	local view = ClientState.view()
-	if view == "Creation" or view == "Overworld" then
+	if view == "Creation" or view == "Overworld" or view == "Town" then
 		return view
 	end
 	return ClientState.phaseName()
@@ -96,8 +97,11 @@ local function showPhase(_phase: string?)
 		return
 	end
 	currentPhase = phase
-	for name, frame in SCREENS do
-		frame.Visible = name == phase
+	for _, frame in SCREENS do
+		frame.Visible = false
+	end
+	if SCREENS[phase] then
+		SCREENS[phase].Visible = true
 	end
 	local panel = if phase == "Recruitment" then recruit.panel elseif phase == "Reward" then summary.panel else nil
 	if panel then
@@ -175,7 +179,7 @@ ClientState.Changed:Connect(function(key, a, b)
 	elseif key == "Summary" then
 		summary.onSummary()
 	elseif key == "Notify" then
-		if ClientState.view() == "Overworld" then
+		if ClientState.view() == "Overworld" or ClientState.view() == "Town" then
 			campaign.notify(a, b)
 		else
 			hud.notify(a, b)
@@ -208,4 +212,5 @@ RunService.RenderStepped:Connect(function()
 	hud.render()
 	markers.render()
 	recruit.render()
+	campaign.render()
 end)

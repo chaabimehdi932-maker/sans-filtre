@@ -6,7 +6,14 @@ local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
 local ClientState = require(script.Parent:WaitForChild("ClientState"))
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed or ClientState.phaseName() ~= "Battle" or ClientState.view() == "Overworld" then
+	if gameProcessed then
+		return
+	end
+	if ClientState.view() == "Town" and input.KeyCode == Enum.KeyCode.G then
+		ClientActions.toggleMount() -- ride through town if you like
+		return
+	end
+	if ClientState.phaseName() ~= "Battle" or ClientState.view() == "Overworld" or ClientState.view() == "Town" then
 		return -- battle controls only on the battlefield
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then

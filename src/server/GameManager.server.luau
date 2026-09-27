@@ -29,6 +29,7 @@ local SquadController = require(script.Parent:WaitForChild("SquadController"))
 local MapService = require(script.Parent:WaitForChild("MapService"))
 local PlayerCombatService = require(script.Parent:WaitForChild("PlayerCombatService"))
 require(script.Parent:WaitForChild("QuestService")) -- plugs into CampaignService hooks
+local TownService = require(script.Parent:WaitForChild("TownService"))
 local RecruitmentService = require(script.Parent:WaitForChild("RecruitmentService"))
 local ReputationService = require(script.Parent:WaitForChild("ReputationService"))
 local SquadService = require(script.Parent:WaitForChild("SquadService"))
@@ -69,6 +70,8 @@ ZoneService.init()
 print("[Napoleonic Commander] map ready:", #ZoneService.getZones(), "capture zones")
 
 local battle: any = nil -- per-battle stats and state, nil outside the Battle phase
+
+CampaignService.TownCFrame = TownService.SpawnCFrame
 
 -- only commanders on the battlefield can be hit / capture zones
 local function battleHeroes(): { any }
@@ -142,7 +145,7 @@ RecruitmentService.hooks.getReinforcementBonus = function()
 end
 
 PlayerCombatService.hooks.getSpawnCFrame = function(player: Player)
-	return if isParticipant(player) then MapService.spawnCFrame("Blue") else CampaignService.CampCFrame
+	return if isParticipant(player) then MapService.spawnCFrame("Blue") else CampaignService.spawnCFrame(player)
 end
 PlayerCombatService.hooks.getLevel = DataService.getLevel
 PlayerCombatService.hooks.onDamageDealt = function(player, amount)

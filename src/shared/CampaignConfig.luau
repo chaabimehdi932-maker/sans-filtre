@@ -22,6 +22,7 @@ CampaignConfig.Factions = {
 		id = "Francia",
 		displayName = "Empire of Francia",
 		short = "Francia",
+		emblem = "⚜",
 		description = "A young empire hungry for glory. Pays well for daring raids.",
 		color = Color3.fromRGB(45, 95, 215),
 		uniform = {
@@ -36,6 +37,7 @@ CampaignConfig.Factions = {
 		id = "Albion",
 		displayName = "Kingdom of Albion",
 		short = "Albion",
+		emblem = "♔",
 		description = "Island redcoats with deep pockets and long supply lines.",
 		color = Color3.fromRGB(205, 45, 45),
 		uniform = {
@@ -50,6 +52,7 @@ CampaignConfig.Factions = {
 		id = "Borussia",
 		displayName = "Grand Duchy of Borussia",
 		short = "Borussia",
+		emblem = "✠",
 		description = "Drilled, disciplined and always at war with somebody.",
 		color = Color3.fromRGB(60, 150, 75),
 		uniform = {
@@ -65,6 +68,7 @@ CampaignConfig.Factions = {
 		id = "Bandits",
 		displayName = "Bandits",
 		short = "Bandits",
+		emblem = "☠",
 		description = "Deserters and cutthroats.",
 		color = Color3.fromRGB(120, 85, 55),
 		uniform = {
@@ -179,8 +183,8 @@ end
 
 CampaignConfig.Travel = {
 	DaysPerSecond = 0.1, -- PLACEHOLDER: real seconds → in-game days while moving (10 s = 1 day)
-	WaitSpeedMult = 3, -- PLACEHOLDER: time runs this much faster while you Wait in place
-	IdleTimeMult = 0.25, -- PLACEHOLDER: time still trickles while you stand still (0 = frozen); menus pause it
+	-- time controls (bottom of the map screen): ❚❚ pause · ▶ play · ▶▶ fast. Menus and towns pause.
+	FastSpeedMult = 3, -- PLACEHOLDER: ▶▶ speed
 	ArmySpeed = 110, -- PLACEHOLDER: map units per day
 	RoadWidth = 18, -- PLACEHOLDER: within this distance of a road you count as "on the road"
 	ArriveRadius = 14, -- reaching a location
@@ -252,6 +256,22 @@ CampaignConfig.Battle = {
 	GarrisonAllies = 2, -- PLACEHOLDER: castle garrison squads fighting beside you
 	CaravanGuards = 1, -- PLACEHOLDER: caravan guard squads in an ambush battle
 	WipedSquadsLostOnVictory = true, -- a squad wiped out is gone forever even if you win
+}
+
+---------------------------------------------------------------------------
+-- Towns you walk around in (your employer's towns)
+---------------------------------------------------------------------------
+
+CampaignConfig.Town = {
+	-- the free-company captain in the tavern sells veteran squads (already ★ or ★★)
+	MercenaryOffers = 3, -- PLACEHOLDER: offers at a time
+	MercenaryRefreshDays = 4, -- PLACEHOLDER
+	MercenaryStars = { 1, 2 }, -- PLACEHOLDER: random range of stars
+	MercenaryCostPerStar = 0.6, -- PLACEHOLDER: price = hire price × (1 + stars × this)
+	-- the arms merchant in the market re-equips and drills a squad: gold → squad XP
+	DrillXP = 60, -- PLACEHOLDER
+	DrillCost = 150, -- PLACEHOLDER: × (1 + stars × DrillCostPerStar)
+	DrillCostPerStar = 0.5, -- PLACEHOLDER
 }
 
 ---------------------------------------------------------------------------

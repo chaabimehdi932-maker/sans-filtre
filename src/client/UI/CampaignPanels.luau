@@ -2,15 +2,21 @@
 	CampaignPanels — every screen of the mercenary campaign outside battles.
 	  CreationScreen  (view "Creation"): pick the faction you will serve
 	  OverworldHUD    (view "Overworld"):
-	    top bar       day · gold · reputation rank (how many squads you command) · Wait
+	    top bar       day · gold · reputation rank (how many squads you command)
+	    bottom        time controls ❚❚ ▶ ▶▶ (like Bannerlord)
 	    left          your company: each squad's stars, headcount and XP
 	    right         the active contract (status, deadline, Assault / Abandon)
-	    bottom        the place you stand in: quest board, hire, replenish
+	    bottom        the place you stand in: ENTER TOWN (walk in on foot), replenish, assault
 	    modals        quest board, hiring
 	    banners       "Ambush!" before a battle, "waiting for the battlefield"
+	  TownHUD          (view "Town"): you walk around a real town and talk to its people
+	    (ProximityPrompt → dialogue window): contracts, recruits, free companies,
+	    quartermaster, arms merchant, rumours, the gate back to the map
 	Everything is display only: every click is a CampaignAction the server validates.
 ]]
 
+local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
@@ -270,15 +276,6 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 	local repLabel = stat(4, 380)
 	repLabel.TextSize = 16
 	repLabel.TextWrapped = true
-	local waitButton = button(
-		{ LayoutOrder = 5, Size = UDim2.fromOffset(120, 44), TextSize = 18 },
-		"⏳ WAIT",
-		Color3.fromRGB(90, 90, 120),
-		function()
-			local world = ClientState.world
-			send("Wait", not (world and world.waiting))
-		end
-	)
 	local menuButton = button(
 		{ LayoutOrder = 6, Size = UDim2.fromOffset(44, 44), TextSize = 22 },
 		"☰",
@@ -770,6 +767,14 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 	end
 
 	-- place buttons ------------------------------------------------------------------
+	local enterButton = button(
+		{ LayoutOrder = 0, Size = UDim2.fromOffset(300, 56), TextSize = 22, Parent = placeButtons },
+		"🚶 ENTER THE TOWN",
+		Color3.fromRGB(190, 140, 60),
+		function()
+			send("EnterTown")
+		end
+	)
 	local boardButton = button(
 		{ LayoutOrder = 1, Size = UDim2.fromOffset(210, 56), TextSize = 20, Parent = placeButtons },
 		"📜 QUEST BOARD",
@@ -802,6 +807,321 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			send("Assault")
 		end
 	)
+
+	-- time controls (bottom centre) ------------------------------------------------------
+	local timeBar = panel({
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		Size = UDim2.fromOffset(330, 30),
+		Parent = root,
+	})
+	table.insert(fitPanels, timeBar)
+	local timeButtons = {}
+	for i, info in { { "Pause", "❚❚" }, { "Play", "▶" }, { "Fast", "▶▶" } } do
+		local tile = button(
+			{
+				Position = UDim2.fromOffset(6 + (i - 1) * 50, 3),
+				Size = UDim2.fromOffset(44, 24),
+				TextSize = 15,
+				Parent = timeBar,
+			},
+			info[2],
+			Color3.fromRGB(80, 80, 95),
+			function()
+				send("TimeMode", info[1])
+			end
+		)
+		timeButtons[info[1]] = tile
+	end
+	local timeLabel = outlined({
+		Position = UDim2.fromOffset(160, 0),
+		Size = UDim2.new(1, -168, 1, 0),
+		Text = "",
+		Font = Theme.Bold,
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = timeBar,
+	}, 1.5)
+
+	-- town HUD (view "Town") ------------------------------------------------------------
+	local townBar = panel({
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -14),
+		Size = UDim2.fromOffset(640, 70),
+		Visible = false,
+		Parent = root,
+	})
+	table.insert(fitPanels, townBar)
+	local townTitle = outlined({
+		Position = UDim2.fromOffset(16, 6),
+		Size = UDim2.new(1, -220, 0, 32),
+		Text = "",
+		Font = Theme.Display,
+		TextSize = 28,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = townBar,
+	}, 2)
+	outlined({
+		Position = UDim2.fromOffset(16, 40),
+		Size = UDim2.new(1, -220, 0, 22),
+		Text = "Walk up to people and press E to talk  ·  the gate guard takes you back to the map",
+		TextSize = 14,
+		TextColor3 = Color3.fromRGB(215, 215, 225),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = townBar,
+	}, 1.2)
+	button(
+		{
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -12, 0.5, 0),
+			Size = UDim2.fromOffset(190, 50),
+			TextSize = 20,
+			Parent = townBar,
+		},
+		"🗺 LEAVE TOWN",
+		Color3.fromRGB(90, 90, 110),
+		function()
+			send("LeaveTown")
+		end
+	)
+
+	-- dialogue window (talking to townspeople) ---------------------------------------------
+	local dialogue = panel({
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -100),
+		Size = UDim2.fromOffset(720, 330),
+		Visible = false,
+		ZIndex = 30,
+		Parent = root,
+	})
+	table.insert(fitPanels, dialogue)
+	local speaker = outlined({
+		Position = UDim2.fromOffset(20, 10),
+		Size = UDim2.new(1, -40, 0, 30),
+		Text = "",
+		Font = Theme.Display,
+		TextSize = 26,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 31,
+		Parent = dialogue,
+	}, 2)
+	local speech = outlined({
+		Position = UDim2.fromOffset(20, 44),
+		Size = UDim2.new(1, -40, 0, 70),
+		Text = "",
+		TextSize = 17,
+		TextWrapped = true,
+		RichText = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 31,
+		Parent = dialogue,
+	}, 1.5)
+	local options = create("ScrollingFrame", {
+		Position = UDim2.fromOffset(20, 120),
+		Size = UDim2.new(1, -40, 1, -130),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 5,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		ZIndex = 31,
+		Parent = dialogue,
+	})
+	create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = options })
+	local talkingTo: Instance? = nil
+	local talkingRole: string? = nil
+	local rumourIndex = 0
+
+	local function closeDialogue()
+		dialogue.Visible = false
+		talkingTo = nil
+		talkingRole = nil
+	end
+
+	local function addOption(order: number, text: string, color: Color3, onClick: () -> ())
+		button({
+			LayoutOrder = order,
+			Size = UDim2.new(1, -8, 0, 40),
+			TextSize = 17,
+			ZIndex = 32,
+			Parent = options,
+		}, text, color, onClick)
+	end
+
+	local function compass(dx: number, dz: number): string
+		local names = { "north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west" }
+		-- map +z is "north" on screen (the top of the map)
+		local angle = math.atan2(dx, dz)
+		local index = math.floor((angle / (math.pi * 2)) * 8 + 0.5) % 8 + 1
+		return names[index]
+	end
+
+	local function rumours(): { string }
+		local list = {}
+		local world = ClientState.world
+		local campaign = ClientState.campaign
+		if not world then
+			return { "Quiet times, captain. Too quiet." }
+		end
+		local contract = campaign and campaign.contract
+		for _, party in world.parties do
+			local dx, dz = party.x - world.x, party.z - world.z
+			local distance = math.sqrt(dx * dx + dz * dz)
+			local days = distance / CampaignConfig.Travel.ArmySpeed
+			if contract and contract.targetParty == party.id then
+				table.insert(
+					list,
+					1,
+					string.format(
+						"<b>%s</b>? A tinker saw them %s of here, about %.1f days' march. Watch yourself.",
+						party.name,
+						compass(dx, dz),
+						days
+					)
+				)
+			elseif party.hostile and distance < 400 then
+				table.insert(
+					list,
+					string.format(
+						"Travellers talk of a <b>%s</b> (%s) to the %s, %.1f days away.",
+						party.name,
+						string.rep("⚔", math.min(5, party.strength or 1)),
+						compass(dx, dz),
+						days
+					)
+				)
+			end
+		end
+		table.insert(list, "Stay on the roads if you can. Bandits love the wild country.")
+		table.insert(list, "They say the free companies at my tables have seen more battles than the Emperor.")
+		return list
+	end
+
+	local function openDialogue(role: string, npc: Instance?)
+		local campaign = ClientState.campaign
+		local recruit = ClientState.recruit
+		if not campaign then
+			return
+		end
+		talkingTo = npc
+		talkingRole = role
+		dialogue.Visible = true
+		for _, child in options:GetChildren() do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+		local name = npc and npc:GetAttribute("DisplayName") or role
+		speaker.Text = tostring(name)
+		local bye = Color3.fromRGB(80, 80, 90)
+		if role == "Guildmaster" then
+			speech.Text = "Looking for work, captain? My employers pay well for steel and discretion."
+			addOption(1, "📜 Show me the contracts", Color3.fromRGB(190, 140, 60), function()
+				closeDialogue()
+				openModal("Board")
+			end)
+			if campaign.contract then
+				addOption(2, "✘ I'm giving up my current contract (−reputation)", C.Red, function()
+					send("AbandonContract")
+					closeDialogue()
+				end)
+			end
+		elseif role == "Recruiter" then
+			speech.Text = "Fresh volunteers, drilled on this very square. Pay their bounty and they march with you."
+			addOption(1, "⚑ I want to hire soldiers", C.Blue, function()
+				closeDialogue()
+				openModal("Hire")
+			end)
+		elseif role == "Quartermaster" then
+			local cost = recruit and recruit.replenishCost or 0
+			speech.Text = if cost > 0
+				then string.format("Your ranks are thin. I can fill them for <b>%d gold</b>.", cost)
+				else "Your company is at full strength, captain. Nothing to fill."
+			if cost > 0 then
+				addOption(1, string.format("✚ Replenish every squad (💰 %d)", cost), C.Green, function()
+					send("Replenish")
+					closeDialogue()
+				end)
+			end
+		elseif role == "MercCaptain" then
+			speech.Text = "My lads have seen a few fields. They don't come cheap — but they don't break either."
+			local offers = campaign.mercenaries or {}
+			if #offers == 0 then
+				speech.Text ..= "\n<i>(Everyone's already hired. Come back in a few days.)</i>"
+			end
+			for i, offer in offers do
+				local def = UnitDefinitions.get(offer.unitId)
+				addOption(
+					i,
+					string.format(
+						"%s %s veterans %s · %d men  (💰 %d)",
+						def.icon or "",
+						def.displayName,
+						string.rep("★", offer.stars),
+						def.soldiers,
+						offer.cost
+					),
+					if campaign.gold >= offer.cost then C.Green else Color3.fromRGB(90, 90, 100),
+					function()
+						send("HireMercenary", offer.id)
+						closeDialogue()
+					end
+				)
+			end
+		elseif role == "ArmsMerchant" then
+			speech.Text = string.format(
+				"Better muskets, sharper sabres, and a sergeant to drill them. <b>+%d XP</b> to one squad.",
+				CampaignConfig.Town.DrillXP
+			)
+			for i, entry in (recruit and recruit.roster or {}) do
+				local cost =
+					math.floor(CampaignConfig.Town.DrillCost * (1 + entry.stars * CampaignConfig.Town.DrillCostPerStar))
+				addOption(
+					i,
+					string.format(
+						"%s %s  ·  XP %d%s  (💰 %d)",
+						entry.name,
+						string.rep("★", entry.stars),
+						entry.xp,
+						if entry.nextXP then "/" .. entry.nextXP else "",
+						cost
+					),
+					if campaign.gold >= cost then C.Green else Color3.fromRGB(90, 90, 100),
+					function()
+						send("Drill", entry.id)
+						task.delay(0.3, function()
+							if talkingRole == "ArmsMerchant" then
+								openDialogue("ArmsMerchant", talkingTo)
+							end
+						end)
+					end
+				)
+			end
+		elseif role == "Innkeeper" then
+			local list = rumours()
+			rumourIndex = rumourIndex % #list + 1
+			speech.Text = list[rumourIndex]
+			addOption(1, "🍺 Heard anything else?", Color3.fromRGB(190, 140, 60), function()
+				openDialogue("Innkeeper", talkingTo)
+			end)
+		elseif role == "Gate" then
+			speech.Text = "Heading out, captain? The road awaits."
+			addOption(1, "🗺 Back to the map", C.Blue, function()
+				closeDialogue()
+				send("LeaveTown")
+			end)
+		end
+		addOption(99, "Goodbye.", bye, closeDialogue)
+	end
+
+	ProximityPromptService.PromptTriggered:Connect(function(prompt)
+		local role = prompt:GetAttribute("Role")
+		if typeof(role) == "string" and ClientState.view() == "Town" then
+			openDialogue(role, prompt.Parent and prompt.Parent.Parent)
+		end
+	end)
 
 	-- banners / notices / hints -------------------------------------------------------
 	local encounterBanner = create("Frame", {
@@ -849,11 +1169,11 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 	}, 1.5)
 	Theme.corner(queueNotice, 8)
 
-	outlined({
+	local hintLine = outlined({
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 14, 1, -10),
+		Position = UDim2.new(0, 14, 1, -44),
 		Size = UDim2.fromOffset(700, 20),
-		Text = "Click the map or a place to march  ·  Wheel zoom  ·  Right-drag rotate  ·  WASD pan  ·  Space recentre",
+		Text = "Click the map or a banner to march  ·  Wheel zoom  ·  Right-drag rotate  ·  WASD pan  ·  Space recentre",
 		TextSize = 14,
 		TextColor3 = Color3.fromRGB(215, 215, 225),
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -1005,7 +1325,23 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 
 		-- the place you stand in
 		local here = campaign.atLocation and CampaignConfig.getLocation(campaign.atLocation)
-		placePanel.Visible = here ~= nil
+		local inTown = campaign.view == "Town"
+		placePanel.Visible = here ~= nil and not inTown
+		townBar.Visible = inTown
+		timeBar.Visible = not inTown
+		hintLine.Visible = not inTown
+		if not inTown and dialogue.Visible then
+			closeDialogue()
+		end
+		if inTown and here then
+			townTitle.Text = string.upper(here.name)
+		end
+		for mode, tile in timeButtons do
+			local stroke = tile:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Color = if campaign.timeMode == mode then C.Gold else BLACK
+			end
+		end
 		if here then
 			local owner = campaign.owners and campaign.owners[here.id] or here.faction
 			local ownerInfo = CampaignConfig.Factions[owner]
@@ -1017,9 +1353,10 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 				if here.kind == "BanditCamp" then "Bandit camp" else here.kind,
 				if ownerInfo then ownerInfo.short else owner
 			)
-			boardButton.Visible = friendly and here.kind == "Town"
-			hireButton.Visible = friendly and here.kind == "Town"
-			replenishButton.Visible = friendly and (here.kind == "Town" or here.kind == "Castle")
+			enterButton.Visible = friendly and here.kind == "Town"
+			boardButton.Visible = false -- done by talking to people in town now
+			hireButton.Visible = false
+			replenishButton.Visible = friendly and here.kind == "Castle"
 			placeAssault.Visible = contract ~= nil and contract.canAssault == true
 		end
 		queueNotice.Visible = campaign.queued == true
@@ -1035,7 +1372,14 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			return
 		end
 		dayLabel.Text = string.format("📅 Day %d", math.floor(world.day) + 1)
-		setButtonText(waitButton, if world.waiting then "▶ RESUME" else "⏳ WAIT")
+		local seasons = { "Spring", "Summer", "Autumn", "Winter" }
+		local day = math.floor(world.day)
+		timeLabel.Text = string.format(
+			"%s, day %d%s",
+			seasons[math.floor(day / 21) % 4 + 1],
+			day % 21 + 1,
+			if world.timeMode == "Pause" then "  ·  PAUSED" else ""
+		)
 	end
 
 	function api.onEncounter(data: any)
@@ -1047,6 +1391,24 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		task.delay(CampaignConfig.Travel.EncounterWarning + 1.5, function()
 			encounterBanner.Visible = false
 		end)
+	end
+
+	-- close the conversation if you walk away
+	function api.render()
+		if dialogue.Visible and talkingTo then
+			local character = Players.LocalPlayer.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			local npcRoot = talkingTo:FindFirstChild("HumanoidRootPart")
+			if
+				root
+				and npcRoot
+				and root:IsA("BasePart")
+				and npcRoot:IsA("BasePart")
+				and (root.Position - npcRoot.Position).Magnitude > 16
+			then
+				closeDialogue()
+			end
+		end
 	end
 
 	function api.hideEncounter()

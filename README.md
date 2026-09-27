@@ -31,8 +31,14 @@ Your whole company deploys in every battle. You command the squads outlined in g
 start, more as your reputation grows); your other squads and allied troops are led by the ally
 AI: they take objectives, engage enemies and fall back when their morale breaks.
 
-**Overworld (map screen):** left click the map or a place's name to march · mouse wheel zoom ·
-right-drag rotate · WASD pan · Space recentre · ⏳ WAIT lets time pass where you stand.
+**Overworld (map screen):** left click the ground or a banner to march · mouse wheel zoom ·
+right-drag rotate · WASD pan · Space recentre · time controls ❚❚ ▶ ▶▶ at the bottom.
+
+**In town:** walk around on foot (G to mount), walk up to people and press **E** to talk:
+Master Aubert (town hall — contracts), Sergeant Dubois (barracks — hire recruits),
+Quartermaster Lenoir (replenish casualties), Captain Varga (tavern — veteran free companies
+already ★/★★), Old Marcel (innkeeper — rumours about bandits and your bounty),
+Madame Rosalie (market — new kit and drill: gold → squad XP), the gate guard (back to the map).
 
 ## The mercenary campaign
 
@@ -53,7 +59,9 @@ right-drag rotate · WASD pan · Space recentre · ⏳ WAIT lets time pass where
 4. **Battle**: deploy (READY) → fight → summary with the campaign report.
    **Defeat**: you lose a share of your gold and fall back to your town. **Any squad wiped out is
    gone for good**; survivors keep their casualties and their XP.
-5. **Town**: hire new squads (up to 6) and replenish casualties with gold.
+5. **Town** (🚶 ENTER THE TOWN when you stand in your employer's town): you walk in on foot and
+   deal with its people — contracts, recruits, mercenaries, quartermaster, arms merchant, rumours.
+   Time is paused while you're in town.
 6. **Reputation** unlocks commanding more squads at once (rank table in `CampaignConfig`).
 7. **Squad evolution**: each squad earns XP (kills, survival, victories). Every ★ is an evolution
    tier: more HP, damage and morale, and better kit (chevrons → gold epaulettes, brass musket and
@@ -93,6 +101,7 @@ ServerScriptService/                    (src/server)
   GameManager (Script)                  battle state machine (queued campaign battles), win/lose, wiring
   CampaignService                       overworld per player: travel, days, parties, encounters, battles
   QuestService                          quest board, Raid / Bounty / Escort / Garrison contracts
+  TownService                           the walkable town and its people (ProximityPrompts)
   ReputationService                     reputation per faction → max squads commanded
   SquadService                          squads, movement/pathfinding, combat, morale, visuals
   EnemyAIController                     enemy squad AI

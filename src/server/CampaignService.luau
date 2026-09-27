@@ -3,15 +3,17 @@
 	The mercenary overworld, one private campaign per player (saved in profile.Campaign):
 	  • character creation: pick the faction you serve (Francia / Albion / Borussia)
 	  • the map: towns, castles (change hands) and bandit camps, joined by roads
-	  • travel: click a place or a point, your army walks there; days pass while you move
-	    (or while you Wait). Off-road travel is more dangerous (random encounters)
+	  • travel: click a place or a point, your army walks there. Time controls ❚❚ ▶ ▶▶
+	    (menus and towns pause time). Off-road travel is more dangerous (random encounters)
+	  • towns: "Enter town" puts your commander on foot in a real town (TownService) where you
+	    talk to people: contracts, recruits, mercenaries, quartermaster, arms merchant
 	  • a living world: bandit warbands roam around their camps, faction patrols travel
 	    between their castles; hostile parties chase you and force a battle on contact
 	  • battles: queued for the single battlefield (GameManager runs them one at a time) and
 	    resolved here — loot, gold penalty on defeat, retreat to your town, roster losses/XP
 
 	Contracts live in QuestService, which plugs in through CampaignService.hooks.
-	View per player: "Creation" → "Overworld" ⇄ "Battle".
+	View per player: "Creation" → "Overworld" ⇄ "Battle" / "Town".
 ]]
 
 local Players = game:GetService("Players")
@@ -54,6 +56,9 @@ CampaignService.hooks = {
 	end, -- { contract, board } for the client
 }
 
+-- defined with the town code below (declared here so earlier functions can call it)
+CampaignService.refreshMercenaries = function(_camp: any) end
+
 -- extra client actions registered by other services: actions[name] = function(camp, arg)
 CampaignService.actions = {}
 
@@ -73,6 +78,8 @@ do
 	platform.Parent = Workspace
 end
 CampaignService.CampCFrame = CAMP_CFRAME
+-- set by GameManager from TownService (where you appear when you enter a town)
+CampaignService.TownCFrame = CAMP_CFRAME
 
 local function v2(x: number, z: number): Vector2
 	return Vector2.new(x, z)
@@ -333,7 +340,6 @@ function CampaignService.startBattle(camp: any, spec: any)
 	end
 	camp.pendingBattle = spec
 	camp.moving = false
-	camp.waiting = false
 	camp.dirty = true
 	spec.player = camp.player
 	spec.camp = camp
@@ -488,8 +494,10 @@ local function newRuntime(player: Player, data: any): any
 		destLocation = nil,
 		atLocation = nil,
 		moving = false,
-		waiting = false,
+		timeMode = "Play", -- "Pause" | "Play" | "Fast"
 		paused = false, -- a menu is open
+		mercenaries = {},
+		mercenaryRefreshDay = 0,
 		parties = {},
 		nextPartyId = 0,
 		safeUntil = 0,
@@ -505,6 +513,7 @@ end
 local function startCampaign(camp: any)
 	retreatHome(camp)
 	maintainParties(camp)
+	CampaignService.refreshMercenaries(camp)
 	CampaignService.hooks.onFactionChosen(camp)
 	camp.dirty = true
 end
@@ -557,6 +566,8 @@ function CampaignService.flush(camp: any)
 		battlesWon = data.BattlesWon,
 		threat = CampaignService.threat(camp),
 		queued = queued and CampaignService.battlefieldBusy(camp.player),
+		timeMode = camp.timeMode,
+		mercenaries = camp.mercenaries,
 	})
 	RecruitmentService.sendState(camp.player)
 end
@@ -581,7 +592,8 @@ local function sendTick(camp: any)
 		x = camp.pos.X,
 		z = camp.pos.Y,
 		moving = camp.moving,
-		waiting = camp.waiting,
+		waiting = camp.timeMode == "Fast",
+		timeMode = camp.timeMode,
 		dest = if camp.dest and camp.moving then { x = camp.dest.X, z = camp.dest.Y } else nil,
 		parties = parties,
 	})
@@ -741,6 +753,9 @@ local function advanceTime(camp: any, dtDays: number)
 	data.Day += dtDays
 	if math.floor(data.Day) > before then
 		maintainParties(camp)
+		if data.Day >= camp.mercenaryRefreshDay then
+			CampaignService.refreshMercenaries(camp)
+		end
 		CampaignService.hooks.onNewDay(camp)
 		camp.dirty = true
 	end
@@ -751,11 +766,10 @@ local function stepCamp(camp: any, dt: number)
 	if camp.view ~= "Overworld" or camp.pendingBattle then
 		return
 	end
-	local timeScale = if camp.moving
-		then 1
-		elseif camp.waiting then Travel.WaitSpeedMult
-		elseif camp.paused then 0
-		else Travel.IdleTimeMult
+	local timeScale = if camp.paused or camp.timeMode == "Pause"
+		then 0
+		elseif camp.timeMode == "Fast" then Travel.FastSpeedMult
+		else 1
 	if timeScale <= 0 then
 		return
 	end
@@ -826,6 +840,7 @@ end
 CampaignService.atFriendly = atFriendly
 
 local ACTIONS = {}
+local TOWN_ACTIONS: { [string]: boolean }
 
 function ACTIONS.ChooseFaction(camp: any, faction: unknown)
 	if camp.data.Faction or typeof(faction) ~= "string" or not table.find(CampaignConfig.FactionOrder, faction) then
@@ -865,7 +880,9 @@ function ACTIONS.Travel(camp: any, arg: unknown)
 	if target then
 		camp.dest = target
 		camp.moving = (target - camp.pos).Magnitude > 0.5
-		camp.waiting = false
+		if camp.timeMode == "Pause" then
+			camp.timeMode = "Play" -- giving a march order un-pauses, like Bannerlord
+		end
 		camp.paused = false
 		camp.atLocation = nil
 		camp.dirty = true
@@ -877,12 +894,16 @@ function ACTIONS.Stop(camp: any)
 	camp.dirty = true
 end
 
-function ACTIONS.Wait(camp: any, on: unknown)
-	camp.waiting = on == true
-	if camp.waiting then
-		camp.moving = false
+function ACTIONS.TimeMode(camp: any, mode: unknown)
+	if mode == "Pause" or mode == "Play" or mode == "Fast" then
+		camp.timeMode = mode
+		camp.dirty = true
 	end
-	camp.dirty = true
+end
+
+-- (older clients) Wait = fast-forward
+function ACTIONS.Wait(camp: any, on: unknown)
+	ACTIONS.TimeMode(camp, if on == true then "Fast" else "Play")
 end
 
 function ACTIONS.Pause(camp: any, on: unknown)
@@ -923,6 +944,137 @@ function ACTIONS.Dismiss(camp: any, squadId: unknown)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Towns: walk around, talk to people
+---------------------------------------------------------------------------
+
+function ACTIONS.EnterTown(camp: any)
+	local town = atFriendly(camp, { "Town" })
+	if not town then
+		return
+	end
+	camp.view = "Town"
+	camp.moving = false
+	camp.paused = false
+	local character = camp.player.Character
+	if character then
+		character:PivotTo(CampaignService.TownCFrame)
+	end
+	camp.dirty = true
+end
+
+function ACTIONS.LeaveTown(camp: any)
+	if camp.view == "Town" then
+		camp.view = "Overworld"
+		parkCharacter(camp.player)
+		camp.dirty = true
+	end
+end
+
+-- Where a character (re)spawns outside battles
+function CampaignService.spawnCFrame(player: Player): CFrame
+	local camp = camps[player]
+	return if camp and camp.view == "Town" then CampaignService.TownCFrame else CAMP_CFRAME
+end
+
+local TownConfig = CampaignConfig.Town
+
+local function refreshMercenaries(camp: any)
+	camp.mercenaries = {}
+	local units = {}
+	for _, unitId in UnitDefinitions.Order do
+		if DataService.isUnlocked(camp.player, unitId) then
+			table.insert(units, unitId)
+		end
+	end
+	for i = 1, TownConfig.MercenaryOffers do
+		local unitId = units[rng:NextInteger(1, #units)]
+		local stars = rng:NextInteger(TownConfig.MercenaryStars[1], TownConfig.MercenaryStars[2])
+		table.insert(camp.mercenaries, {
+			id = i + math.floor(camp.data.Day) * 10,
+			unitId = unitId,
+			stars = stars,
+			xp = CampaignConfig.tierInfo(stars).xp,
+			cost = math.floor(RecruitmentService.hireCost(unitId) * (1 + stars * TownConfig.MercenaryCostPerStar)),
+		})
+	end
+	camp.mercenaryRefreshDay = camp.data.Day + TownConfig.MercenaryRefreshDays
+	camp.dirty = true
+end
+CampaignService.refreshMercenaries = refreshMercenaries
+
+function ACTIONS.HireMercenary(camp: any, id: unknown)
+	if not atFriendly(camp, { "Town" }) then
+		return
+	end
+	for index, offer in camp.mercenaries do
+		if offer.id == id then
+			local data = camp.data
+			if #data.Roster >= Economy.MaxRosterSize then
+				CampaignService.notify(camp, "Your company is full (" .. Economy.MaxRosterSize .. " squads).", "bad")
+			elseif data.Gold < offer.cost then
+				CampaignService.notify(camp, "Not enough gold (" .. offer.cost .. " needed).", "bad")
+			else
+				data.Gold -= offer.cost
+				local entry = RecruitmentService.addSquad(camp.player, offer.unitId)
+				entry.xp = offer.xp
+				table.remove(camp.mercenaries, index)
+				CampaignService.notify(
+					camp,
+					string.format(
+						"The free company joins you: %s %s",
+						UnitDefinitions.get(offer.unitId).displayName,
+						string.rep("★", offer.stars)
+					),
+					"good"
+				)
+				RecruitmentService.sendState(camp.player)
+			end
+			camp.dirty = true
+			return
+		end
+	end
+end
+
+function CampaignService.drillCost(entry: any): number
+	local stars = CampaignConfig.tierForXP(entry.xp)
+	return math.floor(TownConfig.DrillCost * (1 + stars * TownConfig.DrillCostPerStar))
+end
+
+-- Arms merchant: better kit and drill for one squad (gold → squad XP)
+function ACTIONS.Drill(camp: any, squadId: unknown)
+	if not atFriendly(camp, { "Town" }) then
+		return
+	end
+	for _, entry in camp.data.Roster do
+		if entry.id == squadId then
+			local cost = CampaignService.drillCost(entry)
+			if camp.data.Gold < cost then
+				CampaignService.notify(camp, "Not enough gold (" .. cost .. " needed).", "bad")
+				return
+			end
+			local before = CampaignConfig.tierForXP(entry.xp)
+			camp.data.Gold -= cost
+			entry.xp += TownConfig.DrillXP
+			local after = CampaignConfig.tierForXP(entry.xp)
+			CampaignService.notify(
+				camp,
+				if after > before
+					then string.format(
+						"Your squad evolves: %s %s",
+						CampaignConfig.tierInfo(after).name,
+						string.rep("★", after)
+					)
+					else string.format("New kit and hard drill: +%d XP (-%d gold)", TownConfig.DrillXP, cost),
+				"good"
+			)
+			RecruitmentService.sendState(camp.player)
+			camp.dirty = true
+			return
+		end
+	end
+end
+
 -- Start over (new character): wipes the campaign, keeps commander level and unlocks
 function ACTIONS.NewCampaign(camp: any)
 	DataService.resetCampaign(camp.player)
@@ -931,6 +1083,19 @@ function ACTIONS.NewCampaign(camp: any)
 	camps[camp.player] = fresh
 	CampaignService.flush(fresh)
 end
+
+TOWN_ACTIONS = {
+	Hire = true,
+	Replenish = true,
+	Dismiss = true,
+	HireMercenary = true,
+	Drill = true,
+	LeaveTown = true,
+	AcceptContract = true,
+	DeclineContract = true,
+	AbandonContract = true,
+	Pause = true,
+}
 
 Remotes.get("CampaignAction").OnServerEvent:Connect(function(player: Player, action: unknown, arg: unknown)
 	local camp = camps[player]
@@ -941,6 +1106,10 @@ Remotes.get("CampaignAction").OnServerEvent:Connect(function(player: Player, act
 	if action == "NewCampaign" then
 		if busy then
 			return
+		end
+	elseif camp.view == "Town" then
+		if not TOWN_ACTIONS[action] then
+			return -- in town you can only deal with its people (or leave)
 		end
 	elseif action ~= "ChooseFaction" and (camp.view ~= "Overworld" or busy) then
 		return
