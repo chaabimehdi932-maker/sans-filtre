@@ -18,7 +18,7 @@ local player = Players.LocalPlayer
 local combatRemote = Remotes.get("CombatAction")
 local orderRemote = Remotes.get("OrderUnits")
 local formationRemote = Remotes.get("SetFormation")
-local cycleRemote = Remotes.get("CycleSquad")
+local selectRemote = Remotes.get("SelectSquads")
 
 local changed = Instance.new("BindableEvent")
 
@@ -128,22 +128,97 @@ function ClientActions.toggleMount()
 	combatRemote:FireServer("Mount")
 end
 
-function ClientActions.order(order: string, all: boolean?)
-	orderRemote:FireServer(order, all == true)
+---------------------------------------------------------------------------
+-- Army: orders, formations, selection
+---------------------------------------------------------------------------
+
+local selection: { [number]: boolean } = {}
+local formationPromptUntil = 0
+
+local function parseSelection(): { [number]: boolean }
+	local set = {}
+	local text = player:GetAttribute("SelectedSquads")
+	if typeof(text) == "string" then
+		for id in string.gmatch(text, "%d+") do
+			set[tonumber(id) :: number] = true
+		end
+	end
+	return set
+end
+selection = parseSelection()
+-- the server echoes the (validated) selection back through this attribute
+player:GetAttributeChangedSignal("SelectedSquads"):Connect(function()
+	selection = parseSelection()
+	changed:Fire("Selection")
+end)
+
+function ClientActions.isSelected(squadId: number): boolean
+	return selection[squadId] == true
+end
+
+function ClientActions.selectedIds(): { number }
+	local ids = {}
+	for id in selection do
+		table.insert(ids, id)
+	end
+	table.sort(ids)
+	return ids
+end
+
+function ClientActions.setSelection(ids: { number })
+	local set = {}
+	for _, id in ids do
+		set[id] = true
+	end
+	selection = set -- optimistic: the HUD updates right away
+	changed:Fire("Selection")
+	selectRemote:FireServer(ids)
+end
+
+function ClientActions.toggleSelected(squadId: number)
+	local ids = {}
+	for id in selection do
+		if id ~= squadId then
+			table.insert(ids, id)
+		end
+	end
+	if not selection[squadId] then
+		table.insert(ids, squadId)
+	end
+	ClientActions.setSelection(ids)
+end
+
+function ClientActions.order(order: string)
+	orderRemote:FireServer(order)
 	changed:Fire("Order", order)
+	if order == "Hold" then
+		-- after X, the number keys 1/2/3 choose a formation for a few seconds
+		formationPromptUntil = os.clock() + GameConfig.Orders.FormationPromptTime
+		changed:Fire("FormationPrompt", true)
+	end
 end
 
-function ClientActions.formation(formation: string, all: boolean?)
-	formationRemote:FireServer(formation, all == true)
+function ClientActions.formation(formation: string)
+	formationRemote:FireServer(formation)
+	formationPromptUntil = 0
 	changed:Fire("Formation", formation)
+	changed:Fire("FormationPrompt", false)
 end
 
-function ClientActions.cycleSquad(direction: number)
-	cycleRemote:FireServer(direction)
+-- 0..1 time left on the formation prompt (0 = closed)
+function ClientActions.formationPrompt(): number
+	local remaining = formationPromptUntil - os.clock()
+	if remaining <= 0 then
+		return 0
+	end
+	return remaining / GameConfig.Orders.FormationPromptTime
 end
 
-function ClientActions.selectSquad(squadId: number)
-	cycleRemote:FireServer(0, squadId)
+function ClientActions.closeFormationPrompt()
+	if formationPromptUntil > 0 then
+		formationPromptUntil = 0
+		changed:Fire("FormationPrompt", false)
+	end
 end
 
 -- Server corrections: a rejected action tells us how long the real cooldown still is

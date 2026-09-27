@@ -12,16 +12,20 @@ zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.
 | Key | Action |
 |---|---|
 | WASD / Space | Move · jump (on foot) |
-| Mouse | Look around (the cursor is locked during battles) · **Left Alt** frees the cursor |
+| **Right mouse drag** | Rotate the camera · **Left Alt** toggles mouse-look (locked cursor) |
 | Left click | Attack (a mounted charge hits harder the faster you ride) |
 | F (hold) | Block: raise your shield (frontal damage −80%) |
 | Q | Roll: dodge with a short invulnerability window (on foot) |
 | H | Heal: restores 40% HP and boosts the morale of your squads nearby |
 | G | Mount / dismount |
-| **X / C / V / B** | Orders for the selected squad: **Hold / Follow / Attack / Rush** |
-| 1 / 2 / 3 | Formation: Line / Column / Square |
-| T / Shift+T | Next / previous squad |
-| Shift + order or formation | Applies to **all** your squads |
+| **X / C / V / B** | Orders for the **selected** squads: **Hold / Follow / Attack / Rush** |
+| **X then 1 / 2 / 3** | Hold, then pick the formation: Line / Column / Square |
+| 1 – 9 | Select squad n · **Shift + number** adds/removes it from the selection |
+| 0 or ` | Select all your squads · T = next squad |
+| **Ctrl + drag** (left mouse) | Box-select squads on screen (Ctrl + click = pick one) |
+
+The squad panel (right) is clickable too (Shift + click = add). The whole army is selected at
+the start of every battle.
 
 ## How a round plays
 
@@ -37,7 +41,10 @@ reinforcement waves). Every 5th round is a boss round with a named general's squ
 
 ## Systems
 
-- **Squads**: one logical object with pooled HP. Soldiers die off visually as HP drops.
+- **Squads**: one logical object with pooled HP, simulated on the server. Every client draws
+  and animates the soldiers itself (`client/SquadRenderer`, `client/SoldierModels`): marching,
+  aiming, volley recoil, reloading, bayonet thrusts, routing, falling casualties, galloping
+  cavalry with sabres, recoiling cannons.
 - **Formations**: Line (firepower, weak flanks), Column (fast, fragile), Square (stops cavalry,
   weak against cannons). Changing formation takes 3 s, during which the squad is vulnerable.
 - **Morale**: drops from casualties, flanking, charges and isolation. At 0 the squad routs, flees
@@ -68,8 +75,9 @@ ReplicatedStorage/
                                         GameConfig, MathUtil, Remotes
   RemoteEvents/                         declared in default.project.json
 StarterPlayerScripts/                   (src/client)
-  PlayerCombatController, ArmyCommandController, CameraController, UIController, VFXController
-  ClientState, ClientActions, UI/*      (shared client modules)
+  PlayerCombatController, ArmyCommandController, CameraController, UIController, VFXController,
+  CharacterAnimator (rider pose, horse gait, sabre swing, block, roll), SquadRenderController
+  ClientState, ClientActions, SquadRenderer, SoldierModels, UI/*   (shared client modules)
 StarterGui/MainHUD                      single ScreenGui; UIController builds its frames
 ```
 
@@ -86,7 +94,8 @@ zones 0.5 s, paths 2 s.
 
 ## Building your own map in Studio
 
-With no tagged Parts, a placeholder map (3 zones: Plains, Village, Ridge) is generated.
+With no tagged Parts, a placeholder battlefield is generated (grass terrain, hills, road, village,
+woods, 3 zones: Plains, Village, Ridge) with its own lighting.
 To use your map, tag Parts with the **Tag Editor** (View → Tags):
 
 | Tag | Part | Attributes |

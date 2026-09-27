@@ -2,7 +2,8 @@
 	Client-side effects. The server only says "a volley happened here" through the VFX remote;
 	all the particles, projectiles, sounds and screen shake are made locally (cheap for the server,
 	one effect per squad rather than per soldier).
-	Kinds: Volley · Cannon · ChargeImpact · Clash · Swing · Hit · Heal
+	Kinds: Volley · Cannon · ChargeImpact · Clash · Hit · Heal
+	(Swing / Roll are animated by CharacterAnimator; soldier poses by SquadRenderer)
 	Optional battle music: set GameConfig.Sounds.Music to an asset id.
 ]]
 
@@ -18,6 +19,7 @@ local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local Remotes = require(Modules:WaitForChild("Remotes"))
 
 local ClientState = require(script.Parent:WaitForChild("ClientState"))
+local SquadRenderer = require(script.Parent:WaitForChild("SquadRenderer"))
 
 local Sounds = GameConfig.Sounds
 local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
@@ -108,7 +110,7 @@ end
 local handlers = {}
 
 function handlers.Volley(data)
-	local positions = data.positions or {}
+	local positions = SquadRenderer.fire(data.squadId)
 	for _, position in positions do
 		flash(position, 0.7)
 		smokePuff(position + data.direction * 1.5, 2.5)
@@ -120,6 +122,7 @@ end
 
 function handlers.Cannon(data)
 	local from, to, flight = data.from, data.to, math.max(0.1, data.flight)
+	SquadRenderer.cannonFire(data.squadId)
 	flash(from, 1.6)
 	smokePuff(from, 5)
 	playSound(Sounds.CannonFire, from, 1.2, 0.6)
@@ -159,12 +162,16 @@ function handlers.Cannon(data)
 end
 
 function handlers.ChargeImpact(data)
+	SquadRenderer.melee(data.squadId)
+	SquadRenderer.melee(data.targetId)
 	smokePuff(data.position, 6, Color3.fromRGB(165, 135, 100))
 	playSound(Sounds.ChargeImpact, data.position, 1.2, 0.7)
 	addShake(data.position, 0.35, 50)
 end
 
 function handlers.Clash(data)
+	SquadRenderer.melee(data.squadId)
+	SquadRenderer.melee(data.targetId)
 	playSound(Sounds.Hit, data.position + Vector3.new(math.random() * 4 - 2, 2, math.random() * 4 - 2), 0.5)
 end
 
@@ -190,26 +197,6 @@ function handlers.Heal(data)
 		SpreadAngle = Vector2.new(180, 180),
 		Acceleration = Vector3.new(0, 6, 0),
 	}, 30)
-end
-
-function handlers.Swing(data)
-	local character = data.character
-	if typeof(character) ~= "Instance" or not character.Parent then
-		return
-	end
-	local sabre = character:FindFirstChild("Sabre")
-	local weld = sabre and sabre:FindFirstChild("SabreWeld")
-	if weld and weld:IsA("Weld") then
-		-- Quick local arc of the sabre weld (purely visual)
-		local base = weld:GetAttribute("BaseC0") or weld.C0
-		weld:SetAttribute("BaseC0", base)
-		local down = TweenService:Create(weld, TweenInfo.new(0.12), { C0 = base * CFrame.Angles(math.rad(-110), 0, 0) })
-		down:Play()
-		down.Completed:Once(function()
-			TweenService:Create(weld, TweenInfo.new(0.2), { C0 = base }):Play()
-		end)
-		playSound(Sounds.Swing, sabre.Position, 0.7)
-	end
 end
 
 Remotes.get("VFX").OnClientEvent:Connect(function(data)

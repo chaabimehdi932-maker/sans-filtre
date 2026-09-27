@@ -39,9 +39,6 @@ PlayerCombatService.hooks = {
 
 local states: { [Player]: any } = {}
 
-local SIT_ANIMATION_R15 = "rbxassetid://2506281703"
-local SIT_ANIMATION_R6 = "rbxassetid://178130996"
-
 local function getParts(player: Player): (Model?, Humanoid?, BasePart?)
 	local character = player.Character
 	if not character then
@@ -137,24 +134,14 @@ local function attachGear(player: Player, character: Model)
 	end
 end
 
-local function playSitAnimation(player: Player, humanoid: Humanoid)
-	local state = states[player]
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if not animator then
-		return
-	end
-	local animation = Instance.new("Animation")
-	animation.AnimationId = if humanoid.RigType == Enum.HumanoidRigType.R15 then SIT_ANIMATION_R15 else SIT_ANIMATION_R6
-	local ok, track = pcall(function()
-		return animator:LoadAnimation(animation)
-	end)
-	if ok and track then
-		track.Priority = Enum.AnimationPriority.Action
-		track.Looped = true
-		track:Play()
-		state.sitTrack = track
-	end
-end
+-- Placeholder horse welded under the character. Joint welds are named (BodyWeld, NeckWeld,
+-- LegFL/LegFR/LegBL/LegBR, TailWeld) so every client can animate the gait (CharacterAnimator).
+local HORSE_COATS = {
+	{ Color3.fromRGB(110, 70, 40), Color3.fromRGB(40, 28, 20) }, -- bay
+	{ Color3.fromRGB(35, 30, 30), Color3.fromRGB(15, 15, 15) }, -- black
+	{ Color3.fromRGB(200, 195, 185), Color3.fromRGB(120, 115, 110) }, -- grey
+	{ Color3.fromRGB(150, 85, 45), Color3.fromRGB(230, 210, 170) }, -- chestnut, flaxen mane
+}
 
 local function mount(player: Player)
 	local state = states[player]
@@ -166,30 +153,90 @@ local function mount(player: Player)
 		then humanoid.HipHeight + root.Size.Y / 2
 		else 3
 	local groundY = -(groundDistance + Hero.MountLift) -- ground height relative to the root once lifted
-	local brown = Color3.fromRGB(110, 75, 45)
+	local coat = HORSE_COATS[(player.UserId % #HORSE_COATS) + 1]
+	local brown, dark = coat[1], coat[2]
+	local cloth = GameConfig.Teams.Blue.uniform
+	local leather = Color3.fromRGB(60, 40, 25)
 
 	local horse = Instance.new("Model")
 	horse.Name = "Horse"
-	local function part(name: string, size: Vector3, offset: CFrame, color: Color3?)
+	-- part welded to `parent` at `c0` (joint position); `c1` offsets the part from its joint
+	local function part(
+		name: string,
+		size: Vector3,
+		parent: BasePart,
+		c0: CFrame,
+		c1: CFrame?,
+		color: Color3?,
+		weldName: string?
+	): Part
 		local p = gearPart(name, size, color or brown)
-		weld(root, p, offset, name .. "Weld")
+		local w = weld(parent, p, c0, weldName or (name .. "Weld"))
+		if c1 then
+			w.C1 = c1
+		end
 		p.Parent = horse
+		return p
 	end
-	part("Body", Vector3.new(1.8, 1.8, 4.4), CFrame.new(0, -1.9, 0))
-	local bodyBottom = -2.8
-	local legLength = math.max(0.5, bodyBottom - groundY)
-	for _, xz in { { -0.6, -1.6 }, { 0.6, -1.6 }, { -0.6, 1.6 }, { 0.6, 1.6 } } do
-		part("Leg", Vector3.new(0.45, legLength, 0.45), CFrame.new(xz[1], bodyBottom - legLength / 2, xz[2]))
+
+	local body = part("Body", Vector3.new(1.7, 1.6, 4.2), root, CFrame.new(0, -1.9, 0.1), nil, brown, "BodyWeld")
+	part("Chest", Vector3.new(1.6, 1.5, 1.2), body, CFrame.new(0, 0.1, -1.9))
+	part("Rump", Vector3.new(1.75, 1.55, 1.3), body, CFrame.new(0, 0.12, 1.75))
+	local bodyBottom = -2.7 + 0.1
+	local legLength = math.max(0.6, bodyBottom - groundY)
+	for _, leg in
+		{
+			{ "FL", -0.55, -1.7 },
+			{ "FR", 0.55, -1.7 },
+			{ "BL", -0.55, 1.7 },
+			{ "BR", 0.55, 1.7 },
+		}
+	do
+		-- pivot at the top of the leg so rotating the weld swings it like a hip/shoulder
+		local l = part(
+			"Leg" .. leg[1],
+			Vector3.new(0.42, legLength, 0.45),
+			body,
+			CFrame.new(leg[2], -0.6, leg[3]),
+			CFrame.new(0, legLength / 2 - 0.2, 0),
+			brown,
+			"Leg" .. leg[1]
+		)
+		part("Hoof", Vector3.new(0.46, 0.25, 0.5), l, CFrame.new(0, -legLength / 2 + 0.12, -0.02), nil, dark)
 	end
-	part("Neck", Vector3.new(0.8, 1.8, 0.9), CFrame.new(0, -1.1, -2.3) * CFrame.Angles(math.rad(35), 0, 0))
-	part("Head", Vector3.new(0.7, 0.8, 1.5), CFrame.new(0, -0.3, -3.0))
-	part("Saddle", Vector3.new(1.9, 0.3, 1.4), CFrame.new(0, -0.9, 0.2), GameConfig.Teams.Blue.uniform)
+	local neck = part(
+		"Neck",
+		Vector3.new(0.75, 1.9, 0.9),
+		body,
+		CFrame.new(0, 0.55, -2.2) * CFrame.Angles(math.rad(-35), 0, 0),
+		CFrame.new(0, -0.8, 0),
+		brown,
+		"NeckWeld"
+	)
+	local head = part(
+		"Head",
+		Vector3.new(0.65, 0.75, 1.5),
+		neck,
+		-- neck leans forward-up 35°, the head points forward-down
+		CFrame.new(0, 0.95, -0.2)
+			* CFrame.Angles(math.rad(5), 0, 0)
+			* CFrame.new(0, 0, -0.5)
+	)
+	part("Muzzle", Vector3.new(0.55, 0.55, 0.5), head, CFrame.new(0, -0.1, -0.85), nil, dark)
+	part("EarL", Vector3.new(0.14, 0.35, 0.14), head, CFrame.new(-0.2, 0.5, 0.45))
+	part("EarR", Vector3.new(0.14, 0.35, 0.14), head, CFrame.new(0.2, 0.5, 0.45))
+	part("Mane", Vector3.new(0.2, 1.8, 0.35), neck, CFrame.new(0, 0.05, 0.5), nil, dark)
 	part(
 		"Tail",
-		Vector3.new(0.3, 1.4, 0.3),
-		CFrame.new(0, -2.3, 2.3) * CFrame.Angles(math.rad(25), 0, 0),
-		Color3.fromRGB(40, 30, 20)
+		Vector3.new(0.3, 1.6, 0.3),
+		body,
+		CFrame.new(0, 0.5, 2.4) * CFrame.Angles(math.rad(-25), 0, 0),
+		CFrame.new(0, 0.75, 0),
+		dark,
+		"TailWeld"
 	)
+	part("Saddle", Vector3.new(1.8, 0.3, 1.5), body, CFrame.new(0, 0.85, -0.1), nil, leather)
+	part("Blanket", Vector3.new(1.9, 1.0, 1.9), body, CFrame.new(0, 0.45, -0.05), nil, cloth)
 	horse.Parent = character
 
 	state.baseHipHeight = humanoid.HipHeight
@@ -197,7 +244,6 @@ local function mount(player: Player)
 	state.horse = horse
 	state.mounted = true
 	character:SetAttribute("Mounted", true)
-	playSitAnimation(player, humanoid)
 	refreshSpeed(player)
 end
 
@@ -210,10 +256,6 @@ local function dismount(player: Player)
 	if state.horse then
 		state.horse:Destroy()
 		state.horse = nil
-	end
-	if state.sitTrack then
-		state.sitTrack:Stop()
-		state.sitTrack = nil
 	end
 	if humanoid and state.baseHipHeight then
 		humanoid.HipHeight = state.baseHipHeight
@@ -231,6 +273,10 @@ local function setBlocking(player: Player, blocking: boolean)
 		return
 	end
 	state.blocking = blocking
+	local character = player.Character
+	if character then
+		character:SetAttribute("Blocking", blocking) -- clients raise the shield arm
+	end
 	if state.shieldWeld then
 		state.shieldWeld.C0 = if blocking then state.shieldRaised else state.shieldCarry
 	end
@@ -312,6 +358,7 @@ local function onRoll(player: Player)
 	end
 	state.lastRoll = now
 	state.iFrameUntil = now + Hero.RollIFrames
+	vfxRemote:FireAllClients({ kind = "Roll", character = character })
 	feedback(player, "Roll", true)
 end
 
@@ -442,7 +489,6 @@ local function onCharacterAdded(player: Player, character: Model)
 	state.mounted = false
 	state.blocking = false
 	state.horse = nil
-	state.sitTrack = nil
 	state.shieldWeld = nil
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	if not humanoid or not humanoid:IsA("Humanoid") then

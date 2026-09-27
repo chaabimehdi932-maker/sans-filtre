@@ -82,13 +82,4 @@ function ClientState.mySquads(): { any }
 	return list
 end
 
-function ClientState.selectedId(): number
-	local id = player:GetAttribute("SelectedSquad")
-	return if typeof(id) == "number" then id else 0
-end
-
-function ClientState.selectedSquad(): any
-	return ClientState.squadsById[ClientState.selectedId()]
-end
-
 return ClientState

@@ -9,7 +9,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		return
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		ClientActions.attack()
+		-- Ctrl + left mouse is box selection (ArmyCommandController)
+		if
+			not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+			and not UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+		then
+			ClientActions.attack()
+		end
 	elseif input.KeyCode == Enum.KeyCode.F then
 		ClientActions.setBlock(true)
 	elseif input.KeyCode == Enum.KeyCode.Q then

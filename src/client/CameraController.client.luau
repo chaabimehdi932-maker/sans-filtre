@@ -1,8 +1,10 @@
 --[[
 	Third-person over-the-shoulder camera.
-	During battles the mouse is locked to the centre (mouse look, character faces the camera)
-	like a Mount & Blade style game. Press Left Alt to free the cursor (to click HUD buttons).
-	Outside battles (recruitment, summary) the cursor is always free.
+	  • Right mouse button drag rotates the camera (standard Roblox camera).
+	  • During battles your commander faces where the camera looks (easy to aim attacks).
+	  • Left Alt toggles mouse-look (cursor locked in the centre, no need to hold the right button).
+	Roblox's built-in Shift Lock is disabled in default.project.json because Shift is used
+	for multi-selection.
 ]]
 
 local Players = game:GetService("Players")
@@ -16,20 +18,21 @@ local gameSettings = UserSettings():GetService("UserGameSettings")
 
 local SHOULDER_OFFSET = Vector3.new(1.75, 0.6, 0)
 
-player.CameraMaxZoomDistance = 28
-player.CameraMinZoomDistance = 9 -- never first person
+player.CameraMaxZoomDistance = 32
+player.CameraMinZoomDistance = 8 -- never first person
 
-local cursorFreed = false
+local mouseLook = false
+local appliedLock = false
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if not gameProcessed and input.KeyCode == Enum.KeyCode.LeftAlt then
-		cursorFreed = not cursorFreed
+		mouseLook = not mouseLook
 	end
 end)
 
 ClientState.Changed:Connect(function(key)
-	if key == "Phase" then
-		cursorFreed = false
+	if key == "Phase" and ClientState.phaseName() ~= "Battle" then
+		mouseLook = false
 	end
 end)
 
@@ -39,13 +42,18 @@ RunService:BindToRenderStep("CommanderCamera", Enum.RenderPriority.Camera.Value 
 	if not humanoid then
 		return
 	end
-	local mouseLook = ClientState.phaseName() == "Battle" and not cursorFreed and humanoid.Health > 0
 	humanoid.CameraOffset = SHOULDER_OFFSET
-	if mouseLook then
+	local inBattle = ClientState.phaseName() == "Battle" and humanoid.Health > 0
+	local lock = inBattle and mouseLook
+	if lock then
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-		gameSettings.RotationType = Enum.RotationType.CameraRelative
-	else
+		appliedLock = true
+	elseif appliedLock then
+		-- release once, then leave the mouse to Roblox's camera (right-drag keeps working)
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-		gameSettings.RotationType = Enum.RotationType.MovementRelative
+		appliedLock = false
 	end
+	gameSettings.RotationType = if inBattle
+		then Enum.RotationType.CameraRelative
+		else Enum.RotationType.MovementRelative
 end)

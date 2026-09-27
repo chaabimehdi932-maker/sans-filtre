@@ -82,6 +82,7 @@ GameConfig.Orders = {
 	RushSpeedMult = 1.3,
 	RushDamageTakenMult = 1.2, -- rushing breaks formation discipline
 	AttackSearchRadius = 350,
+	FormationPromptTime = 3, -- after X (Hold), seconds during which 1/2/3 pick a formation
 	RushEnemyRadius = 90,
 }
 
@@ -144,7 +145,7 @@ GameConfig.AI = {
 }
 
 GameConfig.Network = {
-	SnapshotInterval = 0.25, -- squad/zone state pushed to clients 4×/second
+	SnapshotInterval = 0.2, -- squad/zone state pushed to clients 5×/second (clients interpolate)
 }
 
 GameConfig.Data = {

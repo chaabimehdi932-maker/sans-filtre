@@ -1,16 +1,18 @@
 --[[
 	CommandService
-	Army orders from the commander (X Hold · C Follow · V Attack · B Rush), formations (1/2/3)
-	and squad selection (T), all validated server-side.
+	Army orders from the commander (X Hold · C Follow · V Attack · B Rush), formations
+	(Line / Column / Square) and multi-squad selection, all validated server-side.
 
-	v1 uses the "single selected squad" model: orders go to the player's selected squad,
-	or to ALL their squads when Shift is held.
-	-- STRETCH GOAL: command radius model — apply orders to every friendly squad within N studs
-	-- of the commander and draw that radius on the ground while an order key is held.
+	Selection: the client sends the ids it wants selected (SelectSquads remote: number keys,
+	Shift+number, 0 = all, Ctrl+drag box, squad panel clicks). The server keeps only squads the
+	player owns and publishes the result in the player attribute "SelectedSquads" ("3,5,8").
+	Orders and formation changes apply to every selected squad.
+	-- STRETCH GOAL: command radius model — also allow "every friendly squad within N studs".
 
 	tick() runs every AI.CommandInterval and turns each squad's standing order into movement.
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Modules = ReplicatedStorage:WaitForChild("Modules")
@@ -27,36 +29,92 @@ local Orders = GameConfig.Orders
 local CommandService = {}
 
 local VALID_ORDERS = { Hold = true, Follow = true, Attack = true, Rush = true }
+local MAX_SELECTION = 64
 
-local function selectedSquad(player: Player): any
-	local id = player:GetAttribute("SelectedSquad")
-	local squad = if typeof(id) == "number" then SquadService.getById(id) else nil
-	if squad and squad.alive and squad.owner == player then
-		return squad
+local selections: { [Player]: { [number]: boolean } } = {}
+
+local function publish(player: Player)
+	local ids = {}
+	local selection = selections[player]
+	if selection then
+		for id in selection do
+			table.insert(ids, id)
+		end
 	end
-	-- selection lost (squad died): fall back to the first squad
-	local first = SquadService.getOwnedBy(player)[1]
-	player:SetAttribute("SelectedSquad", if first then first.id else 0)
-	return first
+	table.sort(ids)
+	player:SetAttribute("SelectedSquads", table.concat(ids, ","))
 end
 
-function CommandService.ensureSelection(player: Player)
-	selectedSquad(player)
-end
-
-local function orderTargets(player: Player, all: boolean): { any }
-	if all then
-		return SquadService.getOwnedBy(player)
+-- Selected squads that are still alive (dead ones are dropped from the selection)
+function CommandService.getSelected(player: Player): { any }
+	local selection = selections[player]
+	local list = {}
+	if not selection then
+		return list
 	end
-	local squad = selectedSquad(player)
-	return if squad then { squad } else {}
+	local changed = false
+	for id in selection do
+		local squad = SquadService.getById(id)
+		if squad and squad.alive and squad.owner == player then
+			table.insert(list, squad)
+		else
+			selection[id] = nil
+			changed = true
+		end
+	end
+	if changed then
+		publish(player)
+	end
+	table.sort(list, function(a, b)
+		return a.id < b.id
+	end)
+	return list
 end
 
-Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: unknown, all: unknown)
+function CommandService.prune(player: Player)
+	CommandService.getSelected(player)
+end
+
+function CommandService.selectAll(player: Player)
+	local selection = {}
+	for _, squad in SquadService.getOwnedBy(player) do
+		selection[squad.id] = true
+	end
+	selections[player] = selection
+	publish(player)
+end
+
+function CommandService.removePlayer(player: Player)
+	selections[player] = nil
+end
+
+Remotes.get("SelectSquads").OnServerEvent:Connect(function(player: Player, ids: unknown)
+	if typeof(ids) ~= "table" then
+		return
+	end
+	local selection = {}
+	local count = 0
+	for _, id in ids :: { any } do
+		count += 1
+		if count > MAX_SELECTION then
+			break
+		end
+		if typeof(id) == "number" then
+			local squad = SquadService.getById(id)
+			if squad and squad.alive and squad.owner == player then
+				selection[squad.id] = true
+			end
+		end
+	end
+	selections[player] = selection
+	publish(player)
+end)
+
+Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: unknown)
 	if typeof(order) ~= "string" or not VALID_ORDERS[order] then
 		return
 	end
-	for _, squad in orderTargets(player, all == true) do
+	for _, squad in CommandService.getSelected(player) do
 		if not squad.routing then -- routing squads ignore orders
 			squad.order = order
 			squad.preferredTarget = nil
@@ -68,35 +126,16 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 	end
 end)
 
-Remotes.get("SetFormation").OnServerEvent:Connect(function(player: Player, formation: unknown, all: unknown)
+Remotes.get("SetFormation").OnServerEvent:Connect(function(player: Player, formation: unknown)
 	if typeof(formation) ~= "string" or not FormationDefinitions.Formations[formation] then
 		return
 	end
-	for _, squad in orderTargets(player, all == true) do
+	for _, squad in CommandService.getSelected(player) do
 		SquadService.setFormation(squad, formation)
 	end
 end)
 
--- CycleSquad(direction) selects the next/previous squad; CycleSquad(0, id) selects a specific one
-Remotes.get("CycleSquad").OnServerEvent:Connect(function(player: Player, direction: unknown, squadId: unknown)
-	local list = SquadService.getOwnedBy(player)
-	if #list == 0 then
-		player:SetAttribute("SelectedSquad", 0)
-		return
-	end
-	if typeof(squadId) == "number" then
-		local squad = SquadService.getById(squadId)
-		if squad and squad.owner == player then
-			player:SetAttribute("SelectedSquad", squad.id)
-		end
-		return
-	end
-	local step = if direction == -1 then -1 else 1
-	local current = selectedSquad(player)
-	local index = table.find(list, current) or 1
-	local nextIndex = (index - 1 + step) % #list + 1
-	player:SetAttribute("SelectedSquad", list[nextIndex].id)
-end)
+Players.PlayerRemoving:Connect(CommandService.removePlayer)
 
 ---------------------------------------------------------------------------
 -- Order behaviours

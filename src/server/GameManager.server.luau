@@ -74,7 +74,7 @@ end
 SquadService.hooks.onSquadDestroyed = function(squad)
 	if squad.owner then
 		notifyRemote:FireClient(squad.owner, squad.name .. " was destroyed", "bad")
-		CommandService.ensureSelection(squad.owner)
+		CommandService.prune(squad.owner)
 	elseif squad.team == "Red" then
 		notifyAll("Enemy " .. squad.name .. " destroyed!", "good")
 	end
@@ -326,7 +326,7 @@ local function runBattle(cfg: any): string
 	RecruitmentService.deployAll()
 	PlayerCombatService.teleportAll(MapService.spawnCFrame("Blue"))
 	for _, player in Players:GetPlayers() do
-		CommandService.ensureSelection(player)
+		CommandService.selectAll(player) -- start the battle with the whole army selected
 		DataService.recordRoundReached(player, round)
 	end
 	EnemyAIController.setTuning(cfg.ai)

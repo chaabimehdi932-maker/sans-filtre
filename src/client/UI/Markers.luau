@@ -23,7 +23,7 @@ local OWNER_COLORS = {
 
 local Markers = {}
 
-function Markers.build(root: ScreenGui, ClientState: any): any
+function Markers.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 	local api = {}
 
 	---------------------------------------------------------------- objective markers
@@ -150,7 +150,6 @@ function Markers.build(root: ScreenGui, ClientState: any): any
 	end
 
 	function api.onSquads()
-		local selected = ClientState.selectedId()
 		for i, squad in ClientState.squads do
 			local dot = squadDots[i]
 			if not dot then
@@ -160,7 +159,7 @@ function Markers.build(root: ScreenGui, ClientState: any): any
 				)
 				squadDots[i] = dot
 			end
-			local isSelected = squad.id == selected
+			local isSelected = ClientActions.isSelected(squad.id)
 			dot.Visible = true
 			dot.Size = UDim2.fromOffset(if isSelected then 9 else 6, if isSelected then 9 else 6)
 			dot.Position = toMap(squad.x, squad.z)

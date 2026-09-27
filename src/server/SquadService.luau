@@ -1,21 +1,19 @@
 --[[
 	SquadService
-	A squad is ONE logical object (pooled HP, morale, position, facing, formation) drawn as
-	8-16 placeholder soldier models. All combat math runs on the squad, never per soldier.
+	A squad is ONE logical object (pooled HP, morale, position, facing, formation).
+	All combat math runs on the squad, never per soldier. The server owns NO soldier parts:
+	clients draw and animate the soldiers from the snapshots (client/SquadRenderer).
 
 	Frame loop (called from GameManager on Heartbeat):
-	  • every frame   : movement along PathfindingService waypoints + soldier visuals (BulkMoveTo)
-	  • every 0.2 s   : morale, target selection, volleys / melee / artillery, billboard refresh
+	  • every frame   : movement along PathfindingService waypoints
+	  • every 0.2 s   : morale, target selection, volleys / melee / artillery
 
 	Behaviour layers (CommandService for the player's squads, EnemyAIController for the enemy)
 	only set intent: moveTo / stop / setFormation / preferredTarget / idleYaw.
 ]]
 
-local Debris = game:GetService("Debris")
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local Workspace = game:GetService("Workspace")
 
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local FormationDefinitions = require(Modules:WaitForChild("FormationDefinitions"))
@@ -57,13 +55,6 @@ local nextId = 0
 local paused = false
 local combatTimer = 0
 
-local folder = Instance.new("Folder")
-folder.Name = "Squads"
-folder.Parent = Workspace
-
-local SKIN = Color3.fromRGB(234, 184, 146)
-local HORSE = Color3.fromRGB(110, 75, 45)
-local TROUSERS = Color3.fromRGB(235, 235, 230)
 local PATH_MIN_DISTANCE = 30
 
 ---------------------------------------------------------------------------
@@ -116,284 +107,17 @@ local function removeFromList(squad: Squad)
 end
 
 ---------------------------------------------------------------------------
--- Visuals (placeholder blocky soldiers)
+-- Footprint (soldiers are drawn by each client, see client/SquadRenderer)
 ---------------------------------------------------------------------------
 
-local function newPart(name: string, size: Vector3, color: Color3, material: Enum.Material?): Part
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Size = size
-	part.Color = color
-	part.Material = material or Enum.Material.SmoothPlastic
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CastShadow = false
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
-	return part
-end
-
-local function buildSoldier(squad: Squad): any
-	local def = squad.def
-	local uniform = GameConfig.Teams[squad.team].uniform
-	local parts, offsets = {}, {}
-	local function add(part: Part, offset: CFrame)
-		part.Parent = squad.model
-		table.insert(parts, part)
-		table.insert(offsets, offset)
-	end
-	local hatHeight = def.hatHeight or 0.6
-	if def.visual == "Cavalry" then
-		add(newPart("Legs", Vector3.new(1.1, 1.1, 2.8), HORSE:Lerp(Color3.new(), 0.3)), CFrame.new(0, 0.55, 0))
-		add(newPart("Horse", Vector3.new(1.3, 1.6, 3.4), HORSE), CFrame.new(0, 1.9, 0))
-		add(
-			newPart("HorseHead", Vector3.new(0.8, 1.4, 1.2), HORSE),
-			CFrame.new(0, 2.8, -1.9) * CFrame.Angles(math.rad(-30), 0, 0)
-		)
-		add(newPart("Rider", Vector3.new(1.0, 1.8, 0.7), uniform), CFrame.new(0, 3.5, 0.2))
-		add(newPart("Head", Vector3.new(0.7, 0.7, 0.7), SKIN), CFrame.new(0, 4.75, 0.2))
-		add(
-			newPart("Hat", Vector3.new(0.8, hatHeight, 0.8), def.hatColor, Enum.Material.Metal),
-			CFrame.new(0, 5.1 + hatHeight / 2, 0.2)
-		)
-		add(
-			newPart("Sabre", Vector3.new(0.1, 0.1, 2.2), Color3.fromRGB(200, 200, 210), Enum.Material.Metal),
-			CFrame.new(0.65, 3.9, -0.6) * CFrame.Angles(math.rad(35), 0, 0)
-		)
-	else
-		add(newPart("Legs", Vector3.new(0.9, 0.9, 0.5), TROUSERS), CFrame.new(0, 0.45, 0))
-		add(newPart("Body", Vector3.new(1.0, 2.0, 0.6), uniform), CFrame.new(0, 1.9, 0))
-		add(newPart("Head", Vector3.new(0.6, 0.6, 0.6), SKIN), CFrame.new(0, 3.2, 0))
-		add(newPart("Hat", Vector3.new(0.65, hatHeight, 0.65), def.hatColor), CFrame.new(0, 3.5 + hatHeight / 2, 0))
-		if def.attackType ~= "Artillery" then
-			add(
-				newPart("Musket", Vector3.new(0.15, 0.15, 2.6), Color3.fromRGB(80, 55, 35)),
-				CFrame.new(0.6, 2.1, -0.7) * CFrame.Angles(math.rad(-10), 0, 0)
-			)
-		end
-	end
-	return {
-		parts = parts,
-		offsets = offsets,
-		cf = nil :: CFrame?,
-		jitter = Vector3.new(math.random() * 3 - 1.5, 0, math.random() * 3 - 1.5),
-	}
-end
-
-local function buildArtilleryPiece(squad: Squad)
-	local iron = Color3.fromRGB(45, 45, 50)
-	local wood = Color3.fromRGB(95, 65, 40)
-	local function extra(part: Part, offset: CFrame)
-		part.Parent = squad.model
-		table.insert(squad.extras, { part = part, offset = offset })
-	end
-	-- Cylinders point along X, so rotate the barrel 90° to point forward (-Z)
-	local barrel = newPart("Barrel", Vector3.new(4, 0.8, 0.8), iron, Enum.Material.Metal)
-	barrel.Shape = Enum.PartType.Cylinder
-	extra(barrel, CFrame.new(0, 1.7, -3.2) * CFrame.Angles(0, math.rad(90), 0))
-	extra(newPart("Carriage", Vector3.new(1.2, 0.5, 3), wood), CFrame.new(0, 1.1, -2.2))
-	for _, x in { -0.85, 0.85 } do
-		local wheel = newPart("Wheel", Vector3.new(0.3, 2, 2), wood)
-		wheel.Shape = Enum.PartType.Cylinder
-		extra(wheel, CFrame.new(x, 1, -2.4))
-	end
-end
-
-local function recomputeSlots(squad: Squad)
-	local slots = FormationDefinitions.layout(squad.formation, #squad.soldiers, squad.def.spacingMult)
+-- Radius of the squad on the ground, from the same layout the clients draw
+local function recomputeRadius(squad: Squad)
+	local slots = FormationDefinitions.layout(squad.formation, squad.soldierCount, squad.def.spacingMult)
 	local radius = 2
-	for i, slot in slots do
-		if squad.def.visual == "Artillery" then
-			slots[i] = slot + Vector3.new(0, 0, 1.5) -- crew stands behind the gun
-		end
-		radius = math.max(radius, slots[i].Magnitude + 1)
+	for _, slot in slots do
+		radius = math.max(radius, slot.Magnitude + 1)
 	end
-	squad.slots = slots
 	squad.radius = radius
-	squad.anchor.Size = Vector3.new(0.2, radius * 2 + 2, radius * 2 + 2)
-	squad.visualSettleUntil = time() + 3
-end
-
-local function buildBillboard(squad: Squad)
-	local teamColor = GameConfig.Teams[squad.team].color
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "Info"
-	gui.Size = UDim2.fromOffset(130, 44)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, if squad.def.visual == "Cavalry" then 9 else 7, 0)
-	gui.AlwaysOnTop = true
-	gui.MaxDistance = 260
-	gui.LightInfluence = 0
-	gui.Adornee = squad.anchor
-
-	local function label(y: number, height: number, size: number, color: Color3): TextLabel
-		local text = Instance.new("TextLabel")
-		text.BackgroundTransparency = 1
-		text.Position = UDim2.fromOffset(0, y)
-		text.Size = UDim2.new(1, 0, 0, height)
-		text.Font = Enum.Font.GothamBold
-		text.TextSize = size
-		text.TextColor3 = color
-		text.TextStrokeTransparency = 0.3
-		text.Parent = gui
-		return text
-	end
-	local function bar(y: number, height: number, color: Color3): Frame
-		local back = Instance.new("Frame")
-		back.Position = UDim2.fromOffset(15, y)
-		back.Size = UDim2.new(1, -30, 0, height)
-		back.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-		back.BorderSizePixel = 0
-		back.Parent = gui
-		local fill = Instance.new("Frame")
-		fill.Size = UDim2.fromScale(1, 1)
-		fill.BackgroundColor3 = color
-		fill.BorderSizePixel = 0
-		fill.Parent = back
-		return fill
-	end
-
-	local name = label(0, 15, 13, teamColor:Lerp(Color3.new(1, 1, 1), 0.5))
-	name.Text = squad.name
-	local hpFill = bar(17, 6, Color3.fromRGB(225, 60, 60))
-	local moraleFill = bar(25, 4, Color3.fromRGB(240, 200, 60))
-	local status = label(30, 13, 11, Color3.new(1, 1, 1))
-	gui.Parent = squad.anchor
-
-	squad.ui =
-		{ hpFill = hpFill, moraleFill = moraleFill, status = status, lastHp = 1, lastMorale = 1, lastStatus = "" }
-end
-
-local function buildVisuals(squad: Squad)
-	local model = Instance.new("Model")
-	model.Name = "Squad_" .. squad.id
-	model:SetAttribute("SquadId", squad.id)
-	model:SetAttribute("Team", squad.team)
-	squad.model = model
-
-	-- Ground disc under the squad: team colour, also carries the billboard and charge dust
-	local anchor = newPart("Anchor", Vector3.new(0.2, 4, 4), GameConfig.Teams[squad.team].color)
-	anchor.Shape = Enum.PartType.Cylinder
-	anchor.Transparency = 0.7
-	anchor.Parent = model
-	model.PrimaryPart = anchor
-	squad.anchor = anchor
-
-	local dust = Instance.new("ParticleEmitter")
-	dust.Name = "ChargeDust"
-	dust.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	dust.Color = ColorSequence.new(Color3.fromRGB(165, 135, 100))
-	dust.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 6) })
-	dust.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1) })
-	dust.Lifetime = NumberRange.new(1, 1.6)
-	dust.Rate = 30
-	dust.Speed = NumberRange.new(2, 5)
-	dust.SpreadAngle = Vector2.new(70, 70)
-	dust.EmissionDirection = Enum.NormalId.Right -- the disc is rotated: its +X points up
-	dust.Enabled = false
-	dust.Parent = anchor
-	squad.dust = dust
-
-	squad.soldiers = {}
-	squad.extras = {}
-	for _ = 1, squad.def.soldiers do
-		table.insert(squad.soldiers, buildSoldier(squad))
-	end
-	if squad.def.visual == "Artillery" then
-		buildArtilleryPiece(squad)
-	end
-	recomputeSlots(squad)
-	buildBillboard(squad)
-	model.Parent = folder
-end
-
-local bulkParts: { BasePart } = {}
-local bulkCFrames: { CFrame } = {}
-
-local function updateVisuals(squad: Squad, dt: number, now: number)
-	if now > squad.visualSettleUntil and not squad.isMoving then
-		return -- soldiers already in place: skip the work
-	end
-	local base = CFrame.new(squad.position) * CFrame.Angles(0, squad.yaw, 0)
-	-- Soldiers shuffle slowly while forming up so the change is readable
-	local alpha = math.min(1, dt * (if now < squad.formingUntil then 1.2 else 6))
-	local bob = now * 9
-	for i, soldier in squad.soldiers do
-		local slot = squad.slots[i] or Vector3.zero
-		if squad.rushing then
-			slot += soldier.jitter -- rushing breaks the neat ranks
-		end
-		local target = base * CFrame.new(slot.X, 0, slot.Z)
-		soldier.cf = if soldier.cf then soldier.cf:Lerp(target, alpha) else target
-		local cf = soldier.cf
-		if squad.isMoving then
-			cf += Vector3.new(0, math.abs(math.sin(bob + i)) * 0.25, 0)
-		end
-		for j, part in soldier.parts do
-			table.insert(bulkParts, part)
-			table.insert(bulkCFrames, cf * soldier.offsets[j])
-		end
-	end
-	for _, extra in squad.extras do
-		table.insert(bulkParts, extra.part)
-		table.insert(bulkCFrames, base * extra.offset)
-	end
-	table.insert(bulkParts, squad.anchor)
-	table.insert(bulkCFrames, CFrame.new(squad.position + Vector3.new(0, 0.15, 0)) * CFrame.Angles(0, 0, math.rad(90)))
-end
-
-local function fallSoldier(soldier: any)
-	if not soldier.cf then
-		for _, part in soldier.parts do
-			part:Destroy()
-		end
-		return
-	end
-	-- Tip the whole soldier over backwards, fade, then remove
-	local fallen = soldier.cf * CFrame.new(0, 0.4, 0.8) * CFrame.Angles(math.rad(80), 0, 0)
-	local info = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-	for j, part in soldier.parts do
-		TweenService:Create(part, info, { CFrame = fallen * soldier.offsets[j] }):Play()
-		task.delay(1.2, function()
-			if part.Parent then
-				TweenService:Create(part, TweenInfo.new(0.8), { Transparency = 1 }):Play()
-			end
-		end)
-		Debris:AddItem(part, 2.2)
-	end
-end
-
-local function updateBillboard(squad: Squad, now: number)
-	local ui = squad.ui
-	local hp = squad.health / squad.maxHealth
-	if math.abs(hp - ui.lastHp) > 0.004 then
-		ui.lastHp = hp
-		ui.hpFill.Size = UDim2.fromScale(hp, 1)
-	end
-	local morale = squad.morale / squad.maxMorale
-	if math.abs(morale - ui.lastMorale) > 0.004 then
-		ui.lastMorale = morale
-		ui.moraleFill.Size = UDim2.fromScale(morale, 1)
-	end
-	local status, color
-	if squad.routing then
-		status, color = "ROUTING!", Color3.fromRGB(255, 90, 90)
-	elseif now < squad.formingUntil then
-		local progress = (now - squad.formingStarted) / (squad.formingUntil - squad.formingStarted)
-		status, color = string.format("Forming %s %d%%", squad.formation, progress * 100), Color3.fromRGB(255, 220, 120)
-	elseif now < squad.chargeReadyUntil then
-		status, color = "CHARGE!", Color3.fromRGB(255, 170, 60)
-	elseif squad.owner then
-		status, color = squad.order .. " · " .. squad.formation, Color3.new(1, 1, 1)
-	else
-		status, color = squad.formation, Color3.new(1, 1, 1)
-	end
-	if status ~= ui.lastStatus then
-		ui.lastStatus = status
-		ui.status.Text = status
-		ui.status.TextColor3 = color
-	end
 end
 
 ---------------------------------------------------------------------------
@@ -425,6 +149,8 @@ function SquadService.create(params: any): Squad
 		morale = def.morale * statMult,
 		damageMult = params.damageMultiplier or 1,
 		alive = true,
+		soldierCount = def.soldiers,
+		radius = 2,
 
 		position = position,
 		homePosition = position,
@@ -449,7 +175,6 @@ function SquadService.create(params: any): Squad
 		movingTime = 0,
 		chargeReadyUntil = 0,
 		lastChargeAt = nil,
-		dustOn = false,
 		rushing = false,
 
 		preferredTarget = nil,
@@ -464,10 +189,9 @@ function SquadService.create(params: any): Squad
 		aiRegrouping = false,
 		order = "Hold", -- player squads only: Hold | Follow | Attack | Rush
 		aiMemory = {},
-		visualSettleUntil = 0,
 		stats = { damageDealt = 0 },
 	}
-	buildVisuals(squad)
+	recomputeRadius(squad)
 	squadsById[squad.id] = squad
 	table.insert(squadList, squad)
 	return squad
@@ -560,7 +284,7 @@ function SquadService.setFormation(squad: Squad, formation: string): boolean
 	squad.formation = formation
 	squad.formingStarted = now
 	squad.formingUntil = now + FormationDefinitions.FORM_UP_TIME
-	recomputeSlots(squad)
+	recomputeRadius(squad)
 	return true
 end
 
@@ -576,15 +300,8 @@ end
 
 local function destroySquad(squad: Squad, attackerTeam: string?)
 	squad.alive = false
+	squad.soldierCount = 0
 	removeFromList(squad)
-	for _, soldier in squad.soldiers do
-		fallSoldier(soldier)
-	end
-	for _, extra in squad.extras do
-		extra.part:Destroy()
-	end
-	squad.anchor:Destroy()
-	Debris:AddItem(squad.model, 2.5)
 	SquadService.hooks.onSquadDestroyed(squad, attackerTeam)
 end
 
@@ -592,15 +309,11 @@ local function refreshSoldierCount(squad: Squad, attackerTeam: string?)
 	local desired = if squad.health <= 0
 		then 0
 		else math.max(1, math.ceil(squad.def.soldiers * squad.health / squad.maxHealth))
-	local lost = 0
-	while #squad.soldiers > desired do
-		local soldier = table.remove(squad.soldiers, math.random(1, #squad.soldiers))
-		fallSoldier(soldier)
-		lost += 1
-	end
+	local lost = squad.soldierCount - desired
 	if lost > 0 then
-		if squad.health > 0 then
-			recomputeSlots(squad)
+		squad.soldierCount = desired
+		if desired > 0 then
+			recomputeRadius(squad)
 		end
 		SquadService.hooks.onCasualties(squad, lost, attackerTeam)
 	end
@@ -764,22 +477,6 @@ local function dealDamage(attacker: Squad, target: any, amount: number, kind: st
 	end
 end
 
-local function muzzlePositions(squad: Squad): { Vector3 }
-	local positions = {}
-	local count = #squad.soldiers
-	local step = math.max(1, math.floor(count / 5))
-	for i = 1, count, step do
-		local soldier = squad.soldiers[i]
-		if soldier.cf then
-			table.insert(positions, (soldier.cf * CFrame.new(0.6, 2.2, -2)).Position)
-		end
-		if #positions >= 5 then
-			break
-		end
-	end
-	return positions
-end
-
 local function fireVolley(squad: Squad, target: any, distance: number, range: number, now: number)
 	local def = squad.def
 	local falloff = 1 - Combat.RangeFalloff * math.clamp(distance / range, 0, 1)
@@ -790,11 +487,7 @@ local function fireVolley(squad: Squad, target: any, distance: number, range: nu
 		* damageRoll()
 		* falloff
 	dealDamage(squad, target, damage, "Ranged", now)
-	vfxRemote:FireAllClients({
-		kind = "Volley",
-		positions = muzzlePositions(squad),
-		direction = MathUtil.lookFromYaw(squad.yaw),
-	})
+	vfxRemote:FireAllClients({ kind = "Volley", squadId = squad.id, direction = MathUtil.lookFromYaw(squad.yaw) })
 end
 
 local function fireArtillery(squad: Squad, target: any, distance: number, range: number)
@@ -805,7 +498,7 @@ local function fireArtillery(squad: Squad, target: any, distance: number, range:
 	impact = Vector3.new(impact.X, MapService.groundY(impact.X, impact.Z, target.position.Y), impact.Z)
 	local muzzle = (CFrame.new(squad.position) * CFrame.Angles(0, squad.yaw, 0) * CFrame.new(0, 1.7, -5.3)).Position
 	local flight = distance / Combat.ArtilleryShellSpeed
-	vfxRemote:FireAllClients({ kind = "Cannon", from = muzzle, to = impact, flight = flight })
+	vfxRemote:FireAllClients({ kind = "Cannon", squadId = squad.id, from = muzzle, to = impact, flight = flight })
 
 	-- Damage lands when the ball does. Capture values now: the gun may be dead by then.
 	local team = squad.team
@@ -853,9 +546,21 @@ local function doMelee(squad: Squad, target: any, now: number)
 		squad.chargeReadyUntil = 0
 		squad.movingTime = 0
 		squad.lastChargeAt = now
-		vfxRemote:FireAllClients({ kind = "ChargeImpact", position = target.position })
-	elseif math.random() < 0.35 then
-		vfxRemote:FireAllClients({ kind = "Clash", position = target.position })
+		vfxRemote:FireAllClients({
+			kind = "ChargeImpact",
+			position = target.position,
+			squadId = squad.id,
+			targetId = if target.squad then target.squad.id else nil,
+		})
+	elseif now - (squad.lastClashVfx or 0) > 1.2 then
+		-- tells clients to play the melee animation on both squads (throttled)
+		squad.lastClashVfx = now
+		vfxRemote:FireAllClients({
+			kind = "Clash",
+			position = target.position,
+			squadId = squad.id,
+			targetId = if target.squad then target.squad.id else nil,
+		})
 	end
 	dealDamage(squad, target, damage, kind, now)
 end
@@ -1076,16 +781,7 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 		else squad.idleYaw
 	local turnSpeed = if def.attackType == "Artillery" then Combat.ArtilleryTurnSpeed else Combat.TurnSpeed
 	local newYaw = MathUtil.turnTowards(squad.yaw, desired, turnSpeed * dt)
-	if newYaw ~= squad.yaw or moving then
-		squad.yaw = newYaw
-		squad.visualSettleUntil = now + 1
-	end
-
-	local charging = now < squad.chargeReadyUntil
-	if charging ~= squad.dustOn then
-		squad.dustOn = charging
-		squad.dust.Enabled = charging
-	end
+	squad.yaw = newYaw
 end
 
 ---------------------------------------------------------------------------
@@ -1097,14 +793,8 @@ function SquadService.update(dt: number)
 		return
 	end
 	local now = time()
-	table.clear(bulkParts)
-	table.clear(bulkCFrames)
 	for _, squad in squadList do
 		stepMovement(squad, dt, now)
-		updateVisuals(squad, dt, now)
-	end
-	if #bulkParts > 0 then
-		Workspace:BulkMoveTo(bulkParts, bulkCFrames, Enum.BulkMoveMode.FireCFrameChanged)
 	end
 
 	combatTimer += dt
@@ -1126,7 +816,6 @@ function SquadService.update(dt: number)
 			end
 			if squad.alive then
 				updateState(squad, now)
-				updateBillboard(squad, now)
 			end
 		end
 	end
@@ -1136,7 +825,7 @@ function SquadService.setPaused(value: boolean)
 	paused = value
 end
 
--- Compact state for clients (HUD squad panel, minimap). Never trusted back from the client.
+-- Compact state for clients (soldier rendering, HUD, minimap). Never trusted back from the client.
 function SquadService.snapshot(): { any }
 	local now = time()
 	local out = table.create(#squadList)
@@ -1158,7 +847,12 @@ function SquadService.snapshot(): { any }
 			x = squad.position.X,
 			y = squad.position.Y,
 			z = squad.position.Z,
-			soldiers = #squad.soldiers,
+			yaw = squad.yaw,
+			soldiers = squad.soldierCount,
+			radius = squad.radius,
+			moving = squad.isMoving,
+			rushing = squad.rushing,
+			charging = now < squad.chargeReadyUntil,
 		})
 	end
 	return out
@@ -1168,7 +862,6 @@ function SquadService.remove(squad: Squad)
 	if squad.alive then
 		squad.alive = false
 		removeFromList(squad)
-		squad.model:Destroy()
 	end
 end
 
@@ -1182,7 +875,6 @@ function SquadService.clearAll()
 	for _, squad in table.clone(squadList) do
 		SquadService.remove(squad)
 	end
-	folder:ClearAllChildren()
 end
 
 return SquadService

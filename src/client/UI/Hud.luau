@@ -181,7 +181,7 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 		Theme.stroke(title, Color3.new(0, 0, 0), 1.5)
 		keyBadge(button, def.key, def.color, UDim2.fromOffset(-6, -6), Vector2.zero)
 		button.Activated:Connect(function()
-			ClientActions.order(def.name, shiftHeld())
+			ClientActions.order(def.name)
 		end)
 		orderButtons[def.name] = { button = button, stroke = stroke }
 	end
@@ -204,14 +204,15 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 		Theme.corner(button, 6)
 		local stroke = Theme.border(button, C.SlotStroke, 2)
 		button.Activated:Connect(function()
-			ClientActions.formation(def.name, shiftHeld())
+			ClientActions.formation(def.name)
 		end)
 		formationButtons[def.name] = { button = button, stroke = stroke }
 	end
 	text({
 		LayoutOrder = 20,
-		Size = UDim2.fromOffset(92, 58),
-		Text = "T next squad\nShift = all\nAlt = cursor",
+		Size = UDim2.fromOffset(150, 110),
+		Text = "1-9 select squad\nShift+1-9 add/remove\n0 select all · T next\nCtrl+drag box select\nX then 1/2/3 formation\nRight drag camera\nAlt mouse-look",
+		TextXAlignment = Enum.TextXAlignment.Left,
 		TextSize = 12,
 		TextColor3 = C.Muted,
 		TextStrokeTransparency = 0.5,
@@ -222,6 +223,48 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 		button.BackgroundColor3 = C.Gold
 		TweenService:Create(button, TweenInfo.new(0.35), { BackgroundColor3 = C.Slot }):Play()
 	end
+
+	-- Formation prompt shown after X (Hold): 1 / 2 / 3 pick the formation
+	local prompt = create("Frame", {
+		Name = "FormationPrompt",
+		Position = UDim2.new(0, 112, 0, 110),
+		Size = UDim2.fromOffset(340, 84),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.15,
+		Visible = false,
+		Parent = root,
+	})
+	Theme.corner(prompt, 8)
+	Theme.border(prompt, C.Gold, 2)
+	text({
+		Position = UDim2.fromOffset(12, 6),
+		Size = UDim2.new(1, -24, 0, 20),
+		Text = "HOLD · CHOOSE A FORMATION",
+		Font = Theme.Bold,
+		TextSize = 14,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = prompt,
+	})
+	for i, def in FORMATION_DEFS do
+		local option = create("TextButton", {
+			Position = UDim2.fromOffset(12 + (i - 1) * 108, 30),
+			Size = UDim2.fromOffset(100, 36),
+			BackgroundColor3 = C.Slot,
+			Text = def.key .. "  " .. string.upper(def.name),
+			Font = Theme.Bold,
+			TextSize = 14,
+			TextColor3 = C.Text,
+			Parent = prompt,
+		})
+		Theme.corner(option, 6)
+		Theme.border(option, Color3.new(0, 0, 0), 2)
+		option.Activated:Connect(function()
+			ClientActions.formation(def.name)
+		end)
+	end
+	local _, promptFill =
+		Theme.bar({ Position = UDim2.new(0, 12, 1, -10), Size = UDim2.new(1, -24, 0, 4), Parent = prompt }, C.Gold)
 
 	ClientActions.Changed:Connect(function(what, value)
 		if what == "Order" and orderButtons[value] then
@@ -277,9 +320,20 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 		})
 		Theme.corner(button, 6)
 		local stroke = Theme.border(button, Color3.new(1, 1, 1), 2)
+		local key = text({
+			Position = UDim2.fromOffset(4, 2),
+			Size = UDim2.fromOffset(16, 16),
+			Text = tostring(index),
+			Font = Theme.Bold,
+			TextSize = 12,
+			BackgroundColor3 = C.KeyRed,
+			BackgroundTransparency = 0,
+			Parent = button,
+		})
+		Theme.corner(key, 3)
 		local name = text({
-			Position = UDim2.fromOffset(6, 2),
-			Size = UDim2.new(0.6, -6, 0, 16),
+			Position = UDim2.fromOffset(24, 2),
+			Size = UDim2.new(0.6, -24, 0, 16),
 			TextSize = 13,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Parent = button,
@@ -295,9 +349,22 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 			Theme.bar({ Position = UDim2.fromOffset(6, 21), Size = UDim2.new(1, -12, 0, 6), Parent = button }, C.Health)
 		local _, morale =
 			Theme.bar({ Position = UDim2.fromOffset(6, 29), Size = UDim2.new(1, -12, 0, 4), Parent = button }, C.Morale)
-		row = { button = button, stroke = stroke, name = name, state = state, hp = hp, morale = morale, id = 0 }
+		row = {
+			button = button,
+			stroke = stroke,
+			name = name,
+			state = state,
+			hp = hp,
+			morale = morale,
+			id = 0,
+			key = key,
+		}
 		button.Activated:Connect(function()
-			ClientActions.selectSquad(row.id)
+			if shiftHeld() then
+				ClientActions.toggleSelected(row.id)
+			else
+				ClientActions.setSelection({ row.id })
+			end
 		end)
 		squadRows[index] = row
 		return row
@@ -305,7 +372,7 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 
 	function api.onSquads()
 		local mine = ClientState.mySquads()
-		local selected = ClientState.selectedId()
+		local selectedSquads = {}
 		for i, squad in mine do
 			local row = squadRow(i)
 			row.id = squad.id
@@ -315,23 +382,39 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 			row.state.TextColor3 = STATE_COLORS[squad.state] or C.Muted
 			row.hp.Size = UDim2.fromScale(squad.hp, 1)
 			row.morale.Size = UDim2.fromScale(squad.morale, 1)
-			row.stroke.Transparency = if squad.id == selected then 0 else 1
+			local isSelected = ClientActions.isSelected(squad.id)
+			row.stroke.Transparency = if isSelected then 0 else 1
+			row.stroke.Color = C.Gold
+			row.key.Visible = i <= 9
+			if isSelected then
+				table.insert(selectedSquads, squad)
+			end
 		end
 		for i = #mine + 1, #squadRows do
 			squadRows[i].button.Visible = false
 		end
 		squadPanel.Visible = #mine > 0
 
-		-- Active order / formation of the selected squad
-		local current = ClientState.selectedSquad()
+		-- Highlight the order / formation shared by every selected squad
+		local function shared(field: string): string?
+			local value = nil
+			for _, squad in selectedSquads do
+				if value == nil then
+					value = squad[field]
+				elseif value ~= squad[field] then
+					return nil
+				end
+			end
+			return value
+		end
+		local order, formation = shared("order"), shared("formation")
 		for name, entry in orderButtons do
-			local active = current ~= nil and current.order == name
+			local active = order == name
 			entry.stroke.Color = if active then C.Gold else C.SlotStroke
 			entry.stroke.Thickness = if active then 3 else 2
 		end
 		for name, entry in formationButtons do
-			local active = current ~= nil and current.formation == name
-			entry.stroke.Color = if active then C.Gold else C.SlotStroke
+			entry.stroke.Color = if formation == name then C.Gold else C.SlotStroke
 		end
 		api.refreshArmyCount()
 	end
@@ -651,6 +734,10 @@ function Hud.build(root: ScreenGui, ClientState: any, ClientActions: any): any
 			holdFill.BackgroundColor3 = if hold.team == "Blue" then C.Blue else C.Red
 			holdLabel.Text = if hold.team == "Blue" then "HOLDING ALL ZONES" else "ENEMY HOLDS ALL ZONES!"
 		end
+
+		local promptLeft = ClientActions.formationPrompt()
+		prompt.Visible = promptLeft > 0 and orders.Visible
+		promptFill.Size = UDim2.fromScale(promptLeft, 1)
 
 		local character = player.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")

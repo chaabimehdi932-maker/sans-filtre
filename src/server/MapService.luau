@@ -30,11 +30,17 @@ local function refreshFilter()
 		return
 	end
 	lastFilterRefresh = now
-	local list = {}
+	local list: { Instance } = {}
 	for _, player in Players:GetPlayers() do
 		if player.Character then
 			table.insert(list, player.Character)
 		end
+	end
+	-- squads walk through placeholder scenery instead of climbing onto roofs
+	local map = Workspace:FindFirstChild("Map")
+	local scenery = map and map:FindFirstChild("Scenery")
+	if scenery then
+		table.insert(list, scenery)
 	end
 	groundParams.FilterDescendantsInstances = list
 end
@@ -66,7 +72,170 @@ local function newAnchored(props: { [string]: any }): Part
 	return part
 end
 
--- Placeholder battlefield: flat field, 3 zones, 2 deployment areas, a few houses
+local function newPart(parent: Instance, props: { [string]: any }): Part
+	local part = newAnchored(props)
+	part.Parent = parent
+	return part
+end
+
+-- Only in placeholder mode: a sunny, hazy look (your own map keeps its own Lighting)
+local function setupLighting()
+	local Lighting = game:GetService("Lighting")
+	Lighting.ClockTime = 14.5
+	Lighting.Brightness = 2.4
+	Lighting.GlobalShadows = true
+	Lighting.OutdoorAmbient = Color3.fromRGB(135, 140, 150)
+	Lighting.EnvironmentDiffuseScale = 0.6
+	Lighting.EnvironmentSpecularScale = 0.4
+	local function ensure(className: string, props: { [string]: any })
+		if Lighting:FindFirstChildOfClass(className) then
+			return
+		end
+		local effect = Instance.new(className)
+		for key, value in props do
+			(effect :: any)[key] = value
+		end
+		effect.Parent = Lighting
+	end
+	ensure("Atmosphere", {
+		Density = 0.3,
+		Offset = 0.15,
+		Color = Color3.fromRGB(200, 218, 240),
+		Decay = Color3.fromRGB(110, 120, 140),
+		Glare = 0.25,
+		Haze = 1.4,
+	})
+	ensure("ColorCorrectionEffect", { Saturation = 0.18, Contrast = 0.08, TintColor = Color3.fromRGB(255, 250, 240) })
+	ensure("BloomEffect", { Intensity = 0.35, Size = 24, Threshold = 1.6 })
+	ensure("SunRaysEffect", { Intensity = 0.05, Spread = 0.8 })
+	if not Workspace.Terrain:FindFirstChildOfClass("Clouds") then
+		local clouds = Instance.new("Clouds")
+		clouds.Cover = 0.6
+		clouds.Density = 0.7
+		clouds.Parent = Workspace.Terrain
+	end
+end
+
+local rng = Random.new(1815)
+
+local function tree(parent: Instance, position: Vector3)
+	local y = MapService.groundY(position.X, position.Z)
+	local height = rng:NextNumber(7, 11)
+	newPart(parent, {
+		Name = "Trunk",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(height, 1.1, 1.1),
+		CFrame = CFrame.new(position.X, y + height / 2, position.Z) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(95, 65, 40),
+		Material = Enum.Material.Wood,
+	})
+	local green = Color3.fromRGB(55, 115, 45):Lerp(Color3.fromRGB(95, 145, 55), rng:NextNumber())
+	for i = 1, 3 do
+		local size = rng:NextNumber(5, 7.5)
+		newPart(parent, {
+			Name = "Leaves",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.one * size,
+			Position = Vector3.new(
+				position.X + rng:NextNumber(-1.5, 1.5),
+				y + height + rng:NextNumber(-1, 2) - (i - 1),
+				position.Z + rng:NextNumber(-1.5, 1.5)
+			),
+			Color = green,
+			Material = Enum.Material.Grass,
+			CanCollide = false,
+		})
+	end
+end
+
+local function house(parent: Instance, position: Vector3, yaw: number)
+	local y = MapService.groundY(position.X, position.Z)
+	local base = CFrame.new(position.X, y, position.Z) * CFrame.Angles(0, yaw, 0)
+	local plaster = Color3.fromRGB(232, 222, 198):Lerp(Color3.fromRGB(210, 190, 160), rng:NextNumber())
+	local roof = Color3.fromRGB(150, 62, 45):Lerp(Color3.fromRGB(95, 80, 70), rng:NextNumber())
+	newPart(parent, {
+		Name = "Walls",
+		Size = Vector3.new(10, 7, 13),
+		CFrame = base * CFrame.new(0, 3.5, 0),
+		Color = plaster,
+		Material = Enum.Material.Plaster,
+	})
+	newPart(parent, {
+		Name = "Base",
+		Size = Vector3.new(10.6, 1, 13.6),
+		CFrame = base * CFrame.new(0, 0.5, 0),
+		Color = Color3.fromRGB(120, 115, 105),
+		Material = Enum.Material.Cobblestone,
+	})
+	for _, side in { -1, 1 } do
+		newPart(parent, {
+			Name = "Roof",
+			Size = Vector3.new(6.6, 0.5, 14.2),
+			CFrame = base * CFrame.new(side * 2.55, 8.9, 0) * CFrame.Angles(0, 0, math.rad(-side * 38)),
+			Color = roof,
+			Material = Enum.Material.Slate,
+		})
+	end
+	for _, z in { -6.3, 6.3 } do
+		-- gable ends: a stack of shrinking blocks
+		for step = 0, 3 do
+			local width = 9.4 - step * 2.3
+			newPart(parent, {
+				Name = "Gable",
+				Size = Vector3.new(width, 1, 0.4),
+				CFrame = base * CFrame.new(0, 7.5 + step, z),
+				Color = plaster,
+				Material = Enum.Material.Plaster,
+			})
+		end
+	end
+	newPart(parent, {
+		Name = "Chimney",
+		Size = Vector3.new(1.4, 4, 1.4),
+		CFrame = base * CFrame.new(2.5, 10, 3),
+		Color = Color3.fromRGB(130, 70, 55),
+		Material = Enum.Material.Brick,
+	})
+	newPart(parent, {
+		Name = "Door",
+		Size = Vector3.new(2.2, 4, 0.3),
+		CFrame = base * CFrame.new(0, 2.5, -6.55),
+		Color = Color3.fromRGB(90, 55, 30),
+		Material = Enum.Material.WoodPlanks,
+	})
+	for _, x in { -3.2, 3.2 } do
+		newPart(parent, {
+			Name = "Window",
+			Size = Vector3.new(1.8, 1.8, 0.3),
+			CFrame = base * CFrame.new(x, 4.2, -6.55),
+			Color = Color3.fromRGB(60, 80, 110),
+			Material = Enum.Material.Glass,
+			Reflectance = 0.2,
+		})
+		newPart(parent, {
+			Name = "Shutter",
+			Size = Vector3.new(0.5, 2, 0.35),
+			CFrame = base * CFrame.new(x - 1.2, 4.2, -6.6),
+			Color = Color3.fromRGB(60, 95, 60),
+			Material = Enum.Material.WoodPlanks,
+		})
+	end
+end
+
+local function stoneWall(parent: Instance, from: Vector3, to: Vector3)
+	local mid = (from + to) / 2
+	local length = (to - from).Magnitude
+	local y = MapService.groundY(mid.X, mid.Z)
+	newPart(parent, {
+		Name = "StoneWall",
+		Size = Vector3.new(1.6, 2.2, length),
+		CFrame = CFrame.lookAt(Vector3.new(mid.X, y + 1.1, mid.Z), Vector3.new(to.X, y + 1.1, to.Z)),
+		Color = Color3.fromRGB(125, 120, 110),
+		Material = Enum.Material.Cobblestone,
+	})
+end
+
+-- Placeholder battlefield: grass terrain, hills, road, village, woods, 3 zones, 2 deployment areas
 local function buildPlaceholderMap()
 	local folder = Workspace:FindFirstChild("Map")
 	if not folder then
@@ -74,17 +243,38 @@ local function buildPlaceholderMap()
 		folder.Name = "Map"
 		folder.Parent = Workspace
 	end
+	setupLighting()
 
-	if not Workspace:Raycast(Vector3.new(0, 500, 0), Vector3.new(0, -1000, 0)) then
-		newAnchored({
-			Name = "Ground",
-			Size = Vector3.new(800, 4, 800),
-			Position = Vector3.new(0, -2, 0),
-			Color = Color3.fromRGB(75, 150, 60),
-			Material = Enum.Material.Grass,
-			Parent = folder,
-		})
+	-- Replace the grey template Baseplate with grass terrain
+	local baseplate = Workspace:FindFirstChild("Baseplate")
+	if baseplate and baseplate:IsA("BasePart") then
+		baseplate.Transparency = 1
+		baseplate.CanCollide = false
+		baseplate.CanQuery = false
 	end
+	local terrain = Workspace.Terrain
+	terrain:FillBlock(CFrame.new(0, -6, 0), Vector3.new(1000, 12, 1000), Enum.Material.Grass)
+	-- the Ridge zone sits on high ground (its bonus is artillery range)
+	terrain:FillBall(Vector3.new(120, -26, -70), 36, Enum.Material.Grass)
+	for _, hill in
+		{
+			{ -300, -45, 60, 70 },
+			{ 310, -55, 180, 80 },
+			{ -320, -50, -220, 80 },
+			{ 330, -60, -260, 90 },
+			{ 0, -70, -420, 110 },
+			{ -200, -70, 380, 100 },
+		}
+	do
+		terrain:FillBall(Vector3.new(hill[1], hill[2], hill[3]), hill[4], Enum.Material.Grass)
+	end
+	-- dirt road through the middle of the battlefield
+	terrain:FillBlock(CFrame.new(0, -2, 0), Vector3.new(12, 4, 560), Enum.Material.Ground)
+	terrain:FillBlock(
+		CFrame.new(-60, -2, -45) * CFrame.Angles(0, math.rad(-62), 0),
+		Vector3.new(10, 4, 130),
+		Enum.Material.Ground
+	)
 
 	local zones = {
 		{ name = "Plains", position = Vector3.new(0, 0, -20), radius = 32, bonus = "Income", order = 1 },
@@ -114,10 +304,11 @@ local function buildPlaceholderMap()
 		local y = MapService.groundY(0, z)
 		local part = newAnchored({
 			Name = tag,
-			Size = Vector3.new(260, 1, 60),
+			Size = Vector3.new(260, 0.4, 60),
 			Position = Vector3.new(0, y + 0.1, z),
 			Color = color,
-			Transparency = 0.85,
+			Material = Enum.Material.Neon,
+			Transparency = 0.9,
 			CanCollide = false,
 			CanQuery = false,
 			CanTouch = false,
@@ -128,29 +319,47 @@ local function buildPlaceholderMap()
 	deploy(MapService.TAG_PLAYER_DEPLOY, 230, Color3.fromRGB(45, 95, 215))
 	deploy(MapService.TAG_ENEMY_DEPLOY, -230, Color3.fromRGB(205, 45, 45))
 
-	-- A few houses in the village (they block paths, so PathfindingService has something to do)
+	local scenery = Instance.new("Folder")
+	scenery.Name = "Scenery"
+	scenery.Parent = folder
+
+	-- Village: houses around a small square, with a well
 	local village = zones[2].position
-	for i, offset in
-		{ Vector3.new(-14, 0, -12), Vector3.new(12, 0, -16), Vector3.new(-16, 0, 14), Vector3.new(16, 0, 12) }
+	for _, spot in
+		{
+			{ -16, -14, 0.3 },
+			{ 15, -17, -0.2 },
+			{ -18, 15, math.pi + 0.2 },
+			{ 17, 14, math.pi - 0.3 },
+			{ -30, 0, math.pi / 2 },
+		}
 	do
-		local base = village + offset
-		local y = MapService.groundY(base.X, base.Z)
-		newAnchored({
-			Name = "House" .. i,
-			Size = Vector3.new(10, 8, 12),
-			Position = Vector3.new(base.X, y + 4, base.Z),
-			Color = Color3.fromRGB(225, 215, 190),
-			Material = Enum.Material.Brick,
-			Parent = folder,
-		})
-		newAnchored({
-			Name = "Roof" .. i,
-			Size = Vector3.new(11, 3, 13),
-			Position = Vector3.new(base.X, y + 9.5, base.Z),
-			Color = Color3.fromRGB(150, 60, 45),
-			Material = Enum.Material.Slate,
-			Parent = folder,
-		})
+		house(scenery, village + Vector3.new(spot[1], 0, spot[2]), spot[3])
+	end
+	local wellY = MapService.groundY(village.X, village.Z)
+	newPart(scenery, {
+		Name = "Well",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.5, 4, 4),
+		CFrame = CFrame.new(village.X, wellY + 1.25, village.Z) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(130, 125, 115),
+		Material = Enum.Material.Cobblestone,
+	})
+
+	-- Low stone walls: cover lines in front of the Plains
+	stoneWall(scenery, Vector3.new(-50, 0, 25), Vector3.new(-18, 0, 28))
+	stoneWall(scenery, Vector3.new(18, 0, 28), Vector3.new(50, 0, 25))
+	stoneWall(scenery, Vector3.new(-45, 0, -70), Vector3.new(-10, 0, -75))
+
+	-- Woods on the flanks (kept away from the lanes between the zones)
+	for _ = 1, 70 do
+		local side = if rng:NextNumber() < 0.5 then -1 else 1
+		local x = side * rng:NextNumber(175, 420)
+		local z = rng:NextNumber(-420, 420)
+		tree(scenery, Vector3.new(x, 0, z))
+	end
+	for _ = 1, 12 do
+		tree(scenery, Vector3.new(rng:NextNumber(-60, 60) - 140, 0, rng:NextNumber(-150, -110)))
 	end
 end
 

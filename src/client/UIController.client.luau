@@ -18,7 +18,7 @@ local SummaryPanel = require(UI:WaitForChild("SummaryPanel"))
 local root = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("MainHUD")
 
 local hud = Hud.build(root, ClientState, ClientActions)
-local markers = Markers.build(root, ClientState)
+local markers = Markers.build(root, ClientState, ClientActions)
 local recruit = RecruitPanel.build(root, ClientState)
 local summary = SummaryPanel.build(root, ClientState)
 
@@ -48,7 +48,12 @@ ClientState.Changed:Connect(function(key, a, b)
 	end
 end)
 
-Players.LocalPlayer:GetAttributeChangedSignal("SelectedSquad"):Connect(hud.onSquads)
+ClientActions.Changed:Connect(function(what)
+	if what == "Selection" then
+		hud.onSquads()
+		markers.onSquads()
+	end
+end)
 
 -- State that may have arrived before this script ran
 if ClientState.phase then
