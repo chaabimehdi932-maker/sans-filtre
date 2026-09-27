@@ -25,6 +25,9 @@ local ClientActions: { [string]: any } = {}
 ClientActions.Changed = changed.Event -- (what, value?)
 ClientActions.blocking = false
 
+local hold = { active = false, formation = "Line" }
+local rush = { aiming = false, target = nil :: Vector3? }
+
 local readyAt: { [string]: number } = {}
 local durations: { [string]: number } = {}
 
@@ -91,6 +94,10 @@ local function dash()
 end
 
 function ClientActions.attack()
+	if hold.active then
+		ClientActions.confirmHold() -- left click places the Hold preview
+		return
+	end
 	if ClientActions.rushState().aiming then
 		ClientActions.confirmRush() -- left click confirms the rush instead of swinging
 		return
@@ -157,10 +164,8 @@ end
 
 ---------------------------------------------------------------------------
 -- Hold mode: X shows where the selected squads will stand (HoldPreviewController),
--- 1/2/3 pick the formation, X again (or Enter) confirms, Backspace cancels.
+-- 1/2/3 pick the formation, left click (or Enter) confirms, right click / X / Backspace cancel.
 ---------------------------------------------------------------------------
-
-local hold = { active = false, formation = "Line" }
 
 function ClientActions.holdState(): any
 	return hold
@@ -222,13 +227,15 @@ end
 -- left click / B confirms, right click / Backspace cancels.
 ---------------------------------------------------------------------------
 
-local rush = { aiming = false, target = nil :: Vector3? }
-
 function ClientActions.rushState(): any
 	return rush
 end
 
 function ClientActions.beginRush()
+	if not ready("Rush") then
+		changed:Fire("RushCooldown")
+		return
+	end
 	ClientActions.cancelHold()
 	rush.aiming = true
 	changed:Fire("Rush", true)
@@ -247,6 +254,7 @@ function ClientActions.confirmRush()
 	end
 	rush.aiming = false
 	changed:Fire("Rush", false)
+	startCooldown("Rush", GameConfig.Orders.RushCooldown)
 	local target = rush.target
 	if target then
 		orderRemote:FireServer("Rush", { x = target.X, z = target.Z })
@@ -260,7 +268,7 @@ function ClientActions.order(order: string)
 	if order == "Hold" then
 		ClientActions.cancelRush()
 		if hold.active then
-			ClientActions.confirmHold()
+			ClientActions.cancelHold() -- X again cancels, left click confirms
 		else
 			ClientActions.beginHold()
 		end

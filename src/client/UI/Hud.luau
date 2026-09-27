@@ -259,6 +259,24 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			ClientActions.order(def.name)
 		end)
 		orderTiles[def.name] = { tile = tile, stroke = stroke }
+		if def.name == "Rush" then
+			-- Rush has a cooldown: dark sweep + seconds left
+			local overlay = create("Frame", {
+				Name = "Cooldown",
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.fromScale(0, 1),
+				Size = UDim2.fromScale(1, 0),
+				BackgroundColor3 = BLACK,
+				BackgroundTransparency = 0.35,
+				BorderSizePixel = 0,
+				ZIndex = 4,
+				Parent = tile,
+			})
+			Theme.corner(overlay, 7)
+			orderTiles.Rush.overlay = overlay
+			orderTiles.Rush.seconds =
+				outlined({ Size = UDim2.fromScale(1, 1), TextSize = 30, ZIndex = 5, Text = "", Parent = tile })
+		end
 	end
 
 	local FORMATION_DEFS =
@@ -290,7 +308,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	outlined({
 		LayoutOrder = 4,
 		Size = UDim2.fromOffset(90, 34),
-		Text = "X confirm\nBackspace cancel",
+		Text = "Click confirm\nRMB cancel",
 		TextSize = 12,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = formationFrame,
@@ -306,7 +324,9 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		end
 	end
 	ClientActions.Changed:Connect(function(what, value)
-		if what == "Order" and orderTiles[value] then
+		if what == "RushCooldown" then
+			flash(orderTiles.Rush.tile)
+		elseif what == "Order" and orderTiles[value] then
 			flash(orderTiles[value].tile)
 		end
 	end)
@@ -735,7 +755,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			"is led by allied officers and fights on its own.",
 			"",
 			"<b>X</b>  Hold: preview on the ground, <b>1 / 2 / 3</b> Line / Column / Square,",
-			"      <b>X</b> again to confirm, <b>Backspace</b> to cancel",
+			"      <b>Left click</b> to confirm, <b>right click</b> or <b>X</b> to cancel",
 			"<b>C</b>  Follow   ·   <b>V</b>  Attack",
 			"<b>B</b>  Rush: aim the path, <b>left click</b> charge, <b>right click</b> cancel",
 			"",
@@ -819,6 +839,11 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		if ClientActions.rushState().aiming then
 			orderTiles.Rush.stroke.Color = C.Gold
 		end
+		local rushFraction = ClientActions.cooldownFraction("Rush")
+		orderTiles.Rush.overlay.Size = UDim2.fromScale(1, rushFraction)
+		orderTiles.Rush.seconds.Text = if rushFraction > 0
+			then tostring(math.ceil(ClientActions.cooldownRemaining("Rush")))
+			else ""
 		local holdState = ClientActions.holdState()
 		formationFrame.Visible = holdState.active
 		if holdState.active then

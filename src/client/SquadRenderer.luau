@@ -280,24 +280,69 @@ local function destroyRender(r: any, animate: boolean)
 	end
 end
 
+local activeRagdolls = 0
+
+-- Fling direction: backwards (shot) with some sideways scatter; riders fall off to the side
+local function ragdollVelocity(soldier: any): Vector3
+	local back = Vector3.new(math.sin(soldier.yaw), 0, math.cos(soldier.yaw))
+	local side = Vector3.new(back.Z, 0, -back.X)
+	if soldier.kind == "Cavalry" then
+		return side * (soldier.deathDir * (9 + math.random() * 5)) + back * 3 + Vector3.new(0, 7, 0)
+	end
+	return back * (7 + math.random() * 9) + side * ((math.random() - 0.5) * 8) + Vector3.new(0, 5, 0)
+end
+
+local function tryRagdoll(soldier: any): boolean
+	if activeRagdolls >= Rendering.MaxRagdolls then
+		return false
+	end
+	local camera = Workspace.CurrentCamera
+	if camera and (camera.CFrame.Position - soldier.pos).Magnitude > Rendering.RagdollDistance then
+		return false
+	end
+	if not SoldierModels.ragdoll(soldier.rig, ragdollVelocity(soldier)) then
+		return false
+	end
+	activeRagdolls += 1
+	return true
+end
+
+local function settleRagdoll(soldier: any)
+	if soldier.ragdoll == "active" then
+		soldier.ragdoll = "frozen"
+		activeRagdolls -= 1
+	end
+end
+
 local function updateDying(now: number, dt: number)
 	for i = #dying, 1, -1 do
 		local soldier = dying[i]
 		local rig = soldier.rig
 		if not rig.root.Parent then
+			settleRagdoll(soldier)
 			table.remove(dying, i) -- squad model already removed (new round)
 			continue
 		end
 		local t = now - soldier.deathStart
 		if t < 0 then
 			continue
-		elseif t < 0.8 then
+		end
+		if soldier.ragdoll == nil then
+			soldier.ragdoll = if tryRagdoll(soldier) then "active" else "scripted"
+		end
+		if soldier.ragdoll == "active" and t > Rendering.RagdollSettleTime then
+			SoldierModels.freeze(rig)
+			settleRagdoll(soldier)
+		end
+		-- scripted fall (and the horse under a ragdolled rider)
+		if t < 0.8 and (soldier.ragdoll == "scripted" or soldier.kind == "Cavalry") then
 			local fall = math.min(1, t / 0.7) ^ 2
 			table.insert(bulkParts, rig.root)
 			table.insert(bulkCFrames, SoldierAnimationService.death(soldier, soldier.deathFeet, fall, dt, now))
 		elseif t > 3 then
 			local fade = (t - 3) / 1
 			if fade >= 1 then
+				settleRagdoll(soldier)
 				rig.model:Destroy()
 				table.remove(dying, i)
 			else

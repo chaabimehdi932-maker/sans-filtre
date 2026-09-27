@@ -2,12 +2,14 @@
 	Hold preview: while Hold mode is on (X), glowing markers show on the ground exactly where
 	every soldier of the selected squads will stand, in front of the commander, in the chosen
 	formation. Uses FormationDefinitions.placeSquads, the same math the server uses.
+	Left click confirms, right click (or X / Backspace) cancels.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local FormationDefinitions = require(Modules:WaitForChild("FormationDefinitions"))
@@ -15,6 +17,20 @@ local UnitDefinitions = require(Modules:WaitForChild("UnitDefinitions"))
 
 local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
 local ClientState = require(script.Parent:WaitForChild("ClientState"))
+local ActionPrompt = require(script.Parent:WaitForChild("UI"):WaitForChild("ActionPrompt"))
+
+local screen = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("MainHUD")
+local prompt = ActionPrompt.new(screen, "HoldPrompt", {
+	{ ActionPrompt.Confirm, "Hold here" },
+	{ ActionPrompt.Cancel, "Cancel" },
+	{ Color3.fromRGB(60, 60, 70), "Formation", "1-3" },
+})
+
+UserInputService.InputBegan:Connect(function(input)
+	if ClientActions.holdState().active and input.UserInputType == Enum.UserInputType.MouseButton2 then
+		ClientActions.cancelHold()
+	end
+end)
 
 local folder = Instance.new("Folder")
 folder.Name = "HoldPreview"
@@ -112,6 +128,7 @@ local pulse = 0
 RunService.RenderStepped:Connect(function(dt)
 	local hold = ClientActions.holdState()
 	local anchor, yaw = ClientActions.holdAnchor()
+	prompt.Visible = hold.active and ClientState.phaseName() == "Battle"
 	if not hold.active or not anchor or ClientState.phaseName() ~= "Battle" then
 		gui.Enabled = false
 		hideFrom(1)
@@ -160,5 +177,5 @@ RunService.RenderStepped:Connect(function(dt)
 	gui.Enabled = true
 	labelPart.Position = anchor + Vector3.new(0, 6, 0)
 	subtitle.Text =
-		string.format("%d squad%s · %s   [X] confirm", #squads, if #squads > 1 then "s" else "", hold.formation)
+		string.format("%d squad%s · %s   [Click] confirm", #squads, if #squads > 1 then "s" else "", hold.formation)
 end)

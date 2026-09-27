@@ -80,8 +80,13 @@ function CommandService.ensureControlled(player: Player)
 	CommandService.setControlled(player, SquadService.getOwnedBy(player)[1])
 end
 
+-- Rush is on a cooldown so it cannot be spammed
+local lastRushAt: { [Player]: number } = {}
+local feedbackRemote = Remotes.get("CombatFeedback")
+
 function CommandService.removePlayer(player: Player)
 	controlled[player] = nil
+	lastRushAt[player] = nil
 end
 
 -- SelectSquad(id) takes command of that squad; SelectSquad("next" | "prev") cycles
@@ -146,6 +151,15 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 	end
 	if order == "Hold" and holdAt(player, squad, data) then
 		return
+	end
+	if order == "Rush" then
+		local now = os.clock()
+		local remaining = (lastRushAt[player] or -math.huge) + Orders.RushCooldown - now
+		if remaining > 0 then
+			feedbackRemote:FireClient(player, "Rush", false, remaining)
+			return
+		end
+		lastRushAt[player] = now
 	end
 	clearOrderState(squad)
 	squad.order = order

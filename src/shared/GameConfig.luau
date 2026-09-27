@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.6.2"
+GameConfig.Version = "0.7"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -25,7 +25,7 @@ GameConfig.Recruitment = {
 	DefaultUnit = "LineInfantry", -- picked for you if you don't choose
 	Reinforcements = 3, -- times your squad comes back per battle after being wiped out
 	ReinforcementDelay = 15, -- seconds before the fresh squad arrives
-	DeploySpacing = 32, -- studs between squads when deploying
+	DeploySpacing = 42, -- studs between squads when deploying
 	MaxVeteranRank = 3, -- stars earned by surviving battles
 	VeteranBonusPerRank = 0.08, -- +8% HP and damage per star
 }
@@ -92,6 +92,7 @@ GameConfig.Orders = {
 	HoldAhead = 16, -- the Hold preview is placed this far in front of the commander
 	HoldMaxDistance = 250, -- server rejects Hold positions further than this from the commander
 	RushEnemyRadius = 90,
+	RushCooldown = 15, -- seconds between two Rush orders (server enforced)
 }
 
 GameConfig.Morale = {
@@ -155,7 +156,10 @@ GameConfig.AI = {
 
 -- Client-side soldier rendering
 GameConfig.Rendering = {
-	MaxActiveSoldiers = 180, -- cap on rendered soldiers (both teams); squads show fewer when over it
+	MaxActiveSoldiers = 200, -- cap on rendered soldiers (both teams); squads show fewer when over it
+	MaxRagdolls = 40, -- physics ragdolls simulated at once; extra deaths use the scripted fall
+	RagdollDistance = 180, -- only soldiers this close to the camera ragdoll
+	RagdollSettleTime = 2.8, -- seconds before a ragdoll is frozen in place
 	LodNearDistance = 150, -- full animation + per-soldier ground checks within this distance
 	LodMidDistance = 300, -- beyond: animate every 3rd frame
 	LodFarDistance = 500, -- beyond: every 8th frame, no limb animation
@@ -195,17 +199,44 @@ end
 function GameConfig.getRound(round: number): any
 	local side = if round % 2 == 1 then "Attacker" else "Defender"
 
-	local units = {}
-	local function add(unitId: string, count: number)
-		for _ = 1, count do
-			table.insert(units, { unitId = unitId })
+	-- Army composition: a cheap, numerous backbone of line infantry with a few
+	-- specialists on top. Line infantry always outnumber artillery.
+	local function compose(total: number, withElite: boolean): { string }
+		local art = if round >= 4 then math.max(1, math.min(2, math.floor(total / 6))) else 0
+		local cav = if round >= 3 then math.max(1, math.floor(total / 6)) else 0
+		local skirm = if round >= 2 then math.max(1, math.floor(total / 5)) else 0
+		local elite = if withElite and round >= 7 then math.floor((round - 3) / 4) else 0
+		local line = math.max(2, total - art - cav - skirm - elite, math.ceil(total / 2), art + 1)
+		local list = {}
+		for _ = 1, line do
+			table.insert(list, "LineInfantry")
 		end
+		for _ = 1, skirm do
+			table.insert(list, "Skirmishers")
+		end
+		for _ = 1, cav do
+			table.insert(list, "Cavalry")
+		end
+		for _ = 1, art do
+			table.insert(list, "Artillery")
+		end
+		for _ = 1, elite do
+			table.insert(list, "EliteGuard")
+		end
+		return list
 	end
-	-- PLACEHOLDER composition curve
-	add("LineInfantry", 2 + math.floor((round - 1) * 0.75))
-	add("Skirmishers", if round >= 2 then math.floor(round / 2) else 0)
-	add("Cavalry", if round >= 3 then math.floor((round - 1) / 2) else 0)
-	add("Artillery", if round >= 4 then math.floor((round - 2) / 2) else 0)
+
+	-- PLACEHOLDER difficulty curve: more squads, then slightly tougher squads
+	local enemyTotal = math.min(12, 3 + math.floor(round * 0.8))
+	local enemyStat = 1 + math.max(0, round - 3) * 0.04
+	local units = {}
+	for _, unitId in compose(enemyTotal, true) do
+		table.insert(units, {
+			unitId = unitId,
+			statMultiplier = enemyStat,
+			damageMultiplier = enemyStat,
+		})
+	end
 
 	local boss = nil
 	if round % 5 == 0 then
@@ -234,11 +265,11 @@ function GameConfig.getRound(round: number): any
 		table.insert(waves[#waves].units, boss)
 	end
 
-	-- Allied AI squads fighting beside you (PLACEHOLDER: a bit smaller than the enemy army)
+	-- Allied AI squads fighting beside you: a little smaller than the enemy army
+	-- (you and your reinforcements make up the difference). No elites for allies.
 	local allies = {}
-	local allyCount = math.max(2, math.floor(#units * 0.75))
-	for i = 1, allyCount do
-		table.insert(allies, { unitId = units[(i - 1) % #units + 1].unitId })
+	for _, unitId in compose(math.max(2, math.floor(enemyTotal * 0.8) - 1), false) do
+		table.insert(allies, { unitId = unitId })
 	end
 
 	return {

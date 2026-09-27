@@ -2,7 +2,7 @@
 	Army orders for the squad under your direct command (see SquadSelectionController):
 	  X Hold · C Follow · V Attack · B Rush
 	  X opens the Hold preview on the ground: 1 Line · 2 Column · 3 Square,
-	  X again (or Enter) confirms, Backspace cancels.
+	  Left click (or Enter) confirms, right click / X / Backspace cancel.
 ]]
 
 local UserInputService = game:GetService("UserInputService")

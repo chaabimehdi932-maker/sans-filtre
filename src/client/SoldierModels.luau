@@ -296,6 +296,62 @@ local function body(rig: any, team: string, def: any, torsoParent: BasePart, tor
 	return torso
 end
 
+-- Ragdoll: swap the body's Motor6Ds for ball-socket joints (limited cones around the rest
+-- pose) and let physics drop the soldier. Rigs are client-only, so this costs no network.
+-- `velocity` is the fling given to the torso. Returns false when the rig can't ragdoll.
+local RAGDOLL_LIMITS = { neck = 40, armL = 95, armR = 95, legL = 70, legR = 70 }
+
+function SoldierModels.ragdoll(rig: any, velocity: Vector3): boolean
+	local base = rig.motors.root or rig.motors.rider
+	local torso = base and base.Part1
+	if not torso or not torso:IsA("BasePart") then
+		return false
+	end
+	local bodyParts: { BasePart } = { torso }
+	for key, angle in RAGDOLL_LIMITS do
+		local m = rig.motors[key]
+		if m and m.Part0 and m.Part1 then
+			local a0 = Instance.new("Attachment")
+			a0.CFrame = m.C0
+			a0.Parent = m.Part0
+			local a1 = Instance.new("Attachment")
+			a1.CFrame = m.C1
+			a1.Parent = m.Part1
+			local socket = Instance.new("BallSocketConstraint")
+			socket.Attachment0 = a0
+			socket.Attachment1 = a1
+			socket.LimitsEnabled = true
+			socket.UpperAngle = angle
+			socket.Parent = m.Part1
+			m.Enabled = false
+			table.insert(bodyParts, m.Part1)
+		end
+	end
+	-- the musket drops out of his hands
+	local gun = rig.motors.gun
+	if gun and gun.Part1 then
+		table.insert(bodyParts, gun.Part1)
+		gun:Destroy()
+		rig.motors.gun = nil
+	end
+	base.Enabled = false
+	for _, p in bodyParts do
+		p.Massless = false
+		p.CanCollide = true
+	end
+	torso.AssemblyLinearVelocity = velocity
+	torso.AssemblyAngularVelocity = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 6
+	return true
+end
+
+-- Stop simulating a settled ragdoll (bodies stay where they lie until they fade)
+function SoldierModels.freeze(rig: any)
+	for _, p in rig.parts do
+		p.Anchored = true
+		p.CanCollide = false
+	end
+end
+
 -- Line infantry, skirmishers, grenadiers; artillery crew with withGun = false.
 -- crewTool: "Rammer" (loader) or "Linstock" (gunner) held in the right hand.
 function SoldierModels.infantry(parent: Instance, team: string, def: any, withGun: boolean, crewTool: string?): any

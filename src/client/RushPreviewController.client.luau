@@ -18,7 +18,7 @@ local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
 local ClientState = require(script.Parent:WaitForChild("ClientState"))
 local SquadRenderer = require(script.Parent:WaitForChild("SquadRenderer"))
-local Theme = require(script.Parent:WaitForChild("UI"):WaitForChild("Theme"))
+local ActionPrompt = require(script.Parent:WaitForChild("UI"):WaitForChild("ActionPrompt"))
 
 local player = Players.LocalPlayer
 local MAX_DISTANCE = GameConfig.Orders.RushMaxDistance
@@ -65,49 +65,10 @@ end
 
 -- Prompt on the right side of the screen:  [🖱] Rush / [🖱] Cancel
 local screen = player:WaitForChild("PlayerGui"):WaitForChild("MainHUD")
-local prompt = Theme.create("Frame", {
-	Name = "RushPrompt",
-	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -40, 0.5, 0),
-	Size = UDim2.fromOffset(240, 120),
-	BackgroundTransparency = 1,
-	Visible = false,
-	ZIndex = 40,
-	Parent = screen,
+local prompt = ActionPrompt.new(screen, "RushPrompt", {
+	{ ActionPrompt.Confirm, "Rush" },
+	{ ActionPrompt.Cancel, "Cancel" },
 })
-local function promptRow(y: number, color: Color3, label: string)
-	local row = Theme.create("Frame", {
-		Position = UDim2.fromOffset(0, y),
-		Size = UDim2.fromOffset(240, 50),
-		BackgroundColor3 = Color3.fromRGB(20, 20, 26),
-		BackgroundTransparency = 0.25,
-		ZIndex = 40,
-		Parent = prompt,
-	})
-	Theme.corner(row, 6)
-	local key = Theme.create("Frame", {
-		Position = UDim2.fromOffset(6, 6),
-		Size = UDim2.fromOffset(38, 38),
-		BackgroundColor3 = color,
-		ZIndex = 41,
-		Parent = row,
-	})
-	Theme.corner(key, 5)
-	Theme.border(key, Color3.new(0, 0, 0), 2)
-	Theme.outlined({ Size = UDim2.fromScale(1, 1), Text = "🖱", TextSize = 22, ZIndex = 42, Parent = key }, 1.5)
-	Theme.outlined({
-		Position = UDim2.fromOffset(54, 0),
-		Size = UDim2.new(1, -60, 1, 0),
-		Text = label,
-		Font = Theme.Bold,
-		TextSize = 26,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 42,
-		Parent = row,
-	}, 2)
-end
-promptRow(0, Color3.fromRGB(70, 60, 220), "Rush")
-promptRow(60, Color3.fromRGB(215, 30, 45), "Cancel")
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if not ClientActions.rushState().aiming then

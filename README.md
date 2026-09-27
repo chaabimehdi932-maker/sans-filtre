@@ -19,8 +19,8 @@ zones and breaking the enemy army. The code is managed with [Rojo](https://rojo.
 | H | Heal: restores 40% HP and boosts the morale of your squads nearby |
 | G | Mount / dismount |
 | **X / C / V** | Orders for the unit **you command**: **Hold / Follow / Attack** |
-| **B → aim → left click** | **Rush**: a striped path shows where your unit will sprint; left click charges, right click cancels. Cavalry ride straight through every enemy squad on the way |
-| **X → 1 / 2 / 3 → X** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, X again confirms (Backspace cancels) |
+| **B → aim → left click** | **Rush**: a striped path shows where your unit will sprint; left click charges, right click cancels. Cavalry ride straight through every enemy squad on the way. 15 s cooldown |
+| **X → 1 / 2 / 3 → Left click** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, left click confirms (right click or X cancels) |
 | F1 · M | Controls panel · minimap |
 
 Before each battle you **choose one unit for free** — that is the squad you command. The rest
@@ -45,8 +45,11 @@ reinforcement waves). Every 5th round is a boss round with a named general's squ
 - **Squads**: one logical object with pooled HP, simulated on the server. Every client draws
   full-size R6 soldiers and animates their joints itself (`client/SquadRenderer`,
   `client/SoldierModels`): marching,
-  aiming, volley recoil, reloading, bayonet thrusts, routing, falling casualties, galloping
-  cavalry with sabres, recoiling cannons.
+  aiming, volley recoil, reloading, bayonet thrusts, routing, physics ragdoll casualties
+  (capped by `Rendering.MaxRagdolls`, scripted fall beyond it), galloping cavalry with sabres,
+  recoiling cannons.
+- **Army size**: weaker, cheaper units field more men (Line 20, Skirmishers 14, Cavalry 10,
+  Guard 12, Artillery 4 crew). Armies are mostly line infantry; artillery is always the rarest.
 - **Formations**: Line (firepower, weak flanks), Column (fast, fragile), Square (stops cavalry,
   weak against cannons). Changing formation takes 3 s, during which the squad is vulnerable.
 - **Morale**: drops from casualties, flanking, charges and isolation. At 0 the squad routs, flees
