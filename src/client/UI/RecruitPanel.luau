@@ -136,17 +136,14 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 	})
 	local readyGradient = readyButton:FindFirstChildOfClass("UIGradient") :: UIGradient
 	Theme.border(readyButton, BLACK, 4)
-	local readyLabel = outlined(
-		{
-			Size = UDim2.fromScale(1, 1),
-			Text = "READY ✔",
-			Font = Theme.Display,
-			TextSize = 34,
-			ZIndex = 12,
-			Parent = readyButton,
-		},
-		3
-	)
+	local readyLabel = outlined({
+		Size = UDim2.fromScale(1, 1),
+		Text = "READY ✔",
+		Font = Theme.Display,
+		TextSize = 34,
+		ZIndex = 12,
+		Parent = readyButton,
+	}, 3)
 	readyButton.Activated:Connect(function()
 		confirmRemote:FireServer()
 	end)

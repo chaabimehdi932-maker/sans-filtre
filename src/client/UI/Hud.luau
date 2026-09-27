@@ -227,20 +227,20 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	)
 	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = orders })
 	local ORDER_DEFS = {
-		{ name = "Hold", key = "X", icon = "🛡️", color = C.KeyRed },
-		{ name = "Follow", key = "C", icon = "🏃", color = C.KeyRed },
-		{ name = "Attack", key = "V", icon = "⚔️", color = C.KeyRed },
-		{ name = "Rush", key = "B", icon = "⚡", color = C.KeyBlue },
+		{ name = "Hold", iconName = "OrderHold", key = "X", icon = "🛡️", color = C.KeyRed },
+		{ name = "Follow", iconName = "OrderFollow", key = "C", icon = "🏃", color = C.KeyRed },
+		{ name = "Attack", iconName = "OrderAttack", key = "V", icon = "⚔️", color = C.KeyRed },
+		{ name = "Rush", iconName = "OrderRush", key = "B", icon = "⚡", color = C.KeyBlue },
 	}
 	local orderTiles = {}
 	for i, def in ORDER_DEFS do
 		local tile = Theme.tile({ Name = def.name, LayoutOrder = i, Size = UDim2.fromOffset(88, 84), Parent = orders })
 		local stroke = Theme.border(tile, BLACK, 3)
 		-- icon in the upper part, label above it (higher ZIndex): every label stays readable
-		text({
-			Position = UDim2.fromOffset(0, 4),
-			Size = UDim2.new(1, 0, 0, 50),
-			Text = def.icon,
+		Theme.icon(def.iconName, def.icon, {
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 6),
+			Size = UDim2.fromOffset(50, 48),
 			TextSize = 36,
 			ZIndex = 1,
 			Parent = tile,
@@ -287,17 +287,14 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		end)
 		formationTiles[def.name] = { tile = tile, stroke = stroke }
 	end
-	outlined(
-		{
-			LayoutOrder = 4,
-			Size = UDim2.fromOffset(90, 34),
-			Text = "X confirm\nBackspace cancel",
-			TextSize = 12,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Parent = formationFrame,
-		},
-		1.5
-	)
+	outlined({
+		LayoutOrder = 4,
+		Size = UDim2.fromOffset(90, 34),
+		Text = "X confirm\nBackspace cancel",
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = formationFrame,
+	}, 1.5)
 
 	local function flash(tile: GuiObject)
 		local gradient = tile:FindFirstChildOfClass("UIGradient")
@@ -395,7 +392,8 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	local comboScale = create("UIScale", { Parent = comboFrame })
 	local comboLabel = text({
 		Size = UDim2.new(1, 0, 0, 60),
-		Text = "💀 KILL x0",
+		Position = UDim2.fromOffset(58, 0),
+		Text = "KILL x0",
 		Font = Theme.Display,
 		TextSize = 50,
 		TextColor3 = Color3.fromRGB(235, 30, 40),
@@ -403,6 +401,11 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		Parent = comboFrame,
 	})
 	local comboStroke = Theme.stroke(comboLabel, Color3.new(1, 1, 1), 3)
+	Theme.icon(
+		"Skull",
+		"💀",
+		{ Position = UDim2.fromOffset(0, 4), Size = UDim2.fromOffset(52, 52), TextSize = 44, Parent = comboFrame }
+	)
 	local comboXpLabel = outlined({
 		Position = UDim2.fromOffset(58, 60),
 		Size = UDim2.new(1, -58, 0, 30),
@@ -422,7 +425,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		comboCount += data.kills
 		comboXp += data.xp
 		comboUntil = now + GameConfig.Rewards.KillComboWindow
-		comboLabel.Text = "💀 KILL x" .. comboCount
+		comboLabel.Text = "KILL x" .. comboCount
 		comboXpLabel.Text = comboXp .. " XP"
 		comboLabel.TextTransparency, comboXpLabel.TextTransparency, comboStroke.Transparency = 0, 0, 0
 		comboFrame.Visible = true
@@ -450,29 +453,23 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = regions.bottomCenter,
 	})
-	local health = create(
-		"Frame",
-		{
-			Name = "HealthBar",
-			LayoutOrder = 1,
-			Size = UDim2.fromOffset(560, 34),
-			BackgroundTransparency = 1,
-			Parent = regions.bottomCenter,
-		}
-	)
+	local health = create("Frame", {
+		Name = "HealthBar",
+		LayoutOrder = 1,
+		Size = UDim2.fromOffset(560, 34),
+		BackgroundTransparency = 1,
+		Parent = regions.bottomCenter,
+	})
 	local hpBack, hpFill =
 		Theme.bar({ Position = UDim2.fromOffset(26, 5), Size = UDim2.new(1, -26, 0, 24), Parent = health }, C.Health)
 	Theme.corner(hpBack, 5)
 	Theme.corner(hpFill, 5)
 	Theme.border(hpBack, BLACK, 3)
-	create(
-		"UIGradient",
-		{
-			Color = ColorSequence.new(Color3.fromRGB(255, 120, 120), Color3.fromRGB(200, 20, 25)),
-			Rotation = 90,
-			Parent = hpFill,
-		}
-	)
+	create("UIGradient", {
+		Color = ColorSequence.new(Color3.fromRGB(255, 120, 120), Color3.fromRGB(200, 20, 25)),
+		Rotation = 90,
+		Parent = hpFill,
+	})
 	for i = 1, 7 do
 		create("Frame", {
 			Position = UDim2.new(i / 8, 0, 0, 0),
@@ -495,18 +492,22 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	})
 	Theme.round(heart)
 	Theme.border(heart, BLACK, 3)
-	text({ Size = UDim2.fromScale(1, 1), Text = "❤️", TextSize = 26, ZIndex = 5, Parent = heart })
+	Theme.icon("Heart", "❤️", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.72, 0.72),
+		TextSize = 26,
+		ZIndex = 5,
+		Parent = heart,
+	})
 
-	local hotbar = create(
-		"Frame",
-		{
-			Name = "CombatHotbar",
-			LayoutOrder = 2,
-			Size = UDim2.fromOffset(560, 100),
-			BackgroundTransparency = 1,
-			Parent = regions.bottomCenter,
-		}
-	)
+	local hotbar = create("Frame", {
+		Name = "CombatHotbar",
+		LayoutOrder = 2,
+		Size = UDim2.fromOffset(560, 100),
+		BackgroundTransparency = 1,
+		Parent = regions.bottomCenter,
+	})
 	create("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -527,10 +528,10 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		local tile =
 			Theme.tile({ Name = def.action, LayoutOrder = i, Size = UDim2.fromOffset(94, 94), Parent = hotbar })
 		local stroke = Theme.border(tile, BLACK, 3)
-		local icon = text({
-			Position = UDim2.fromOffset(0, 22),
-			Size = UDim2.new(1, 0, 0, 60),
-			Text = def.icon,
+		local icon = Theme.icon(def.action, def.icon, {
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 26),
+			Size = UDim2.fromOffset(56, 56),
 			TextSize = 44,
 			ZIndex = 1,
 			Parent = tile,
@@ -583,26 +584,20 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		Parent = root,
 	}, C.Gold)
 	Theme.border(xpBack, BLACK, 2)
-	create(
-		"UIGradient",
-		{
-			Color = ColorSequence.new(Color3.fromRGB(255, 235, 90), Color3.fromRGB(235, 175, 20)),
-			Rotation = 90,
-			Parent = xpFill,
-		}
-	)
-	local xpLevel = outlined(
-		{
-			Position = UDim2.fromOffset(10, 0),
-			Size = UDim2.new(0, 120, 1, 0),
-			Text = "Level 1",
-			TextSize = 13,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			ZIndex = 2,
-			Parent = xpBack,
-		},
-		1.5
-	)
+	create("UIGradient", {
+		Color = ColorSequence.new(Color3.fromRGB(255, 235, 90), Color3.fromRGB(235, 175, 20)),
+		Rotation = 90,
+		Parent = xpFill,
+	})
+	local xpLevel = outlined({
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.new(0, 120, 1, 0),
+		Text = "Level 1",
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 2,
+		Parent = xpBack,
+	}, 1.5)
 	local xpText =
 		outlined({ Size = UDim2.fromScale(1, 1), Text = "0/100", TextSize = 13, ZIndex = 2, Parent = xpBack }, 1.5)
 
@@ -653,15 +648,12 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	end
 
 	---------------------------------------------------------------- bottom right: notification feed + F1 hint
-	local feed = create(
-		"Frame",
-		{
-			Name = "Notifications",
-			Size = UDim2.new(1, 0, 1, -24),
-			BackgroundTransparency = 1,
-			Parent = regions.bottomRight,
-		}
-	)
+	local feed = create("Frame", {
+		Name = "Notifications",
+		Size = UDim2.new(1, 0, 1, -24),
+		BackgroundTransparency = 1,
+		Parent = regions.bottomRight,
+	})
 	create("UIListLayout", {
 		VerticalAlignment = Enum.VerticalAlignment.Bottom,
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
@@ -722,18 +714,15 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	})
 	Theme.corner(help, 10)
 	Theme.border(help, BLACK, 3)
-	outlined(
-		{
-			Position = UDim2.fromOffset(0, 10),
-			Size = UDim2.new(1, 0, 0, 36),
-			Text = "CONTROLS",
-			Font = Theme.Display,
-			TextSize = 34,
-			ZIndex = 31,
-			Parent = help,
-		},
-		2.5
-	)
+	outlined({
+		Position = UDim2.fromOffset(0, 10),
+		Size = UDim2.new(1, 0, 0, 36),
+		Text = "CONTROLS",
+		Font = Theme.Display,
+		TextSize = 34,
+		ZIndex = 31,
+		Parent = help,
+	}, 2.5)
 	outlined({
 		Position = UDim2.fromOffset(28, 56),
 		Size = UDim2.new(1, -56, 1, -70),
@@ -858,7 +847,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		slots.Mount.title.Text = if mounted then "DISMOUNT" else "MOUNT"
 		slots.Mount.stroke.Color = if mounted then C.Gold else BLACK
 		slots.Block.stroke.Color = if ClientActions.blocking then C.Gold else BLACK
-		slots.Roll.icon.TextTransparency = if mounted then 0.6 else 0
+		Theme.setIconTransparency(slots.Roll.icon, if mounted then 0.6 else 0)
 		slots.Roll.title.TextTransparency = if mounted then 0.5 else 0
 	end
 

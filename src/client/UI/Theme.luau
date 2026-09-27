@@ -1,5 +1,7 @@
 -- Shared colours, fonts and tiny helpers for building the HUD in code.
 
+local Icons = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Icons"))
+
 local Theme = {}
 
 Theme.Colors = {
@@ -153,6 +155,35 @@ function Theme.outlined(props: { [string]: any }, thickness: number?): TextLabel
 	local label = Theme.text(props)
 	Theme.stroke(label, Color3.new(0, 0, 0), thickness or 2)
 	return label
+end
+
+-- An icon from Modules.Icons (ImageLabel) or, while its slot is empty, the emoji fallback
+function Theme.icon(name: string, emoji: string, props: { [string]: any }): GuiObject
+	local id = Icons.get(name)
+	if id ~= "" then
+		local image = {
+			BackgroundTransparency = 1,
+			Image = id,
+			ScaleType = Enum.ScaleType.Fit,
+		}
+		for key, value in props do
+			if key ~= "TextSize" then
+				image[key] = value
+			end
+		end
+		return Theme.create("ImageLabel", image)
+	end
+	props.Text = emoji
+	return Theme.text(props)
+end
+
+-- Fades an icon made by Theme.icon (image or emoji)
+function Theme.setIconTransparency(icon: GuiObject, value: number)
+	if icon:IsA("ImageLabel") then
+		icon.ImageTransparency = value
+	elseif icon:IsA("TextLabel") then
+		icon.TextTransparency = value
+	end
 end
 
 function Theme.formatTime(seconds: number): string

@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.6"
+GameConfig.Version = "0.6.1"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
