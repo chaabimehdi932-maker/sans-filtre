@@ -528,10 +528,11 @@ function CampaignService.resolveBattle(spec: any, victory: boolean): { string }
 		table.insert(
 			lines,
 			string.format(
-				'<font color="#FFCD28">★ %s evolved: %s %s</font>',
+				'<font color="#FFCD28">★ %s evolved: %s %s%s</font>',
 				evolved.name,
 				evolved.tierName,
-				string.rep("★", evolved.stars)
+				string.rep("★", evolved.stars),
+				if evolved.branch then " — choose its new path in your company panel!" else ""
 			)
 		)
 	end
@@ -979,11 +980,70 @@ function CampaignService.lordContact(camp: any, lord: any, enemy: any)
 	end
 end
 
+-- Troop wages, paid continuously as days pass. No gold: squads go unpaid, sulk, then desert.
+local Wages = CampaignConfig.Wages
+local function payWages(camp: any, dtDays: number)
+	local data = camp.data
+	local due = RecruitmentService.totalWages(camp.player) * dtDays
+	if camp.enlisted then
+		due *= Wages.EnlistedMult
+	end
+	if due <= 0 then
+		return
+	end
+	if data.Gold >= due then
+		data.Gold -= due
+		if (data.UnpaidDays or 0) > 0 then
+			data.UnpaidDays = 0
+			CampaignService.notify(camp, "Your troops have been paid. Spirits rise again.", "good")
+			RecruitmentService.sendState(camp.player)
+		end
+	else
+		data.Gold = 0
+		local before = data.UnpaidDays or 0
+		data.UnpaidDays = before + dtDays
+		if before == 0 then
+			CampaignService.notify(camp, "Your treasury is empty! Unpaid troops lose heart and will desert.", "bad")
+		end
+	end
+end
+
+local function desertions(camp: any)
+	local data = camp.data
+	if (data.UnpaidDays or 0) < Wages.DesertAfterDays or #data.Roster == 0 then
+		return
+	end
+	-- the least experienced squad leaves first
+	local worst, index = nil, nil
+	for i, entry in data.Roster do
+		if not worst or entry.xp < worst.xp then
+			worst, index = entry, i
+		end
+	end
+	if worst and index then
+		table.remove(data.Roster, index)
+		CampaignService.notify(
+			camp,
+			string.format(
+				"Unpaid for %d days, your %s %s deserted!",
+				math.floor(data.UnpaidDays),
+				UnitDefinitions.get(worst.unitId).displayName,
+				"squad"
+			),
+			"bad"
+		)
+		RecruitmentService.sendState(camp.player)
+	end
+end
+
 local function advanceTime(camp: any, dtDays: number)
 	local data = camp.data
 	local before = math.floor(data.Day)
 	data.Day += dtDays
+	payWages(camp, dtDays)
 	if math.floor(data.Day) > before then
+		desertions(camp)
+		RecruitmentService.sendState(camp.player)
 		maintainParties(camp)
 		if data.Day >= camp.mercenaryRefreshDay then
 			CampaignService.refreshMercenaries(camp)
@@ -1186,6 +1246,20 @@ function ACTIONS.LeaveService(camp: any)
 	end
 end
 
+-- Branching evolution: pick what a squad becomes at its branching point
+function ACTIONS.ChooseBranch(camp: any, arg: unknown)
+	if typeof(arg) ~= "table" then
+		return
+	end
+	local squadId, unitId = (arg :: any).squadId, (arg :: any).unitId
+	if typeof(squadId) ~= "number" or typeof(unitId) ~= "string" then
+		return
+	end
+	local ok, message = RecruitmentService.chooseBranch(camp.player, squadId, unitId)
+	CampaignService.notify(camp, message, if ok then "good" else "bad")
+	camp.dirty = true
+end
+
 function ACTIONS.Stop(camp: any)
 	camp.moving = false
 	camp.dirty = true
@@ -1382,6 +1456,7 @@ function ACTIONS.NewCampaign(camp: any)
 end
 
 TOWN_ACTIONS = {
+	ChooseBranch = true,
 	Hire = true,
 	Replenish = true,
 	Dismiss = true,

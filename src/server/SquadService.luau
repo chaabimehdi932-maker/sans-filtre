@@ -159,7 +159,7 @@ function SquadService.create(params: any): Squad
 		maxHealth = def.health * statMult,
 		health = def.health * statMult * math.clamp(params.healthFraction or 1, 0.01, 1),
 		maxMorale = def.morale * statMult,
-		morale = def.morale * statMult,
+		morale = def.morale * statMult * math.clamp(params.moraleFraction or 1, 0.05, 1),
 		damageMult = params.damageMultiplier or 1,
 		alive = true,
 		soldierCount = math.max(1, math.ceil(def.soldiers * math.clamp(params.healthFraction or 1, 0.01, 1))),

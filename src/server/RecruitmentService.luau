@@ -63,9 +63,57 @@ local function entryName(entry: any): string
 	return ordinal(entry.id) .. " " .. UnitDefinitions.get(entry.unitId).displayName
 end
 
+-- Daily wage of one squad (evolved squads and full ranks cost more)
+function RecruitmentService.wageFor(entry: any): number
+	local def = UnitDefinitions.get(entry.unitId)
+	local stars = CampaignConfig.tierForXP(entry.xp)
+	local wages = CampaignConfig.Wages
+	return (def.cost or 100) * wages.CostFraction * (1 + stars * wages.PerStar) * (entry.soldiers / def.soldiers)
+end
+
+function RecruitmentService.totalWages(player: Player): number
+	local total = 0
+	for _, entry in roster(player) do
+		total += RecruitmentService.wageFor(entry)
+	end
+	return total
+end
+
+-- Branch choices waiting for this squad (it reached the stars of a branching point)
+function RecruitmentService.branchOptions(entry: any): { string }?
+	local branch = CampaignConfig.Branches[entry.unitId]
+	if branch and CampaignConfig.tierForXP(entry.xp) >= branch.stars then
+		return branch.options
+	end
+	return nil
+end
+
+-- The player picks what the squad becomes; it keeps its XP, stars and share of its men
+function RecruitmentService.chooseBranch(player: Player, squadId: number, unitId: string): (boolean, string)
+	for _, entry in roster(player) do
+		if entry.id == squadId then
+			local options = RecruitmentService.branchOptions(entry)
+			if not options or not table.find(options, unitId) then
+				return false, "That squad can't take this path"
+			end
+			local old, new = UnitDefinitions.get(entry.unitId), UnitDefinitions.get(unitId)
+			entry.unitId = unitId
+			entry.soldiers = math.max(1, math.floor(entry.soldiers / old.soldiers * new.soldiers + 0.5))
+			RecruitmentService.sendState(player)
+			return true, string.format("The %s become %s!", old.displayName, new.displayName)
+		end
+	end
+	return false, "Unknown squad"
+end
+
 local function nextTierXP(stars: number): number?
 	local nextTier = Evolution.Tiers[stars + 2]
 	return if nextTier then nextTier.xp else nil
+end
+
+local function campaignUnpaid(player: Player): number
+	local campaign = DataService.getCampaign(player)
+	return if campaign then math.floor((campaign.UnpaidDays or 0) * 10) / 10 else 0
 end
 
 function RecruitmentService.sendState(player: Player)
@@ -84,6 +132,8 @@ function RecruitmentService.sendState(player: Player)
 		table.insert(list, {
 			id = entry.id,
 			unitId = entry.unitId,
+			wage = math.floor(RecruitmentService.wageFor(entry) * 10 + 0.5) / 10,
+			branchOptions = RecruitmentService.branchOptions(entry),
 			name = entryName(entry),
 			xp = math.floor(entry.xp),
 			stars = stars,
@@ -101,6 +151,8 @@ function RecruitmentService.sendState(player: Player)
 		reinforcements = session.reinforcements,
 		reinforcementAt = session.reinforcementAt,
 		replenishCost = RecruitmentService.replenishCost(player),
+		dailyWages = math.floor(RecruitmentService.totalWages(player) + 0.5),
+		unpaidDays = campaignUnpaid(player),
 	})
 end
 local sendState = RecruitmentService.sendState
@@ -301,6 +353,11 @@ local function spawnRosterSquad(player: Player, entry: any, spot: any): any
 		rank = stars,
 		rosterId = entry.id,
 		healthFraction = entry.soldiers / def.soldiers,
+		-- unpaid troops come to the field sulking
+		moraleFraction = math.max(
+			CampaignConfig.Wages.MinMorale,
+			1 - campaignUnpaid(player) * CampaignConfig.Wages.MoralePenaltyPerDay
+		),
 		statMultiplier = tier.statMult,
 		damageMultiplier = tier.damageMult,
 	})
@@ -466,7 +523,12 @@ function RecruitmentService.afterBattle(player: Player, victory: boolean): any
 		entry.xp += gained
 		local after = CampaignConfig.tierForXP(entry.xp)
 		if after > before then
-			table.insert(report.evolved, { name = name, stars = after, tierName = CampaignConfig.tierInfo(after).name })
+			table.insert(report.evolved, {
+				name = name,
+				stars = after,
+				tierName = CampaignConfig.tierInfo(after).name,
+				branch = RecruitmentService.branchOptions(entry) ~= nil,
+			})
 		end
 	end
 	session.deployed = {}

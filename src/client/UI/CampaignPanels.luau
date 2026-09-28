@@ -343,7 +343,8 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		Size = UDim2.new(1, -28, 0, 28),
 		Text = "YOUR COMPANY",
 		Font = Theme.Display,
-		TextSize = 24,
+		TextSize = 22,
+		RichText = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = company,
 	}, 2)
@@ -411,7 +412,34 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		back.Parent = frame
 		Theme.corner(back, 3)
 		Theme.corner(fill, 3)
-		row = { frame = frame, name = name, stars = stars, men = men, fill = fill }
+		-- branching evolution: this squad can choose what it becomes
+		local pathButton = create("TextButton", {
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 22),
+			Size = UDim2.fromOffset(96, 18),
+			BackgroundColor3 = C.Gold,
+			Text = "⬆ CHOOSE PATH",
+			Font = Theme.Bold,
+			TextSize = 11,
+			TextColor3 = BLACK,
+			Visible = false,
+			ZIndex = 3,
+			Parent = frame,
+		})
+		Theme.corner(pathButton, 4)
+		local squadId = entry.id
+		pathButton.Activated:Connect(function()
+			api.openBranch(squadId)
+		end)
+		row = {
+			frame = frame,
+			name = name,
+			stars = stars,
+			men = men,
+			fill = fill,
+			pathButton = pathButton,
+			unitId = entry.unitId,
+		}
 		rows[entry.id] = row
 		return row
 	end
@@ -720,11 +748,12 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 				Position = UDim2.fromOffset(14, 44),
 				Size = UDim2.new(1, -28, 0, 110),
 				Text = string.format(
-					"%s\n\n%d soldiers · %d HP · speed %d",
+					"%s\n\n%d soldiers · %d HP · speed %d · wage ~%d gold/day",
 					def.description,
 					def.soldiers,
 					def.health,
-					def.moveSpeed
+					def.moveSpeed,
+					math.ceil((def.cost or 100) * CampaignConfig.Wages.CostFraction)
 				),
 				TextSize = 15,
 				TextWrapped = true,
@@ -755,15 +784,90 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		end
 	end
 
+	local branchSquad: number? = nil
+	local function fillBranch()
+		clearModal()
+		local recruit = ClientState.recruit
+		local entry = nil
+		for _, e in (recruit and recruit.roster or {}) do
+			if e.id == branchSquad then
+				entry = e
+			end
+		end
+		if not entry or not entry.branchOptions then
+			modalTitle.Text = "NOTHING TO CHOOSE"
+			return
+		end
+		modalTitle.Text = "CHOOSE A PATH — " .. string.upper(entry.name)
+		for index, unitId in entry.branchOptions do
+			local def = UnitDefinitions.get(unitId)
+			local card = modalCard(index)
+			outlined({
+				Position = UDim2.fromOffset(14, 10),
+				Size = UDim2.new(1, -28, 0, 28),
+				Text = (def.icon or "") .. "  " .. def.displayName,
+				Font = Theme.Bold,
+				TextSize = 24,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.5)
+			outlined({
+				Position = UDim2.fromOffset(14, 44),
+				Size = UDim2.new(1, -28, 0, 120),
+				Text = string.format(
+					"%s\n\n%d men · %d HP · speed %d · %s %d · morale %d",
+					def.description,
+					def.soldiers,
+					def.health,
+					def.moveSpeed,
+					if def.attackType == "Melee" then "melee" else "volley",
+					if def.attackType == "Melee" then def.meleeDamage else def.damage,
+					def.morale
+				),
+				TextSize = 15,
+				TextWrapped = true,
+				TextColor3 = Color3.fromRGB(205, 205, 220),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.2)
+			button(
+				{
+					AnchorPoint = Vector2.new(0, 1),
+					Position = UDim2.new(0, 14, 1, -12),
+					Size = UDim2.fromOffset(280, 50),
+					TextSize = 20,
+					ZIndex = 42,
+					Parent = card,
+				},
+				"BECOME " .. string.upper(def.displayName),
+				C.Green,
+				function()
+					send("ChooseBranch", { squadId = entry.id, unitId = unitId })
+					closeModal()
+				end
+			)
+		end
+	end
+
 	local function openModal(kind: string)
 		modalKind = kind
 		modal.Visible = true
 		send("Pause", true)
 		if kind == "Board" then
 			fillBoard()
+		elseif kind == "Branch" then
+			fillBranch()
 		else
 			fillHire()
 		end
+	end
+
+	function api.openBranch(squadId: number)
+		branchSquad = squadId
+		openModal("Branch")
 	end
 
 	-- place buttons ------------------------------------------------------------------
@@ -1321,10 +1425,22 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		if not recruit or not recruit.roster then
 			return
 		end
-		companyTitle.Text = string.format("YOUR COMPANY  %d/%d", #recruit.roster, recruit.maxRoster or 6)
+		companyTitle.Text = string.format(
+			'YOUR COMPANY %d/%d  <font size="15" color="%s">💰 %d/day%s</font>',
+			#recruit.roster,
+			recruit.maxRoster or 6,
+			if (recruit.unpaidDays or 0) > 0 then "#FF8070" else "#FFCD28",
+			recruit.dailyWages or 0,
+			if (recruit.unpaidDays or 0) > 0 then string.format("  UNPAID %.1f d!", recruit.unpaidDays) else ""
+		)
 		local seen = {}
 		for index, entry in recruit.roster do
 			seen[entry.id] = true
+			local existing = rows[entry.id]
+			if existing and existing.unitId ~= entry.unitId then
+				existing.frame:Destroy() -- evolved into another unit: rebuild its row
+				rows[entry.id] = nil
+			end
 			local row = squadRow(entry)
 			row.frame.LayoutOrder = index
 			row.name.Text = entry.name
@@ -1338,6 +1454,7 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 				if entry.nextXP then " / " .. entry.nextXP else " (max)"
 			)
 			row.fill.Size = UDim2.fromScale(entry.soldiers / entry.maxSoldiers, 1)
+			row.pathButton.Visible = entry.branchOptions ~= nil
 		end
 		for id, row in rows do
 			if not seen[id] then

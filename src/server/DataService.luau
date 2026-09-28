@@ -57,6 +57,7 @@ local function defaultCampaign(): any
 		NextSquadId = 1,
 		BattlesWon = 0,
 		ContractsCompleted = 0,
+		UnpaidDays = 0, -- days the troops went unpaid (wages)
 	}
 end
 

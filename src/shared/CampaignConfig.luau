@@ -361,6 +361,17 @@ CampaignConfig.Economy = {
 	FreeLevyStrength = 0.6, -- PLACEHOLDER: levy starts at 60 % of its men
 }
 
+-- Troop wages: every squad is paid daily (more for evolved squads and full ranks)
+CampaignConfig.Wages = {
+	-- gold per day = unit cost × CostFraction × (1 + stars × PerStar) × (men / full strength)
+	CostFraction = 0.08, -- PLACEHOLDER
+	PerStar = 0.3, -- PLACEHOLDER
+	EnlistedMult = 0.5, -- PLACEHOLDER: your company costs half while you serve a general
+	MoralePenaltyPerDay = 0.15, -- PLACEHOLDER: unpaid squads start battles with −15 % morale per unpaid day
+	MinMorale = 0.3, -- … but never below 30 %
+	DesertAfterDays = 3, -- PLACEHOLDER: after this many unpaid days, a squad deserts each day
+}
+
 CampaignConfig.Battle = {
 	Reinforcements = 0, -- PLACEHOLDER: free replacement squads per battle (0 = losses are real)
 	RaidAllies = 2, -- PLACEHOLDER: employer squads that join your raid
@@ -510,6 +521,14 @@ end
 ---------------------------------------------------------------------------
 -- Squad evolution (the veteran stars ARE the evolution tiers)
 ---------------------------------------------------------------------------
+
+-- Branching: when a squad of `unit` reaches `stars`, the player picks what it becomes
+-- (it keeps its XP and stars). Add a row to add a branch.
+CampaignConfig.Branches = {
+	LineInfantry = { stars = 2, options = { "Grenadiers", "LightInfantry" } },
+	Skirmishers = { stars = 2, options = { "Riflemen", "Voltigeurs" } },
+	Cavalry = { stars = 2, options = { "Cuirassiers", "Hussars" } },
+}
 
 CampaignConfig.Evolution = {
 	XPPerKill = 2, -- PLACEHOLDER: squad XP per enemy soldier this squad killed
