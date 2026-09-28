@@ -545,6 +545,21 @@ CampaignConfig.Enlist = {
 	},
 }
 
+-- Generals rebuild their armies slowly (strength points; one point ≈ one squad's worth)
+CampaignConfig.Generals = {
+	RecruitPerDay = 0.35, -- PLACEHOLDER: new recruits per day (× the faction's village prosperity)
+	WoundedShare = 0.7, -- PLACEHOLDER: share of a general's losses that are only wounded
+	HealPerDayRoad = 0.3, -- PLACEHOLDER: wounded strength back per day on the march
+	HealPerDayResting = 1, -- PLACEHOLDER: … while resting at one of his faction's towns/castles
+	RestRadius = 30, -- how close to a friendly place counts as resting there
+	RestBelow = 0.6, -- a general under 60 % strength goes home to rest…
+	RestUntil = 0.9, -- … until he's back to 90 %
+	BeatenDays = 3, -- PLACEHOLDER: no recruits for this long after a defeat (stays weak a while)
+	RespawnDays = 6, -- PLACEHOLDER: a destroyed general's faction raises a new army after this…
+	RespawnStrength = 3, -- … starting this weak
+	MinStrength = 3, -- below this the army breaks up
+}
+
 function CampaignConfig.enlistRank(battles: number): (any, any?)
 	local ranks = CampaignConfig.Enlist.Ranks
 	local current, nextRank = ranks[1], ranks[2]

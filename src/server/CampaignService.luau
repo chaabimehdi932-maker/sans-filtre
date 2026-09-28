@@ -233,7 +233,7 @@ end
 local Enlist = CampaignConfig.Enlist
 
 -- A general's army: big, hunts the enemies of its faction; you can enlist in your employer's
-local function spawnLord(camp: any, faction: string)
+local function spawnLord(camp: any, faction: string, strength: number?)
 	local owned = CampaignService.locationsOwnedBy(camp, faction)
 	if #owned == 0 then
 		return
@@ -260,7 +260,10 @@ local function spawnLord(camp: any, faction: string)
 		lordName = name,
 		pos = locationPos(start),
 		speed = Enlist.LordSpeed,
-		strength = randomStrength(camp, Enlist.LordStrength),
+		strength = strength or randomStrength(camp, Enlist.LordStrength),
+		maxStrength = randomStrength(camp, Enlist.LordStrength), -- he rebuilds up to this
+		wounded = 0,
+		home = start.id,
 		patrol = true,
 	})
 end
@@ -276,9 +279,15 @@ local function maintainParties(camp: any)
 			lords[party.faction] = (lords[party.faction] or 0) + 1
 		end
 	end
+	camp.lordRespawn = camp.lordRespawn or {}
 	for _, faction in CampaignConfig.FactionOrder do
-		for _ = (lords[faction] or 0) + 1, Enlist.LordsPerFaction do
-			spawnLord(camp, faction)
+		-- a destroyed general is replaced only after a while, and starts weak
+		local respawnAt = camp.lordRespawn[faction]
+		if not respawnAt or camp.data.Day >= respawnAt then
+			for _ = (lords[faction] or 0) + 1, Enlist.LordsPerFaction do
+				spawnLord(camp, faction, if respawnAt then CampaignConfig.Generals.RespawnStrength else nil)
+			end
+			camp.lordRespawn[faction] = nil
 		end
 	end
 	for _ = bandits + 1, Parties.BanditParties do
@@ -324,7 +333,7 @@ local BANDIT_EQUIVALENT = {
 
 -- Turn a battle spec into a GameManager battle config (reuses GameConfig.getRound)
 local function buildBattleConfig(camp: any, spec: any): any
-	local strength = math.max(1, spec.strength or 1)
+	local strength = math.max(1, math.floor(spec.strength or 1))
 	local base = GameConfig.getRound(strength)
 	local bandits = spec.enemyFaction == "Bandits"
 	local sourceWaves = if spec.kind == "Raid"
@@ -793,7 +802,7 @@ local function sendTick(camp: any)
 			name = party.name,
 			x = party.pos.X,
 			z = party.pos.Y,
-			strength = party.strength,
+			strength = math.floor(party.strength or 0),
 			hostile = isHostile(camp, party),
 			contract = party.contractId ~= nil,
 		})
@@ -920,6 +929,8 @@ local function updateParties(camp: any, dtDays: number)
 				end
 				continue
 			end
+		elseif party.resting and party.restPoint then
+			party.dest = party.restPoint -- a weakened general goes home to rest and refill
 		elseif party.targetParty then
 			-- ambushers go for their prey (a caravan)
 			local target = camp.parties[party.targetParty]
@@ -987,7 +998,7 @@ end
 
 -- The party a general is hunting (hostile to his faction, not tied to your contract), if any
 function CampaignService.lordTarget(camp: any, lord: any): any
-	if camp.data.Day < (lord.restUntil or 0) then
+	if camp.data.Day < (lord.restUntil or 0) or lord.resting then
 		return nil
 	end
 	local best, bestDistance = nil, Enlist.LordHuntRadius
@@ -1021,7 +1032,7 @@ function CampaignService.lordContact(camp: any, lord: any, enemy: any)
 	if enlisted and enlisted.partyId == lord.id and camp.view == "Overworld" and not camp.pendingBattle then
 		local rank = CampaignConfig.enlistRank(enlisted.battles)
 		local allies = {}
-		local base = GameConfig.getRound(math.max(1, lord.strength))
+		local base = GameConfig.getRound(math.max(1, math.floor(lord.strength)))
 		for _, wave in base.waves do
 			for _, unit in wave.units do
 				table.insert(allies, unit.unitId)
@@ -1060,13 +1071,11 @@ function CampaignService.lordContact(camp: any, lord: any, enemy: any)
 						)
 					)
 				end
-				lord.strength = math.max(3, lord.strength - 1)
+				CampaignService.lordLoss(c, lord, 1, false)
 			end,
 			onDefeat = function(c: any, lines: { string })
-				lord.strength -= 2
 				lord.restUntil = c.data.Day + 2
-				if lord.strength < 3 then
-					CampaignService.removeParty(c, lord)
+				if CampaignService.lordLoss(c, lord, 2, true) then
 					CampaignService.discharge(c, lord.lordName .. "'s army is broken. You are discharged.")
 					table.insert(lines, lord.lordName .. "'s army is broken — you are discharged.")
 				else
@@ -1081,17 +1090,78 @@ function CampaignService.lordContact(camp: any, lord: any, enemy: any)
 	local loser = if lordWins then enemy else lord
 	if lordWins then
 		CampaignService.removeParty(camp, enemy)
-		lord.strength = math.max(3, lord.strength - 1)
+		CampaignService.lordLoss(camp, lord, 1, false)
 		lord.restUntil = camp.data.Day + 0.5
 	else
-		lord.strength -= 2
 		lord.restUntil = camp.data.Day + 2
-		if lord.strength < 3 then
-			CampaignService.removeParty(camp, lord)
-		end
+		CampaignService.lordLoss(camp, lord, 2, true)
 	end
 	if camp.enlisted and camp.enlisted.partyId == loser.id and not camp.parties[loser.id] then
 		CampaignService.discharge(camp, "Your general's army was destroyed. You are discharged.")
+	end
+end
+
+-- A general loses strength: most of it is wounded men who come back later. Returns true if
+-- his army broke up (it is removed, and replaced after a while).
+local Generals = CampaignConfig.Generals
+function CampaignService.lordLoss(camp: any, lord: any, amount: number, beaten: boolean): boolean
+	lord.strength -= amount
+	lord.wounded = (lord.wounded or 0) + amount * Generals.WoundedShare
+	if beaten then
+		lord.beatenUntil = camp.data.Day + Generals.BeatenDays
+	end
+	if lord.strength < Generals.MinStrength then
+		CampaignService.removeParty(camp, lord)
+		camp.lordRespawn = camp.lordRespawn or {}
+		camp.lordRespawn[lord.faction] = camp.data.Day + Generals.RespawnDays
+		return true
+	end
+	return false
+end
+
+-- Share (0-1) of a faction's recruits still coming in (villages; 1 = everything intact)
+function CampaignService.factionProsperity(_camp: any, _faction: string): number
+	return 1
+end
+
+-- Once a day: wounded heal (faster at a friendly town/castle), recruits trickle in unless the
+-- general was beaten recently; weak generals head home to rest
+function CampaignService.reinforceLords(camp: any, days: number)
+	for _, lord in camp.parties do
+		if lord.kind ~= "Lord" then
+			continue
+		end
+		local maxStrength = lord.maxStrength or lord.strength
+		local home = lord.home and CampaignConfig.getLocation(lord.home)
+		local atHome = false
+		for _, location in CampaignService.locationsOwnedBy(camp, lord.faction) do
+			if (locationPos(location) - lord.pos).Magnitude <= Generals.RestRadius then
+				atHome = true
+				home = location
+			end
+		end
+		local heal =
+			math.min(lord.wounded or 0, (if atHome then Generals.HealPerDayResting else Generals.HealPerDayRoad) * days)
+		lord.wounded = (lord.wounded or 0) - heal
+		lord.strength += heal
+		if camp.data.Day >= (lord.beatenUntil or 0) then
+			local room = maxStrength - lord.strength - (lord.wounded or 0)
+			lord.strength += math.clamp(
+				Generals.RecruitPerDay * days * CampaignService.factionProsperity(camp, lord.faction),
+				0,
+				math.max(0, room)
+			)
+		end
+		if lord.strength < maxStrength * Generals.RestBelow then
+			lord.resting = true
+		elseif lord.strength >= maxStrength * Generals.RestUntil then
+			lord.resting = false
+		end
+		if lord.resting and home and CampaignService.getOwner(camp, home.id) == lord.faction then
+			lord.restPoint = locationPos(home)
+		else
+			lord.restPoint = nil
+		end
 	end
 end
 
@@ -1157,6 +1227,7 @@ local function advanceTime(camp: any, dtDays: number)
 	data.Day += dtDays
 	payWages(camp, dtDays)
 	if math.floor(data.Day) > before then
+		CampaignService.reinforceLords(camp, 1)
 		desertions(camp)
 		RecruitmentService.sendState(camp.player)
 		maintainParties(camp)

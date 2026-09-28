@@ -276,6 +276,15 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 	local repLabel = stat(4, 380)
 	repLabel.TextSize = 16
 	repLabel.TextWrapped = true
+	local openInventory: () -> () = function() end
+	button(
+		{ LayoutOrder = 5, Size = UDim2.fromOffset(60, 44), TextSize = 22 },
+		"🎒",
+		Color3.fromRGB(110, 90, 60),
+		function()
+			openInventory()
+		end
+	)
 	local menuButton = button(
 		{ LayoutOrder = 6, Size = UDim2.fromOffset(44, 44), TextSize = 22 },
 		"☰",
@@ -365,7 +374,7 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 	local openCompanyModal: (kind: string) -> () = function() end
 	button(
 		{ LayoutOrder = 2, Size = UDim2.fromOffset(84, 34), TextSize = 13, Parent = companyButtons },
-		"⚔ GEAR",
+		"🎒 GEAR",
 		Color3.fromRGB(90, 110, 150),
 		function()
 			openCompanyModal("Gear")
@@ -621,7 +630,7 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		ZIndex = 41,
 		Parent = modalPanel,
 	})
-	create("UIGridLayout", {
+	local modalGrid = create("UIGridLayout", {
 		CellSize = UDim2.fromOffset(470, 250),
 		CellPadding = UDim2.fromOffset(16, 16),
 		SortOrder = Enum.SortOrder.LayoutOrder,
@@ -1143,8 +1152,100 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		end
 	end
 
+	-- Inventory: the three equipped slots first (gold), then everything you own; click to equip
+	local SLOT_ICONS = { weapon = "⚔", armor = "🛡", horse = "🐎" }
+	local function fillInventory()
+		clearModal()
+		modalGrid.CellSize = UDim2.fromOffset(180, 190)
+		local campaign = ClientState.campaign
+		if not campaign then
+			return
+		end
+		local gear = campaign.gear or {}
+		modalTitle.Text = "INVENTORY  ·  click an item to equip it"
+		local order = 0
+		local function tile(id: string, header: string?)
+			local item = CampaignConfig.Items[id]
+			if not item then
+				return
+			end
+			order += 1
+			local equipped = gear[item.slot] == id
+			local card = modalCard(order)
+			local border = card:FindFirstChildOfClass("UIStroke")
+			if border and (equipped or header) then
+				border.Color = C.Gold
+				border.Thickness = 3
+			end
+			outlined({
+				Position = UDim2.fromOffset(0, 6),
+				Size = UDim2.new(1, 0, 0, 16),
+				Text = header or (if equipped then "EQUIPPED" else string.upper(item.slot)),
+				TextSize = 12,
+				TextColor3 = if header or equipped then C.Gold else Color3.fromRGB(170, 170, 185),
+				ZIndex = 42,
+				Parent = card,
+			}, 1.2)
+			outlined({
+				Position = UDim2.fromOffset(0, 24),
+				Size = UDim2.new(1, 0, 0, 64),
+				Text = SLOT_ICONS[item.slot],
+				TextSize = 50,
+				ZIndex = 42,
+				Parent = card,
+			}, 2)
+			outlined({
+				Position = UDim2.fromOffset(6, 92),
+				Size = UDim2.new(1, -12, 0, 40),
+				Text = item.name,
+				Font = Theme.Bold,
+				TextSize = 16,
+				TextWrapped = true,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.5)
+			outlined({
+				Position = UDim2.fromOffset(6, 132),
+				Size = UDim2.new(1, -12, 0, 20),
+				Text = itemStats(item),
+				TextSize = 13,
+				TextColor3 = Color3.fromRGB(205, 205, 220),
+				ZIndex = 42,
+				Parent = card,
+			}, 1.2)
+			if not equipped then
+				button(
+					{
+						AnchorPoint = Vector2.new(0.5, 1),
+						Position = UDim2.new(0.5, 0, 1, -6),
+						Size = UDim2.new(1, -20, 0, 26),
+						TextSize = 14,
+						ZIndex = 43,
+						Parent = card,
+					},
+					"EQUIP",
+					C.Blue,
+					function()
+						send("EquipItem", id)
+					end
+				)
+			end
+		end
+		for _, slot in { "weapon", "armor", "horse" } do
+			if gear[slot] then
+				tile(gear[slot], "EQUIPPED " .. string.upper(slot))
+			end
+		end
+		for _, id in CampaignConfig.ItemOrder do
+			if table.find(campaign.items or {}, id) and gear[CampaignConfig.Items[id].slot] ~= id then
+				tile(id, nil)
+			end
+		end
+	end
+
 	local function openModal(kind: string)
 		modalKind = kind
+		modalGrid.CellSize = UDim2.fromOffset(470, 250)
 		modal.Visible = true
 		send("Pause", true)
 		if kind == "Board" then
@@ -1153,9 +1254,9 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			fillPrisoners()
 		elseif kind == "Officers" then
 			fillOfficers()
-		elseif kind == "Gear" then
-			shopSlots = nil
-			fillItems()
+		elseif kind == "Gear" or kind == "Inventory" then
+			modalKind = "Inventory"
+			fillInventory()
 		elseif kind == "ShopArms" then
 			shopSlots = { "weapon", "armor" }
 			fillItems()
@@ -1170,6 +1271,19 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 	end
 
 	openCompanyModal = openModal
+	openInventory = function()
+		openModal("Inventory")
+	end
+	game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+		local view = ClientState.view()
+		if not gameProcessed and input.KeyCode == Enum.KeyCode.I and (view == "Overworld" or view == "Town") then
+			if modal.Visible and modalKind == "Inventory" then
+				closeModal()
+			else
+				openInventory()
+			end
+		end
+	end)
 
 	function api.openBranch(squadId: number)
 		branchSquad = squadId
@@ -1940,7 +2054,9 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			fillPrisoners()
 		elseif modal.Visible and modalKind == "Officers" then
 			fillOfficers()
-		elseif modal.Visible and (modalKind == "Gear" or modalKind == "ShopArms" or modalKind == "ShopHorses") then
+		elseif modal.Visible and modalKind == "Inventory" then
+			fillInventory()
+		elseif modal.Visible and (modalKind == "ShopArms" or modalKind == "ShopHorses") then
 			fillItems()
 		end
 		if campaign.enlisted then
