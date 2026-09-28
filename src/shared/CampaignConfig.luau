@@ -381,6 +381,71 @@ CampaignConfig.Prisoners = {
 	MinToRecruit = 4, -- PLACEHOLDER: prisoners of one unit needed to try forming a squad
 }
 
+-- Commander equipment: weapon, armor and horse. Bought in town shops or looted after victories.
+-- weapon: damageMult, length (studs), color · armor: hp, speedMult, look · horse: speed, charge, coat
+CampaignConfig.ItemOrder = {
+	"Sabre",
+	"HeavySabre",
+	"Pallasch",
+	"GuardSword",
+	"Uniform",
+	"Jerkin",
+	"Cuirass",
+	"GuardCuirass",
+	"FarmHorse",
+	"Hunter",
+	"Destrier",
+	"Arabian",
+}
+CampaignConfig.Items = {
+	Sabre = { slot = "weapon", name = "Cavalry Sabre", damageMult = 1, length = 3.4, price = 0 },
+	HeavySabre = { slot = "weapon", name = "Heavy Sabre", damageMult = 1.2, length = 3.8, price = 400 }, -- PLACEHOLDER
+	Pallasch = { slot = "weapon", name = "Dragoon Pallasch", damageMult = 1.4, length = 4.3, price = 900 }, -- PLACEHOLDER
+	GuardSword = {
+		slot = "weapon",
+		name = "Guard's Sword",
+		damageMult = 1.65, -- PLACEHOLDER
+		length = 4.4,
+		gold = true,
+		price = 1800,
+		lootOnly = true,
+	},
+	Uniform = { slot = "armor", name = "Officer's Coat", hp = 0, price = 0 },
+	Jerkin = { slot = "armor", name = "Buff Leather Coat", hp = 40, look = "Leather", price = 250 }, -- PLACEHOLDER
+	Cuirass = { slot = "armor", name = "Steel Cuirass", hp = 100, speedMult = 0.97, look = "Steel", price = 700 }, -- PLACEHOLDER
+	GuardCuirass = {
+		slot = "armor",
+		name = "Carabinier Cuirass",
+		hp = 180, -- PLACEHOLDER
+		speedMult = 0.93,
+		look = "Gold",
+		price = 1600,
+		lootOnly = true,
+	},
+	FarmHorse = { slot = "horse", name = "Farm Horse", speed = 28, charge = 2.2, coat = "bay", price = 0 },
+	Hunter = { slot = "horse", name = "Hunter", speed = 32, charge = 2.6, coat = "chestnut", price = 500 }, -- PLACEHOLDER
+	Destrier = {
+		slot = "horse",
+		name = "Destrier",
+		speed = 30,
+		charge = 3.4,
+		coat = "black",
+		scale = 1.15,
+		price = 1200,
+	}, -- PLACEHOLDER
+	Arabian = {
+		slot = "horse",
+		name = "Arabian",
+		speed = 36,
+		charge = 2.8,
+		coat = "grey",
+		price = 1500,
+		lootOnly = true,
+	}, -- PLACEHOLDER
+}
+CampaignConfig.StartingGear = { weapon = "Sabre", armor = "Uniform", horse = "FarmHorse" }
+CampaignConfig.ItemLootChance = 0.15 -- PLACEHOLDER: chance per victory to loot a piece of gear (+2 % per enemy strength)
+
 CampaignConfig.Battle = {
 	Reinforcements = 0, -- PLACEHOLDER: free replacement squads per battle (0 = losses are real)
 	RaidAllies = 2, -- PLACEHOLDER: employer squads that join your raid

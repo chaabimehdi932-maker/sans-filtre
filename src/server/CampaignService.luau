@@ -51,6 +51,7 @@ CampaignService.hooks = {
 	onPartyContact = function(_camp: any, _party: any, _target: any) end, -- a party reached its target party
 	onPartyDefeated = function(_camp: any, _party: any) end,
 	onFactionChosen = function(_camp: any) end,
+	onGearChanged = function(_player: Player) end, -- PlayerCombatService re-equips the commander
 	describe = function(_camp: any): any
 		return nil
 	end, -- { contract, board } for the client
@@ -541,6 +542,31 @@ function CampaignService.resolveBattle(spec: any, victory: boolean, prisoners: {
 		if spec.onVictory then
 			spec.onVictory(camp, lines)
 		end
+		-- a piece of gear left on the field
+		local lootChance = CampaignConfig.ItemLootChance + (spec.strength or 1) * 0.02
+		if not spec.enlisted and rng:NextNumber() < lootChance then
+			local owned = {}
+			for _, id in data.Items do
+				owned[id] = true
+			end
+			local pool = {}
+			for _, id in CampaignConfig.ItemOrder do
+				if not owned[id] and CampaignConfig.Items[id].price > 0 then
+					table.insert(pool, id)
+				end
+			end
+			if #pool > 0 then
+				local id = pool[rng:NextInteger(1, #pool)]
+				table.insert(data.Items, id)
+				table.insert(
+					lines,
+					string.format(
+						'<font color="#FFCD28">🎁 Found on the field: %s!</font>',
+						CampaignConfig.Items[id].name
+					)
+				)
+			end
+		end
 		if prisoners and not spec.enlisted then
 			local line = takePrisoners(camp, prisoners)
 			if line then
@@ -699,6 +725,8 @@ function CampaignService.flush(camp: any)
 		timeMode = camp.timeMode,
 		mercenaries = camp.mercenaries,
 		prisoners = camp.data.Prisoners or {},
+		gear = camp.data.Gear,
+		items = camp.data.Items,
 		prisonerCount = CampaignService.prisonerCount(camp),
 		prisonerCapacity = CampaignConfig.Prisoners.Capacity,
 		ransomValue = CampaignService.ransomValue(camp),
@@ -1373,6 +1401,50 @@ function ACTIONS.RecruitPrisoners(camp: any, unitId: unknown)
 	camp.dirty = true
 end
 
+-- Commander gear -------------------------------------------------------------------
+
+-- The equipped items of a player: { weapon = item, armor = item, horse = item }
+function CampaignService.gearOf(player: Player): any
+	local data = DataService.getCampaign(player)
+	local gear = (data and data.Gear) or CampaignConfig.StartingGear
+	local out = {}
+	for slot, fallback in CampaignConfig.StartingGear do
+		out[slot] = CampaignConfig.Items[gear[slot] or fallback] or CampaignConfig.Items[fallback]
+	end
+	return out
+end
+
+function ACTIONS.BuyItem(camp: any, itemId: unknown)
+	local item = typeof(itemId) == "string" and CampaignConfig.Items[itemId]
+	if not item or item.lootOnly or not atFriendly(camp, { "Town" }) then
+		return
+	end
+	if table.find(camp.data.Items, itemId) then
+		CampaignService.notify(camp, "You already own it.", "info")
+		return
+	end
+	if camp.data.Gold < item.price then
+		CampaignService.notify(camp, "Not enough gold (" .. item.price .. " needed).", "bad")
+		return
+	end
+	camp.data.Gold -= item.price
+	table.insert(camp.data.Items, itemId :: string)
+	camp.data.Gear[item.slot] = itemId
+	CampaignService.notify(camp, "Bought and equipped: " .. item.name, "good")
+	CampaignService.hooks.onGearChanged(camp.player)
+	camp.dirty = true
+end
+
+function ACTIONS.EquipItem(camp: any, itemId: unknown)
+	local item = typeof(itemId) == "string" and CampaignConfig.Items[itemId]
+	if not item or not table.find(camp.data.Items, itemId) then
+		return
+	end
+	camp.data.Gear[item.slot] = itemId
+	CampaignService.hooks.onGearChanged(camp.player)
+	camp.dirty = true
+end
+
 function ACTIONS.Stop(camp: any)
 	camp.moving = false
 	camp.dirty = true
@@ -1570,6 +1642,8 @@ end
 
 TOWN_ACTIONS = {
 	ChooseBranch = true,
+	BuyItem = true,
+	EquipItem = true,
 	RansomPrisoners = true,
 	RecruitPrisoners = true,
 	Hire = true,

@@ -59,6 +59,8 @@ local function defaultCampaign(): any
 		ContractsCompleted = 0,
 		UnpaidDays = 0, -- days the troops went unpaid (wages)
 		Prisoners = {}, -- [unitId] = count
+		Gear = table.clone(CampaignConfig.StartingGear), -- equipped item ids by slot
+		Items = { "Sabre", "Uniform", "FarmHorse" }, -- owned item ids
 	}
 end
 

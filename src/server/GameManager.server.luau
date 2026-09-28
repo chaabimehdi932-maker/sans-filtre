@@ -213,6 +213,8 @@ PlayerCombatService.hooks.getSpawnCFrame = function(player: Player)
 	return if isParticipant(player) then MapService.spawnCFrame("Blue") else CampaignService.spawnCFrame(player)
 end
 PlayerCombatService.hooks.getLevel = DataService.getLevel
+PlayerCombatService.hooks.getGear = CampaignService.gearOf
+CampaignService.hooks.onGearChanged = PlayerCombatService.refreshGear
 PlayerCombatService.hooks.onDamageDealt = function(player, amount)
 	DataService.addXP(player, amount * Rewards.XPPerHeroDamage)
 end

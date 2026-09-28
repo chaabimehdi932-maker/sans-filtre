@@ -28,6 +28,11 @@ local vfxRemote = Remotes.get("VFX")
 local PlayerCombatService = {}
 
 PlayerCombatService.hooks = {
+	-- equipped gear { weapon = { damageMult, length, gold? }, armor = { hp, speedMult?, look? },
+	-- horse = { speed, charge, coat } } (CampaignService); nil = default kit
+	getGear = function(_player: Player): any
+		return nil
+	end,
 	-- the commander fell (the squads he leads lose heart)
 	onHeroDied = function(_player: Player) end,
 	getSpawnCFrame = function(_player: Player): CFrame
@@ -58,13 +63,23 @@ local function feedback(player: Player, action: string, ok: boolean, remaining: 
 	feedbackRemote:FireClient(player, action, ok, remaining)
 end
 
+local function gearOf(player: Player): any
+	local gear = PlayerCombatService.hooks.getGear(player) or {}
+	return {
+		weapon = gear.weapon or { damageMult = 1, length = 3.4 },
+		armor = gear.armor or { hp = 0 },
+		horse = gear.horse or { speed = Hero.MountedSpeed, charge = Hero.MountedChargeMultiplier, coat = "bay" },
+	}
+end
+
 local function refreshSpeed(player: Player)
 	local state = states[player]
 	local _, humanoid = getParts(player)
 	if not state or not humanoid then
 		return
 	end
-	local speed = if state.mounted then Hero.MountedSpeed else Hero.WalkSpeed
+	local gear = gearOf(player)
+	local speed = if state.mounted then gear.horse.speed else Hero.WalkSpeed * (gear.armor.speedMult or 1)
 	if state.blocking then
 		speed *= Hero.BlockSpeedMult
 	end
@@ -74,7 +89,9 @@ local function refreshSpeed(player: Player)
 end
 
 local function maxHealthFor(player: Player): number
-	return Hero.MaxHealth + (PlayerCombatService.hooks.getLevel(player) - 1) * Hero.HealthPerLevel
+	return Hero.MaxHealth
+		+ (PlayerCombatService.hooks.getLevel(player) - 1) * Hero.HealthPerLevel
+		+ (gearOf(player).armor.hp or 0)
 end
 
 function PlayerCombatService.refreshMaxHealth(player: Player)
@@ -114,16 +131,46 @@ local function weld(part0: BasePart, part1: BasePart, c0: CFrame, name: string):
 	return w
 end
 
-local function attachGear(player: Player, character: Model)
-	local state = states[player]
+local ARMOR_LOOKS = {
+	Leather = { Color3.fromRGB(190, 150, 95), Enum.Material.Leather },
+	Steel = { Color3.fromRGB(200, 205, 215), Enum.Material.Metal },
+	Gold = { Color3.fromRGB(230, 185, 70), Enum.Material.Metal },
+}
+
+-- Sword and armor from the equipped gear (rebuilt when it changes)
+local function attachKit(player: Player, character: Model)
+	for _, name in { "Sabre", "Cuirass" } do
+		local old = character:FindFirstChild(name)
+		if old then
+			old:Destroy()
+		end
+	end
+	local gear = gearOf(player)
 	local hand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
 	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
 	if hand and hand:IsA("BasePart") then
-		local sabre =
-			gearPart("Sabre", Vector3.new(0.12, 0.25, 3.4), Color3.fromRGB(205, 205, 215), Enum.Material.Metal)
-		weld(hand, sabre, CFrame.new(0, -hand.Size.Y / 2, -1.6), "SabreWeld")
+		local length = gear.weapon.length or 3.4
+		local sabre = gearPart(
+			"Sabre",
+			Vector3.new(0.12, 0.25, length),
+			if gear.weapon.gold then Color3.fromRGB(235, 200, 90) else Color3.fromRGB(205, 205, 215),
+			Enum.Material.Metal
+		)
+		weld(hand, sabre, CFrame.new(0, -hand.Size.Y / 2, -length / 2 + 0.1), "SabreWeld")
 		sabre.Parent = character
 	end
+	local look = gear.armor.look and ARMOR_LOOKS[gear.armor.look]
+	if look and torso and torso:IsA("BasePart") then
+		local plate = gearPart("Cuirass", torso.Size + Vector3.new(0.12, -0.3, 0.14), look[1], look[2])
+		weld(torso, plate, CFrame.new(0, 0.1, 0), "CuirassWeld")
+		plate.Parent = character
+	end
+end
+
+local function attachGear(player: Player, character: Model)
+	local state = states[player]
+	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+	attachKit(player, character)
 	if torso and torso:IsA("BasePart") then
 		local shield =
 			gearPart("Shield", Vector3.new(2.2, 2.6, 0.25), GameConfig.Teams.Blue.uniform, Enum.Material.Wood)
@@ -155,7 +202,8 @@ local function mount(player: Player)
 		then humanoid.HipHeight + root.Size.Y / 2
 		else 3
 	local groundY = -(groundDistance + Hero.MountLift) -- ground height relative to the root once lifted
-	local coat = HORSE_COATS[(player.UserId % #HORSE_COATS) + 1]
+	local coatIndex = ({ bay = 1, black = 2, grey = 3, chestnut = 4 })[gearOf(player).horse.coat or "bay"]
+	local coat = HORSE_COATS[coatIndex or ((player.UserId % #HORSE_COATS) + 1)]
 	local brown, dark = coat[1], coat[2]
 	local cloth = GameConfig.Teams.Blue.uniform
 	local leather = Color3.fromRGB(60, 40, 25)
@@ -307,13 +355,16 @@ local function onAttack(player: Player)
 	local range = if state.mounted then Hero.MountedAttackRange else Hero.AttackRange
 	local look = MathUtil.flat(root.CFrame.LookVector)
 	look = if look.Magnitude > 0.01 then look.Unit else Vector3.new(0, 0, -1)
-	local damage = Hero.AttackDamage * (1 + (PlayerCombatService.hooks.getLevel(player) - 1) * Hero.DamagePerLevelMult)
+	local damage = Hero.AttackDamage
+		* (1 + (PlayerCombatService.hooks.getLevel(player) - 1) * Hero.DamagePerLevelMult)
+		* (gearOf(player).weapon.damageMult or 1)
 	local kind = "Hero"
 	if state.mounted then
 		-- Mounted charge: damage scales with gallop speed
+		local horse = gearOf(player).horse
 		local speed = MathUtil.flat(root.AssemblyLinearVelocity).Magnitude
-		local factor = math.clamp(speed / Hero.MountedSpeed, 0, 1)
-		damage *= 1 + (Hero.MountedChargeMultiplier - 1) * factor
+		local factor = math.clamp(speed / horse.speed, 0, 1)
+		damage *= 1 + (horse.charge - 1) * factor
 		if factor >= 0.7 then
 			kind = "Charge"
 		end
@@ -550,6 +601,22 @@ local function onCharacterAdded(player: Player, character: Model)
 			mount(player)
 		end
 	end)
+end
+
+-- New gear equipped: rebuild the sword/armor (and horse), refresh HP and speed
+function PlayerCombatService.refreshGear(player: Player)
+	local state = states[player]
+	local character = player.Character
+	if not state or not character then
+		return
+	end
+	attachKit(player, character)
+	if state.mounted then
+		dismount(player)
+		mount(player)
+	end
+	PlayerCombatService.refreshMaxHealth(player)
+	refreshSpeed(player)
 end
 
 function PlayerCombatService.initPlayer(player: Player)

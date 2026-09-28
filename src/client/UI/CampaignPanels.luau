@@ -363,6 +363,14 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		Parent = companyButtons,
 	})
 	local openCompanyModal: (kind: string) -> () = function() end
+	button(
+		{ LayoutOrder = 2, Size = UDim2.fromOffset(84, 34), TextSize = 13, Parent = companyButtons },
+		"⚔ GEAR",
+		Color3.fromRGB(90, 110, 150),
+		function()
+			openCompanyModal("Gear")
+		end
+	)
 	local prisonersButton = button(
 		{ LayoutOrder = 1, Size = UDim2.fromOffset(90, 34), TextSize = 13, Parent = companyButtons },
 		"⛓ 0",
@@ -946,6 +954,99 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		end
 	end
 
+	local function itemStats(item: any): string
+		if item.slot == "weapon" then
+			return string.format("damage ×%.2f", item.damageMult)
+		elseif item.slot == "armor" then
+			return string.format(
+				"+%d HP%s",
+				item.hp,
+				if item.speedMult then string.format(" · speed ×%.2f", item.speedMult) else ""
+			)
+		end
+		return string.format("speed %d · charge ×%.1f", item.speed, item.charge)
+	end
+
+	-- Gear (equip what you own) and shops (buy in town): same list, different buttons
+	local shopSlots: { string }? = nil
+	local function fillItems()
+		clearModal()
+		local campaign = ClientState.campaign
+		if not campaign then
+			return
+		end
+		local owned = {}
+		for _, id in campaign.items or {} do
+			owned[id] = true
+		end
+		local gear = campaign.gear or {}
+		modalTitle.Text = if shopSlots then "SHOP" else "YOUR GEAR"
+		local order = 0
+		for _, id in CampaignConfig.ItemOrder do
+			local item = CampaignConfig.Items[id]
+			local inShop = shopSlots ~= nil
+				and table.find(shopSlots :: { string }, item.slot) ~= nil
+				and not item.lootOnly
+			if (shopSlots == nil and owned[id]) or inShop then
+				order += 1
+				local card = modalCard(order)
+				local equipped = gear[item.slot] == id
+				outlined({
+					Position = UDim2.fromOffset(14, 10),
+					Size = UDim2.new(1, -28, 0, 28),
+					Text = string.format(
+						"%s  %s%s",
+						({ weapon = "⚔", armor = "🛡", horse = "🐎" })[item.slot],
+						item.name,
+						if equipped then "  (equipped)" else ""
+					),
+					Font = Theme.Bold,
+					TextSize = 22,
+					TextColor3 = if equipped then C.Gold else C.Text,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					ZIndex = 42,
+					Parent = card,
+				}, 1.5)
+				outlined({
+					Position = UDim2.fromOffset(14, 46),
+					Size = UDim2.new(1, -28, 0, 60),
+					Text = string.upper(item.slot) .. " · " .. itemStats(item),
+					TextSize = 17,
+					TextColor3 = Color3.fromRGB(205, 205, 220),
+					TextXAlignment = Enum.TextXAlignment.Left,
+					TextYAlignment = Enum.TextYAlignment.Top,
+					ZIndex = 42,
+					Parent = card,
+				}, 1.2)
+				local label, color, action
+				if owned[id] then
+					label = if equipped then "EQUIPPED" else "EQUIP"
+					color = if equipped then Color3.fromRGB(90, 90, 100) else C.Blue
+					action = "EquipItem"
+				else
+					label = string.format("BUY · 💰 %d", item.price)
+					color = if campaign.gold >= item.price then C.Green else Color3.fromRGB(90, 90, 100)
+					action = "BuyItem"
+				end
+				button(
+					{
+						AnchorPoint = Vector2.new(0, 1),
+						Position = UDim2.new(0, 14, 1, -12),
+						Size = UDim2.fromOffset(240, 48),
+						TextSize = 19,
+						ZIndex = 42,
+						Parent = card,
+					},
+					label,
+					color,
+					function()
+						send(action, id)
+					end
+				)
+			end
+		end
+	end
+
 	local function openModal(kind: string)
 		modalKind = kind
 		modal.Visible = true
@@ -954,6 +1055,15 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			fillBoard()
 		elseif kind == "Prisoners" then
 			fillPrisoners()
+		elseif kind == "Gear" then
+			shopSlots = nil
+			fillItems()
+		elseif kind == "ShopArms" then
+			shopSlots = { "weapon", "armor" }
+			fillItems()
+		elseif kind == "ShopHorses" then
+			shopSlots = { "horse" }
+			fillItems()
 		elseif kind == "Branch" then
 			fillBranch()
 		else
@@ -1365,6 +1475,10 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 				)
 			end
 		elseif role == "ArmsMerchant" then
+			addOption(0, "⚔ Swords and armour for myself", Color3.fromRGB(190, 140, 60), function()
+				closeDialogue()
+				openCompanyModal("ShopArms")
+			end)
 			speech.Text = string.format(
 				"Better muskets, sharper sabres, and a sergeant to drill them. <b>+%d XP</b> to one squad.",
 				CampaignConfig.Town.DrillXP
@@ -1399,6 +1513,12 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			speech.Text = list[rumourIndex]
 			addOption(1, "🍺 Heard anything else?", Color3.fromRGB(190, 140, 60), function()
 				openDialogue("Innkeeper", talkingTo)
+			end)
+		elseif role == "HorseTrader" then
+			speech.Text = "Good horses, captain. A fast one keeps you alive, a heavy one breaks their lines."
+			addOption(1, "🐎 Show me your horses", Color3.fromRGB(190, 140, 60), function()
+				closeDialogue()
+				openCompanyModal("ShopHorses")
 			end)
 		elseif role == "RansomBroker" then
 			local value = campaign.ransomValue or 0
@@ -1688,6 +1808,8 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		)
 		if modal.Visible and modalKind == "Prisoners" then
 			fillPrisoners()
+		elseif modal.Visible and (modalKind == "Gear" or modalKind == "ShopArms" or modalKind == "ShopHorses") then
+			fillItems()
 		end
 		if campaign.enlisted then
 			placePanel.Visible = false
