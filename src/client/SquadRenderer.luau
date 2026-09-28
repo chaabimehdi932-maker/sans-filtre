@@ -73,6 +73,8 @@ end
 -- Building
 ---------------------------------------------------------------------------
 
+local soldierFromRig: (rig: any, r: any) -> any
+
 local function newSoldier(r: any, index: number): any
 	local rig
 	if r.def.visual == "Cavalry" then
@@ -89,6 +91,19 @@ local function newSoldier(r: any, index: number): any
 	else
 		rig = SoldierModels.infantry(r.model, r.team, r.def, true, nil, r.rank)
 	end
+	return soldierFromRig(rig, r)
+end
+
+-- The mounted officer who leads the squad (not drawn on squads the player leads himself)
+local OFFICER_DEF = { id = "Officer", hatColor = Color3.fromRGB(28, 28, 32) }
+local function newOfficer(r: any): any
+	local rig = SoldierModels.cavalry(r.model, r.team, OFFICER_DEF, math.max(2, (r.rank or 0) + 1))
+	local officer = soldierFromRig(rig, r)
+	officer.isOfficer = true
+	return officer
+end
+
+function soldierFromRig(rig: any, r: any): any
 	local soldier = {
 		rig = rig,
 		kind = rig.kind,
@@ -240,6 +255,10 @@ local function createRender(s: any, shown: number): any
 	if def.visual == "Artillery" then
 		r.cannon = SoldierModels.cannon(model)
 	end
+	if s.commander ~= false then
+		r.officer = newOfficer(r)
+		r.officer.pos = position
+	end
 	for i = 1, shown do
 		table.insert(r.soldiers, newSoldier(r, i))
 	end
@@ -273,6 +292,9 @@ local function destroyRender(r: any, animate: boolean)
 		local now = os.clock()
 		for _, soldier in r.soldiers do
 			startDying(soldier, now)
+		end
+		if r.officer and r.officer.rig.model.Parent then
+			startDying(r.officer, now)
 		end
 		task.delay(6, function()
 			r.model:Destroy()
@@ -412,6 +434,28 @@ local function applySnapshot(r: any, s: any, shown: number, now: number)
 	end
 	if changed then
 		recomputeSlots(r)
+	end
+
+	-- the officer: falls when killed, stands aside while the player leads the squad himself,
+	-- raises his sabre when the squad gets an order or goes into action
+	local officer = r.officer
+	if officer then
+		if s.commander == false then
+			if officer.rig.model.Parent then
+				startDying(officer, now)
+			else
+				officer.rig.model:Destroy()
+			end
+			r.officer = nil
+		else
+			local hidden = s.controlled == true
+			officer.rig.model.Parent = if hidden then nil else r.model
+			local cue = (s.order or "") .. "|" .. tostring(s.state == "Engaging")
+			if r.orderCue and cue ~= r.orderCue then
+				r.raiseUntil = now + GameConfig.Commander.RaiseTime
+			end
+			r.orderCue = cue
+		end
 	end
 
 	local diameter = (s.radius or 4) * 2 + 3
@@ -624,6 +668,40 @@ local function updateSquad(r: any, dt: number, now: number, near: boolean, detai
 			bulkCFrames,
 			SoldierAnimationService.update(r, soldier, i, feet, dt, now, walking, soldierRunning, detail)
 		)
+	end
+
+	local officer = r.officer
+	if officer and officer.rig.model.Parent then
+		-- rides at the front, and ahead in the direction of march: he leads, they follow
+		local minZ = 0
+		for _, slot in r.slots do
+			minZ = math.min(minZ, slot.Z)
+		end
+		local lead = -minZ + GameConfig.Commander.FrontOffset
+		local heading = Vector3.new(r.vel.X, 0, r.vel.Z)
+		local direction = if heading.Magnitude > 1 then heading.Unit else base.LookVector
+		local target = r.pos + direction * (lead + (if heading.Magnitude > 1 then 4 else 0))
+		local toTarget = Vector3.new(target.X - officer.pos.X, 0, target.Z - officer.pos.Z)
+		local speed = math.min(toTarget.Magnitude * 3, math.max(squadSpeed * 1.4, 10))
+		officer.vel = if toTarget.Magnitude > 0.3 then toTarget.Unit * speed else Vector3.zero
+		local flat = officer.pos + officer.vel * dt
+		if near and now >= officer.nextGround then
+			officer.nextGround = now + 0.4
+			local hit = Workspace:Raycast(flat + Vector3.new(0, 8, 0), Vector3.new(0, -24, 0), groundParams)
+			officer.groundY = if hit then hit.Position.Y else nil
+		end
+		officer.pos = Vector3.new(flat.X, lerp(officer.pos.Y, officer.groundY or r.pos.Y, math.min(1, dt * 8)), flat.Z)
+		local moving = officer.vel.Magnitude > 1
+		local desiredYaw = if moving then MathUtil.yawFromDirection(officer.vel) else r.yaw
+		officer.yaw = MathUtil.normalizeAngle(officer.yaw + MathUtil.angleDiff(officer.yaw, desiredYaw) * poseAlpha)
+		officer.phase += dt * officer.vel.Magnitude * 0.55
+		officer.legSwing = lerp(officer.legSwing, if moving then 0.7 else 0, poseAlpha)
+		local feet = CFrame.new(officer.pos) * CFrame.Angles(0, officer.yaw, 0)
+		table.insert(bulkParts, officer.rig.root)
+		table.insert(bulkCFrames, SoldierAnimationService.update(r, officer, 0, feet, dt, now, moving, running, detail))
+		if detail and now < (r.raiseUntil or 0) then
+			SoldierModels.pose(officer.rig, "armR", CFrame.Angles(2.9, 0, -0.25)) -- sabre raised: "Forward!"
+		end
 	end
 
 	if r.cannon then

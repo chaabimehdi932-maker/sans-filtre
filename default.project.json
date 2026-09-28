@@ -67,6 +67,9 @@
         },
         "CampaignAction": {
           "$className": "RemoteEvent"
+        },
+        "BattleFeed": {
+          "$className": "RemoteEvent"
         }
       }
     },

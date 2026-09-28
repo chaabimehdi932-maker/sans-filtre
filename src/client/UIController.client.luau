@@ -186,6 +186,8 @@ ClientState.Changed:Connect(function(key, a, b)
 		end
 	elseif key == "Kill" then
 		hud.onKill(a)
+	elseif key == "BattleFeed" then
+		hud.onBattleFeed(a)
 	end
 end)
 

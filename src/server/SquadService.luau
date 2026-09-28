@@ -48,6 +48,14 @@ SquadService.hooks = {
 	onCasualties = function(_squad: Squad, _soldiersLost: number, _attackerTeam: string?, _creditPlayer: Player?) end,
 	onSquadDestroyed = function(_squad: Squad, _attackerTeam: string?) end,
 	onRout = function(_squad: Squad) end,
+	-- terrain (MapService): musket precision multiplier for where the squad stands
+	getTerrainAccuracy = function(_squad: Squad): number
+		return 1
+	end,
+	-- the squad's mounted officer was killed
+	onCommanderKilled = function(_squad: Squad, _info: any) end,
+	-- soldiers of `squad` died; info = { attacker?: Squad, creditPlayer?: Player, kind }
+	onKill = function(_squad: Squad, _lost: number, _info: any) end,
 }
 
 local squadsById: { [number]: Squad } = {}
@@ -118,7 +126,9 @@ local function recomputeRadius(squad: Squad)
 	for _, slot in slots do
 		radius = math.max(radius, slot.Magnitude + 1)
 	end
-	squad.radius = radius
+	-- a wide single-rank line is still one body of men: cap the contact circle so its far
+	-- flanks don't count as touching everything around it
+	squad.radius = math.min(radius, 18)
 end
 
 ---------------------------------------------------------------------------
@@ -194,6 +204,9 @@ function SquadService.create(params: any): Squad
 		isPlayerControlled = false, -- true = obeys its owner's hotkeys, false = AI (SquadController)
 		rank = params.rank or 0, -- veteran stars = evolution tier
 		rosterId = params.rosterId, -- campaign roster entry this squad was deployed from
+		commanderAlive = true, -- the mounted officer leading the squad
+		commanderHealth = GameConfig.Commander.Health * statMult,
+		commanderName = params.commanderName, -- a companion leads it (else a generic officer)
 		aiMemory = {},
 		stats = { damageDealt = 0, kills = 0 },
 	}
@@ -341,6 +354,18 @@ local function startRout(squad: Squad)
 	SquadService.hooks.onRout(squad)
 end
 
+-- Make a squad flee now; `forever` = it won't rally (hopeless battles)
+function SquadService.forceRout(squad: Squad, forever: boolean?)
+	if not squad.alive then
+		return
+	end
+	squad.morale = 0
+	squad.noRally = forever == true
+	if not squad.routing then
+		startRout(squad)
+	end
+end
+
 local function recoverFromRout(squad: Squad, now: number)
 	squad.routing = false
 	squad.morale = math.max(squad.morale, squad.maxMorale * Morale.RoutRecoverFraction * 0.8)
@@ -409,6 +434,17 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 	end
 	squad.morale = math.max(0, squad.morale - moraleLoss)
 
+	-- the officer riding at the front can be hit too (not when the player leads the squad)
+	if squad.commanderAlive and not squad.isPlayerControlled and dealt > 0 then
+		local exposure = GameConfig.Commander.Exposure[kind] or 0.05
+		squad.commanderHealth -= dealt * exposure
+		if squad.commanderHealth <= 0 then
+			squad.commanderAlive = false
+			squad.morale = math.max(0, squad.morale - GameConfig.Commander.DeathMorale)
+			SquadService.hooks.onCommanderKilled(squad, info)
+		end
+	end
+
 	-- floating damage number at the spot that was hit
 	if dealt >= 0.5 then
 		local offset = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5) * squad.radius
@@ -425,6 +461,9 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 	local lost = refreshSoldierCount(squad, info.attackerTeam, creditPlayer)
 	if lost > 0 and info.attacker then
 		info.attacker.stats.kills += lost -- squad XP (campaign evolution)
+	end
+	if lost > 0 then
+		SquadService.hooks.onKill(squad, lost, info)
 	end
 	if squad.health <= 0 then
 		destroySquad(squad, info.attackerTeam)
@@ -504,10 +543,33 @@ local function dealDamage(attacker: Squad, target: any, amount: number, kind: st
 	end
 end
 
+-- Musket precision from formation quality (GameConfig.Combat.Accuracy) and terrain
+function SquadService.accuracy(squad: Squad, now: number?): number
+	local acc = Combat.Accuracy
+	local value
+	if squad.formation == "Column" then
+		value = acc.Column
+	elseif squad.formation == "Square" then
+		value = acc.Square
+	else
+		local ranks = FormationDefinitions.ranks(squad.formation, squad.soldierCount)
+		value = acc.Line - acc.PerExtraRank * (ranks - 1)
+	end
+	if (now or time()) < squad.formingUntil then
+		value *= acc.Forming
+	end
+	if squad.isMoving then
+		value *= acc.Moving
+	end
+	value *= SquadService.hooks.getTerrainAccuracy(squad)
+	return math.max(acc.Minimum, value)
+end
+
 local function fireVolley(squad: Squad, target: any, distance: number, range: number, now: number)
 	local def = squad.def
 	local falloff = 1 - Combat.RangeFalloff * math.clamp(distance / range, 0, 1)
 	local damage = def.damage
+		* SquadService.accuracy(squad, now)
 		* squad.damageMult
 		* formationStat(squad, "firepowerMult")
 		* strengthFactor(squad)
@@ -695,6 +757,9 @@ end
 
 local function updateMorale(squad: Squad, dt: number, now: number, heroes: { any })
 	if squad.routing then
+		if squad.noRally then
+			return -- hopeless: they keep running
+		end
 		if now - squad.lastDamagedAt > Morale.RoutRecoverDelay then
 			squad.morale = math.min(squad.maxMorale, squad.morale + Morale.RoutRegen * dt)
 		end
@@ -933,6 +998,8 @@ function SquadService.snapshot(): { any }
 			rushing = squad.rushing,
 			charging = now < squad.chargeReadyUntil,
 			controlled = squad.isPlayerControlled,
+			commander = squad.commanderAlive,
+			commanderName = squad.commanderName,
 			rank = squad.rank,
 			tier = squad.def.tier,
 		})

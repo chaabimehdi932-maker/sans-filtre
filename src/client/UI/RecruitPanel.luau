@@ -212,7 +212,9 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 				)
 			)
 		end
-		zonesLabel.Text = "<b>OBJECTIVES:</b> " .. (if #parts > 0 then table.concat(parts, "  ·  ") else "—")
+		zonesLabel.Text = if #parts > 0
+			then "<b>OBJECTIVES:</b> " .. table.concat(parts, "  ·  ")
+			else "<b>OBJECTIVE:</b> open field, no quarter — destroy or rout the enemy army"
 	end
 	api.onZones = refreshZones
 

@@ -103,6 +103,71 @@ SquadService.hooks.onCasualties = function(squad, lost, _attackerTeam, creditPla
 		killFeedRemote:FireClient(creditPlayer, { kills = lost, xp = xp })
 	end
 end
+-- Officers: a fallen officer shakes his squad; so does the player falling (he leads his squads)
+SquadService.hooks.onCommanderKilled = function(squad, _info)
+	if squad.owner then
+		notifyRemote:FireClient(squad.owner, "The officer of your " .. squad.name .. " has fallen!", "bad")
+	elseif squad.team == "Red" then
+		notifyAll("Enemy officer of " .. squad.name .. " killed!", "good")
+	end
+end
+
+-- Kill feed: casualties are batched per (killer, victim) and sent twice a second
+local feedRemote = Remotes.get("BattleFeed")
+local pendingKills: { [string]: any } = {}
+SquadService.hooks.onKill = function(squad, lost, info)
+	if not battle then
+		return
+	end
+	local attacker = info.attacker
+	local hero = info.kind == "Hero" and info.creditPlayer
+	local killerName = if hero
+		then hero.DisplayName
+		elseif attacker then attacker.name
+		elseif info.kind == "Artillery" then "Cannon fire"
+		else "?"
+	local key = killerName .. "|" .. squad.id
+	local entry = pendingKills[key]
+	if not entry then
+		entry = {
+			killer = killerName,
+			killerTeam = if attacker then attacker.team elseif hero then "Blue" else info.attackerTeam,
+			killerOwner = if hero then hero.UserId elseif attacker and attacker.owner then attacker.owner.UserId else 0,
+			hero = hero ~= false and hero ~= nil,
+			victim = squad.def.displayName,
+			victimTeam = squad.team,
+			count = 0,
+		}
+		pendingKills[key] = entry
+	end
+	entry.count += lost
+end
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		if next(pendingKills) then
+			local list = {}
+			for _, entry in pendingKills do
+				table.insert(list, entry)
+			end
+			table.clear(pendingKills)
+			for _, player in participants do
+				feedRemote:FireClient(player, list)
+			end
+		end
+	end
+end)
+
+PlayerCombatService.hooks.onHeroDied = function(player)
+	if not battle or battle.result then
+		return
+	end
+	for _, squad in CommandService.getControlledList(player) do
+		SquadService.addMorale(squad, -GameConfig.Commander.DeathMorale)
+	end
+	notifyRemote:FireClient(player, "You have fallen! Your squads waver…", "bad")
+end
+
 SquadService.hooks.onRout = function(squad)
 	if squad.owner then
 		notifyRemote:FireClient(squad.owner, squad.name .. " is routing!", "bad")
@@ -196,6 +261,9 @@ end
 
 local function computeObjective(cfg: any): string
 	local zones = ZoneService.getZones()
+	if #zones == 0 then
+		return "DESTROY OR ROUT THE ENEMY" -- field battle: a fight to the death
+	end
 	for _, zone in zones do
 		if zone.owner ~= "Blue" then
 			return (if cfg.side == "Attacker" then "CAPTURE " else "RETAKE ") .. string.upper(zone.name)
@@ -401,6 +469,44 @@ local function pendingWaves(): boolean
 	return false
 end
 
+-- Fighting strength of a side: remaining HP of its squads that are still fighting
+local function sideStrength(team: string): number
+	local total = 0
+	for _, squad in SquadService.getByTeam(team) do
+		if not squad.routing then
+			total += squad.health
+		end
+	end
+	return total
+end
+
+local function allRouting(team: string): boolean
+	local squads = SquadService.getByTeam(team)
+	if #squads == 0 then
+		return false
+	end
+	for _, squad in squads do
+		if not squad.routing then
+			return false
+		end
+	end
+	return true
+end
+
+-- Hopeless odds (1:HopelessRatio): the whole side breaks and flees, then it's a defeat
+local function checkHopeless(): boolean
+	local blue, red = sideStrength("Blue"), sideStrength("Red")
+	if blue <= 0 or red < blue * GameConfig.Battle.HopelessRatio then
+		return false
+	end
+	notifyAll("Hopelessly outnumbered! Your army breaks and flees the field!", "bad")
+	for _, squad in SquadService.getByTeam("Blue") do
+		SquadService.forceRout(squad, true)
+	end
+	battle.hopelessAt = time()
+	return true
+end
+
 local function runBattle(cfg: any): string
 	local playerSquads = RecruitmentService.deployAll(cfg, participants)
 	PlayerCombatService.teleport(participants, MapService.spawnCFrame("Blue"))
@@ -431,18 +537,44 @@ local function runBattle(cfg: any): string
 	end
 
 	local deadline = time() + Phases.BattleTimeLimit
+	local rules = GameConfig.Battle
+	local nextHopelessCheck = 0
+	local redRoutedSince, blueRoutedSince = nil, nil
 	while not battle.result do
 		task.wait(0.25)
 		spawnDueWaves()
-		if #present() == 0 then
+		local now = time()
+		if not battle.hopelessAt and now >= nextHopelessCheck then
+			nextHopelessCheck = now + rules.HopelessCheckInterval
+			checkHopeless()
+		end
+		redRoutedSince = if allRouting("Red") and not pendingWaves() then (redRoutedSince or now) else nil
+		blueRoutedSince = if allRouting("Blue") then (blueRoutedSince or now) else nil
+		if battle.hopelessAt then
+			if now - battle.hopelessAt >= rules.HopelessRoutTime then
+				battle.result = "Defeat"
+			end
+		elseif #present() == 0 then
 			battle.result = "Abandoned" -- the commander left the game
 		elseif #SquadService.getByTeam("Blue") == 0 and not RecruitmentService.reinforcementsPending(participants) then
 			battle.result = "Defeat"
 		elseif #SquadService.getByTeam("Red") == 0 and not pendingWaves() then
 			battle.result = "Victory"
+		elseif redRoutedSince and now - redRoutedSince >= rules.AllRoutedTime then
+			battle.result = "Victory" -- the enemy fled the field
+			notifyAll("The enemy flees the field!", "good")
+		elseif
+			blueRoutedSince
+			and now - blueRoutedSince >= rules.AllRoutedTime
+			and not RecruitmentService.reinforcementsPending(participants)
+		then
+			battle.result = "Defeat"
 		elseif time() >= deadline then
-			-- Out of time: attackers failed; defenders win if they still hold ground
-			if cfg.side == "Attacker" then
+			-- Out of time. Field battles: the stronger side holds the field.
+			-- Sieges: attackers failed; defenders win if they still hold ground
+			if #ZoneService.getZones() == 0 then
+				battle.result = if sideStrength("Blue") >= sideStrength("Red") then "Victory" else "Defeat"
+			elseif cfg.side == "Attacker" then
 				battle.result = "Defeat"
 			else
 				battle.result = if ZoneService.countOwned("Blue") > 0 then "Victory" else "Defeat"

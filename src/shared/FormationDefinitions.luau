@@ -26,6 +26,19 @@ FormationDefinitions.SPACING_Z = 3.8
 
 FormationDefinitions.Order = { "Line", "Column", "Square" }
 
+-- Soldiers side by side in a Line before it wraps into a second rank
+FormationDefinitions.LINE_MAX_FILES = 30 -- PLACEHOLDER
+
+-- Ranks a squad of `count` soldiers stands in (used for musket accuracy)
+function FormationDefinitions.ranks(formation: string, count: number): number
+	if formation == "Line" then
+		return math.max(1, math.ceil(count / FormationDefinitions.LINE_MAX_FILES))
+	elseif formation == "Column" then
+		return math.max(1, math.ceil(count / 3))
+	end
+	return 1
+end
+
 FormationDefinitions.Formations = {
 	Line = {
 		displayName = "Line",
@@ -41,7 +54,7 @@ FormationDefinitions.Formations = {
 	Column = {
 		displayName = "Column",
 		speedMult = 1.4,
-		firepowerMult = 0.5,
+		firepowerMult = 1, -- see GameConfig.Combat.Accuracy
 		rangedTakenMult = 1.3,
 		artilleryTakenMult = 1.5,
 		chargeTakenMult = 1.3,
@@ -52,7 +65,7 @@ FormationDefinitions.Formations = {
 	Square = {
 		displayName = "Square",
 		speedMult = 0.5,
-		firepowerMult = 0.7,
+		firepowerMult = 1, -- see GameConfig.Combat.Accuracy
 		rangedTakenMult = 1.1,
 		artilleryTakenMult = 1.6, -- packed target for cannons
 		chargeTakenMult = 0.3, -- cavalry breaks on the bayonets
@@ -112,9 +125,9 @@ function FormationDefinitions.layout(formation: string, count: number, spacingMu
 			table.insert(slots, perimeter[math.floor((i - 1) * total / count) + 1])
 		end
 	else
-		-- Line: two ranks when there are enough soldiers
-		local ranks = if count >= 6 then 2 else 1
-		grid(math.ceil(count / ranks))
+		-- Line: ONE rank (musket lines fire best in a single rank); only very large squads
+		-- wrap into a second rank, which costs accuracy (GameConfig.Combat.Accuracy)
+		grid(math.min(count, FormationDefinitions.LINE_MAX_FILES))
 	end
 	return slots
 end

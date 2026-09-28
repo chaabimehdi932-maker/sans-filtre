@@ -258,10 +258,9 @@ local function nearWater(x: number, z: number): boolean
 end
 
 --[[
-	Which battlefield a fight at (x, z) happens on (MapService.setBattlefield):
-	  "CastleNear" · "Town" · "BanditCamp"  within BattlefieldPlaceRadius of such a place
-	  "Forest" · "Hills" · "River" · "Field" from the land itself
-	Sieges (Raid / Garrison contracts) always use "Castle".
+	Battlefields (MapService.setBattlefield): field battles are open terrain shaped by where you
+	are on the map ("Forest" · "Hills" · "River" · "Field"); sieges (Raid / Garrison contracts)
+	are the only battles with walls, buildings and capture zones ("Castle").
 ]]
 CampaignConfig.BattlefieldPlaceRadius = 70 -- PLACEHOLDER
 CampaignConfig.BattlefieldNames = {
@@ -269,31 +268,25 @@ CampaignConfig.BattlefieldNames = {
 	Forest = "Deep woods",
 	Hills = "Rolling hills",
 	River = "River crossing",
-	Town = "Town outskirts",
-	CastleNear = "Beneath the castle walls",
 	Castle = "Castle siege",
-	BanditCamp = "Bandit camp",
 }
 
-function CampaignConfig.battlefieldAt(x: number, z: number): (string, any)
-	local location, distance = nearestLocation(x, z)
-	if location and distance <= CampaignConfig.BattlefieldPlaceRadius then
-		if location.kind == "Castle" then
-			return "CastleNear", location
-		elseif location.kind == "Town" then
-			return "Town", location
-		else
-			return "BanditCamp", location
-		end
-	end
+-- The open-terrain battlefield for a field battle at (x, z): "Forest" | "Hills" | "River" | "Field"
+function CampaignConfig.terrainThemeAt(x: number, z: number): string
 	if CampaignConfig.forestAt(x, z) then
-		return "Forest", nil
+		return "Forest"
 	elseif CampaignConfig.heightAt(x, z) > 15 then
-		return "Hills", nil
+		return "Hills"
 	elseif nearWater(x, z) then
-		return "River", nil
+		return "River"
 	end
-	return "Field", nil
+	return "Field"
+end
+
+-- The place a battle happens next to (for its name), if any
+function CampaignConfig.nearPlace(x: number, z: number): any
+	local location, distance = nearestLocation(x, z)
+	return if location and distance <= CampaignConfig.BattlefieldPlaceRadius then location else nil
 end
 
 ---------------------------------------------------------------------------

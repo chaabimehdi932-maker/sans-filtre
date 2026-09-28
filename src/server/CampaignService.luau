@@ -371,14 +371,11 @@ local function buildBattleConfig(camp: any, spec: any): any
 	if spec.kind == "Raid" or spec.kind == "Garrison" then
 		battlefield = { theme = "Castle", defender = if spec.kind == "Raid" then "Red" else "Blue" }
 	else
-		local theme, near = CampaignConfig.battlefieldAt(camp.pos.X, camp.pos.Y)
-		battlefield = { theme = theme }
-		if near and theme == "CastleNear" then
-			battlefield.castleSide = if CampaignService.getOwner(camp, near.id) == camp.data.Faction
-				then "Blue"
-				else "Red"
-		end
-		battlefield.place = near and near.name
+		-- field battles (encounters, ambushes, bounties, escorts, generals' fights): open
+		-- terrain shaped by where you are on the map, no buildings, no capture zones
+		local near = CampaignConfig.nearPlace(camp.pos.X, camp.pos.Y)
+		battlefield = { theme = CampaignConfig.terrainThemeAt(camp.pos.X, camp.pos.Y), field = true }
+		battlefield.place = near and ("near " .. near.name)
 	end
 	battlefield.name = CampaignConfig.BattlefieldNames[battlefield.theme]
 		.. (if battlefield.place then " · " .. battlefield.place else "")

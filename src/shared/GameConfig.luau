@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.10"
+GameConfig.Version = "0.11"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -25,7 +25,7 @@ GameConfig.Recruitment = {
 	DefaultUnit = "LineInfantry", -- picked for you if you don't choose
 	Reinforcements = 3, -- times your squad comes back per battle after being wiped out
 	ReinforcementDelay = 15, -- seconds before the fresh squad arrives
-	DeploySpacing = 42, -- studs between squads when deploying
+	DeploySpacing = 72, -- studs between squads when deploying (single-rank lines are wide)
 	MaxVeteranRank = 3, -- stars earned by surviving battles
 	VeteranBonusPerRank = 0.08, -- +8% HP and damage per star
 }
@@ -127,6 +127,40 @@ GameConfig.Combat = {
 	ChargeSpeedFraction = 0.7, -- must move at 70%+ of base speed to build a charge
 	ChargeGrace = 0.8, -- a charge stays armed this long after stopping (contact frame)
 	RoutingDamageTakenMult = 1.25,
+	-- Musket precision by formation quality (multiplies volley damage). A clean single-rank
+	-- Line fires at full precision; every extra rank, a column, a disordered or moving unit less.
+	-- Square keeps its anti-cavalry role but shoots poorly.
+	Accuracy = {
+		Line = 1, -- PLACEHOLDER: single rank
+		PerExtraRank = 0.2, -- PLACEHOLDER: −20 % per rank behind the first
+		Column = 0.45, -- PLACEHOLDER
+		Square = 0.6, -- PLACEHOLDER
+		Forming = 0.5, -- PLACEHOLDER: changing formation (disordered)
+		Moving = 0.6, -- PLACEHOLDER: firing on the move (skirmishers)
+		Minimum = 0.2,
+	},
+}
+
+-- Every squad is led by an officer on horseback, riding at its front (the player leads the
+-- squads they command directly). Killing him shakes the whole squad.
+GameConfig.Commander = {
+	Health = 140, -- PLACEHOLDER
+	-- share of the damage a squad takes that hits its officer, by attack kind
+	Exposure = { Ranged = 0.05, Artillery = 0.06, Melee = 0.1, Charge = 0.18, Hero = 0.35 }, -- PLACEHOLDER
+	DeathMorale = 45, -- PLACEHOLDER: morale lost when the officer falls
+	RaiseTime = 1.6, -- seconds the officer raises his sabre after an order
+	FrontOffset = 7, -- studs ahead of the front rank
+}
+
+-- Battle rules
+GameConfig.Battle = {
+	-- Hopeless odds: if the enemy's strength (remaining HP) is this many times yours, your
+	-- whole side routs and the battle is lost. Checked at the start and during the fight.
+	HopelessRatio = 8, -- PLACEHOLDER (1:8)
+	HopelessCheckInterval = 1,
+	HopelessRoutTime = 4, -- seconds of fleeing before the Defeat screen
+	-- An army whose every squad is routing has lost (after this many seconds)
+	AllRoutedTime = 5, -- PLACEHOLDER
 }
 
 GameConfig.Zones = {

@@ -85,15 +85,16 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		return frame
 	end
 	local regions = {
-		topCenter = region("TopCenter", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 4), Vector2.new(420, 136)),
-		topRight = region("TopRight", Vector2.new(1, 0), UDim2.new(1, -14, 0, 66), Vector2.new(200, 200)),
-		banner = region("BannerRegion", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 150), Vector2.new(1000, 190)),
+		topCenter = region("TopCenter", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 4), Vector2.new(460, 190)),
+		killFeed = region("KillFeed", Vector2.new(1, 0), UDim2.new(1, -14, 0, 10), Vector2.new(400, 176)),
+		topRight = region("TopRight", Vector2.new(1, 0), UDim2.new(1, -14, 0, 196), Vector2.new(200, 200)),
+		banner = region("BannerRegion", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 204), Vector2.new(1000, 190)),
 		left = region("LeftColumn", Vector2.new(0, 0.5), UDim2.new(0, 14, 0.49, 0), Vector2.new(200, 360)),
 		combo = region("KillCombo", Vector2.new(0, 0.5), UDim2.new(0, 240, 0.47, 0), Vector2.new(380, 110)),
 		bottomLeft = region("BottomLeft", Vector2.new(0, 1), UDim2.new(0, 14, 1, -26), Vector2.new(180, 250)),
 		bottomCenter = region("BottomCenter", Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -26), Vector2.new(600, 150)),
 		bottomRight = region("BottomRight", Vector2.new(1, 1), UDim2.new(1, -14, 1, -26), Vector2.new(380, 190)),
-		army = region("ArmyStrip", Vector2.new(0, 0), UDim2.new(0, 14, 0, 66), Vector2.new(420, 100)),
+		army = region("ArmyStrip", Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -186), Vector2.new(420, 100)),
 	}
 	api.regions = regions
 
@@ -104,6 +105,71 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = regions.topCenter,
 	})
+	-- Bannerlord-style troop count: yours on the left, the enemy's on the right, live ratio below
+	local troopBar = create("Frame", {
+		Name = "TroopBar",
+		LayoutOrder = 0,
+		Size = UDim2.fromOffset(440, 46),
+		BackgroundColor3 = Color3.fromRGB(18, 18, 22),
+		BackgroundTransparency = 0.15,
+		Parent = regions.topCenter,
+	})
+	Theme.corner(troopBar, 6)
+	Theme.border(troopBar, BLACK, 3)
+	local blueCount = outlined({
+		Position = UDim2.fromOffset(10, 2),
+		Size = UDim2.new(0.5, -10, 0, 26),
+		Text = "0",
+		Font = Theme.Bold,
+		TextSize = 24,
+		TextColor3 = Color3.fromRGB(130, 170, 255),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = troopBar,
+	}, 2)
+	local redCount = outlined({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 2),
+		Size = UDim2.new(0.5, -10, 0, 26),
+		Text = "0",
+		Font = Theme.Bold,
+		TextSize = 24,
+		TextColor3 = Color3.fromRGB(255, 130, 120),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Parent = troopBar,
+	}, 2)
+	local ratioBack = create("Frame", {
+		Position = UDim2.new(0, 10, 1, -14),
+		Size = UDim2.new(1, -20, 0, 8),
+		BackgroundColor3 = C.Red,
+		BorderSizePixel = 0,
+		Parent = troopBar,
+	})
+	Theme.corner(ratioBack, 4)
+	local ratioFill = create("Frame", {
+		Size = UDim2.fromScale(0.5, 1),
+		BackgroundColor3 = C.Blue,
+		BorderSizePixel = 0,
+		Parent = ratioBack,
+	})
+	Theme.corner(ratioFill, 4)
+
+	local function refreshTroops()
+		local blue, red = 0, 0
+		for _, squad in ClientState.squads do
+			if squad.team == "Blue" then
+				blue += squad.soldiers
+			else
+				red += squad.soldiers
+			end
+		end
+		blueCount.Text = "⚑ " .. blue
+		redCount.Text = red .. " ⚑"
+		local total = blue + red
+		TweenService:Create(ratioFill, TweenInfo.new(0.3), {
+			Size = UDim2.fromScale(if total > 0 then blue / total else 0.5, 1),
+		}):Play()
+	end
+
 	local timerBox = create("Frame", {
 		Name = "Timer",
 		LayoutOrder = 1,
@@ -470,7 +536,59 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	}, 2)
 	Theme.corner(reinforcementLabel, 8)
 
+	---------------------------------------------------------------- top right: kill feed
+	create("UIListLayout", {
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 2),
+		Parent = regions.killFeed,
+	})
+	local feedOrder = 0
+	function api.onBattleFeed(list: { any })
+		for _, entry in list do
+			feedOrder += 1
+			local mine = entry.hero and entry.killerOwner == player.UserId
+				or (entry.killerOwner ~= 0 and entry.killerOwner == player.UserId)
+			local killerColor = if entry.killerTeam == "Blue" then "#8CAFFF" else "#FF8C80"
+			local victimColor = if entry.victimTeam == "Blue" then "#8CAFFF" else "#FF8C80"
+			local line = outlined({
+				LayoutOrder = feedOrder,
+				Size = UDim2.new(1, 0, 0, 22),
+				BackgroundColor3 = if mine then Color3.fromRGB(120, 90, 10) else BLACK,
+				BackgroundTransparency = if mine then 0.25 else 0.55,
+				RichText = true,
+				Text = string.format(
+					'<font color="%s"><b>%s</b></font>  ⚔  %s<font color="%s">%s</font>  ',
+					killerColor,
+					entry.killer,
+					if entry.count > 1 then entry.count .. "× " else "",
+					victimColor,
+					entry.victim
+				),
+				TextSize = 15,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Parent = regions.killFeed,
+			}, 1.5)
+			Theme.corner(line, 4)
+			task.delay(5, function()
+				if line.Parent then
+					TweenService:Create(line, TweenInfo.new(0.6), { TextTransparency = 1, BackgroundTransparency = 1 })
+						:Play()
+					task.delay(0.6, function()
+						line:Destroy()
+					end)
+				end
+			end)
+		end
+		for _, child in regions.killFeed:GetChildren() do
+			if child:IsA("TextLabel") and child.LayoutOrder <= feedOrder - 7 then
+				child:Destroy()
+			end
+		end
+	end
+
 	function api.onSquads()
+		refreshTroops()
 		local squad = ClientState.squadsById[ClientActions.controlledId()]
 		-- the card shows your unit type (rebuilt only when it changes)
 		refreshArmy()
@@ -923,6 +1041,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		regions.bottomLeft.Visible = width >= 1150
 		regions.bottomRight.Visible = width >= 1400
 		regions.topRight.Visible = width >= 1000
+		regions.killFeed.Visible = width >= 900
 		regions.combo.Visible = width >= 1000
 	end
 

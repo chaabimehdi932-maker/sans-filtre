@@ -28,6 +28,8 @@ local vfxRemote = Remotes.get("VFX")
 local PlayerCombatService = {}
 
 PlayerCombatService.hooks = {
+	-- the commander fell (the squads he leads lose heart)
+	onHeroDied = function(_player: Player) end,
 	getSpawnCFrame = function(_player: Player): CFrame
 		return CFrame.new(0, 10, 0)
 	end,
@@ -519,6 +521,7 @@ local function onCharacterAdded(player: Player, character: Model)
 	humanoid.MaxHealth = maxHealth
 	humanoid.Health = maxHealth
 	humanoid.Died:Connect(function()
+		PlayerCombatService.hooks.onHeroDied(player)
 		if states[player] then
 			states[player].blocking = false
 		end
