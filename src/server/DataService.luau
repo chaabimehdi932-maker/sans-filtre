@@ -58,6 +58,7 @@ local function defaultCampaign(): any
 		BattlesWon = 0,
 		ContractsCompleted = 0,
 		UnpaidDays = 0, -- days the troops went unpaid (wages)
+		Prisoners = {}, -- [unitId] = count
 	}
 end
 

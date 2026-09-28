@@ -396,6 +396,14 @@ local NPCS = {
 		hat = Color3.fromRGB(150, 40, 40),
 	},
 	{
+		role = "RansomBroker",
+		name = "Monsieur Vautrin",
+		title = "Ransom broker · prisoners",
+		pos = Vector3.new(-22, 0, -40),
+		coat = Color3.fromRGB(40, 40, 45),
+		hat = Color3.fromRGB(15, 15, 15),
+	},
+	{
 		role = "Gate",
 		name = "Gate guard",
 		title = "Back to the map",

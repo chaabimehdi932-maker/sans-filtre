@@ -372,6 +372,15 @@ CampaignConfig.Wages = {
 	DesertAfterDays = 3, -- PLACEHOLDER: after this many unpaid days, a squad deserts each day
 }
 
+-- Prisoners: enemies who fled (routed, not killed) are captured when you win
+CampaignConfig.Prisoners = {
+	Capacity = 25, -- PLACEHOLDER: prisoners you can drag along
+	RansomMult = 0.8, -- PLACEHOLDER: ransom per prisoner = unit cost / soldiers × this
+	BanditRansomMult = 0.4, -- PLACEHOLDER: nobody pays much for bandits
+	RecruitChance = 0.5, -- PLACEHOLDER: chance each prisoner agrees to join you
+	MinToRecruit = 4, -- PLACEHOLDER: prisoners of one unit needed to try forming a squad
+}
+
 CampaignConfig.Battle = {
 	Reinforcements = 0, -- PLACEHOLDER: free replacement squads per battle (0 = losses are real)
 	RaidAllies = 2, -- PLACEHOLDER: employer squads that join your raid

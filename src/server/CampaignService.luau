@@ -467,7 +467,55 @@ end
 	Called by GameManager when the battle ends, before the summary screen.
 	Applies every consequence and returns report lines (rich text) for the summary.
 ]]
-function CampaignService.resolveBattle(spec: any, victory: boolean): { string }
+local PrisonerRules = CampaignConfig.Prisoners
+
+function CampaignService.prisonerCount(camp: any): number
+	local total = 0
+	for _, count in camp.data.Prisoners or {} do
+		total += count
+	end
+	return total
+end
+
+function CampaignService.ransomValue(camp: any): number
+	local total = 0
+	for unitId, count in camp.data.Prisoners or {} do
+		local def = UnitDefinitions.get(unitId)
+		if def then
+			local mult = if def.hidden then PrisonerRules.BanditRansomMult else PrisonerRules.RansomMult
+			total += count * (def.cost or 100) / def.soldiers * mult
+		end
+	end
+	return math.floor(total)
+end
+
+-- Take routed enemies prisoner, up to the capacity. Returns a report line or nil.
+local function takePrisoners(camp: any, prisoners: { [string]: number }): string?
+	local data = camp.data
+	data.Prisoners = data.Prisoners or {}
+	local room = PrisonerRules.Capacity - CampaignService.prisonerCount(camp)
+	local taken, released, parts = 0, 0, {}
+	for unitId, count in prisoners do
+		local keep = math.clamp(room - taken, 0, count)
+		released += count - keep
+		if keep > 0 then
+			taken += keep
+			data.Prisoners[unitId] = (data.Prisoners[unitId] or 0) + keep
+			table.insert(parts, UnitDefinitions.get(unitId).displayName .. " ×" .. keep)
+		end
+	end
+	if taken == 0 and released == 0 then
+		return nil
+	end
+	return string.format(
+		"⛓ %d prisoners taken%s%s",
+		taken,
+		if #parts > 0 then " (" .. table.concat(parts, ", ") .. ")" else "",
+		if released > 0 then string.format(" — %d released, no room", released) else ""
+	)
+end
+
+function CampaignService.resolveBattle(spec: any, victory: boolean, prisoners: { [string]: number }?): { string }
 	local camp = spec.camp
 	local data = camp.data
 	local lines = {}
@@ -492,6 +540,12 @@ function CampaignService.resolveBattle(spec: any, victory: boolean): { string }
 		end
 		if spec.onVictory then
 			spec.onVictory(camp, lines)
+		end
+		if prisoners and not spec.enlisted then
+			local line = takePrisoners(camp, prisoners)
+			if line then
+				table.insert(lines, line)
+			end
 		end
 	else
 		local penalty = math.floor(data.Gold * Economy.LossGoldPercent + Economy.LossGoldFlat)
@@ -644,6 +698,10 @@ function CampaignService.flush(camp: any)
 		queued = queued and CampaignService.battlefieldBusy(camp.player),
 		timeMode = camp.timeMode,
 		mercenaries = camp.mercenaries,
+		prisoners = camp.data.Prisoners or {},
+		prisonerCount = CampaignService.prisonerCount(camp),
+		prisonerCapacity = CampaignConfig.Prisoners.Capacity,
+		ransomValue = CampaignService.ransomValue(camp),
 		enlisted = CampaignService.describeEnlisted(camp),
 	})
 	RecruitmentService.sendState(camp.player)
@@ -1260,6 +1318,61 @@ function ACTIONS.ChooseBranch(camp: any, arg: unknown)
 	camp.dirty = true
 end
 
+-- Ransom broker (in town): every prisoner for gold
+function ACTIONS.RansomPrisoners(camp: any)
+	if not atFriendly(camp, { "Town" }) then
+		return
+	end
+	local value = CampaignService.ransomValue(camp)
+	if value <= 0 then
+		return
+	end
+	camp.data.Gold += value
+	camp.data.Prisoners = {}
+	CampaignService.notify(camp, "Prisoners ransomed for " .. value .. " gold.", "good")
+	camp.dirty = true
+end
+
+-- Offer prisoners of one unit a place in your company: some accept, a new squad forms
+function ACTIONS.RecruitPrisoners(camp: any, unitId: unknown)
+	local data = camp.data
+	local count = typeof(unitId) == "string" and data.Prisoners and data.Prisoners[unitId]
+	local def = typeof(unitId) == "string" and UnitDefinitions.get(unitId)
+	if not count or not def then
+		return
+	end
+	if count < PrisonerRules.MinToRecruit then
+		CampaignService.notify(
+			camp,
+			"Too few of them to form a squad (" .. PrisonerRules.MinToRecruit .. " needed).",
+			"bad"
+		)
+		return
+	end
+	if #data.Roster >= Economy.MaxRosterSize then
+		CampaignService.notify(camp, "Your company is full.", "bad")
+		return
+	end
+	local joined = 0
+	for _ = 1, math.min(count, def.soldiers) do
+		if rng:NextNumber() < PrisonerRules.RecruitChance then
+			joined += 1
+		end
+	end
+	-- everyone asked is either in your ranks now or sent packing
+	data.Prisoners[unitId] = count - math.min(count, def.soldiers)
+	if data.Prisoners[unitId] <= 0 then
+		data.Prisoners[unitId] = nil
+	end
+	if joined == 0 then
+		CampaignService.notify(camp, "None of the prisoners would take your coin.", "bad")
+	else
+		RecruitmentService.addSquad(camp.player, def.id, joined / def.soldiers)
+		CampaignService.notify(camp, string.format("%d %s join your company!", joined, def.displayName), "good")
+	end
+	camp.dirty = true
+end
+
 function ACTIONS.Stop(camp: any)
 	camp.moving = false
 	camp.dirty = true
@@ -1457,6 +1570,8 @@ end
 
 TOWN_ACTIONS = {
 	ChooseBranch = true,
+	RansomPrisoners = true,
+	RecruitPrisoners = true,
 	Hire = true,
 	Replenish = true,
 	Dismiss = true,

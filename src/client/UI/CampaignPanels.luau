@@ -348,9 +348,32 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = company,
 	}, 2)
+	-- buttons under the squad list: prisoners, gear, officers
+	local companyButtons = create("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 10, 1, -8),
+		Size = UDim2.new(1, -20, 0, 36),
+		BackgroundTransparency = 1,
+		Parent = company,
+	})
+	create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = companyButtons,
+	})
+	local openCompanyModal: (kind: string) -> () = function() end
+	local prisonersButton = button(
+		{ LayoutOrder = 1, Size = UDim2.fromOffset(90, 34), TextSize = 13, Parent = companyButtons },
+		"⛓ 0",
+		Color3.fromRGB(110, 90, 70),
+		function()
+			openCompanyModal("Prisoners")
+		end
+	)
 	local companyList = create("Frame", {
 		Position = UDim2.fromOffset(10, 42),
-		Size = UDim2.new(1, -20, 1, -52),
+		Size = UDim2.new(1, -20, 1, -94),
 		BackgroundTransparency = 1,
 		Parent = company,
 	})
@@ -852,18 +875,93 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		end
 	end
 
+	local function fillPrisoners()
+		clearModal()
+		local campaign = ClientState.campaign
+		local prisoners = campaign and campaign.prisoners or {}
+		modalTitle.Text = string.format(
+			"PRISONERS  %d/%d",
+			campaign and campaign.prisonerCount or 0,
+			campaign and campaign.prisonerCapacity or 0
+		)
+		local index = 0
+		for unitId, count in prisoners do
+			index += 1
+			local def = UnitDefinitions.get(unitId)
+			local card = modalCard(index)
+			outlined({
+				Position = UDim2.fromOffset(14, 10),
+				Size = UDim2.new(1, -28, 0, 28),
+				Text = string.format("%s  %s ×%d", def.icon or "⛓", def.displayName, count),
+				Font = Theme.Bold,
+				TextSize = 22,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.5)
+			outlined({
+				Position = UDim2.fromOffset(14, 46),
+				Size = UDim2.new(1, -28, 0, 100),
+				Text = string.format(
+					"Offer them your coin: each has a %d%% chance to join. With %d or more of them you can try to form a squad (up to %d men); the others are let go.\n\nOr sell them to the ransom broker in your employer's town.",
+					math.floor(CampaignConfig.Prisoners.RecruitChance * 100),
+					CampaignConfig.Prisoners.MinToRecruit,
+					def.soldiers
+				),
+				TextSize = 14,
+				TextWrapped = true,
+				TextColor3 = Color3.fromRGB(205, 205, 220),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.2)
+			button(
+				{
+					AnchorPoint = Vector2.new(0, 1),
+					Position = UDim2.new(0, 14, 1, -12),
+					Size = UDim2.fromOffset(260, 48),
+					TextSize = 18,
+					ZIndex = 42,
+					Parent = card,
+				},
+				"⚑ TRY TO RECRUIT",
+				if count >= CampaignConfig.Prisoners.MinToRecruit then C.Green else Color3.fromRGB(90, 90, 100),
+				function()
+					send("RecruitPrisoners", unitId)
+					closeModal()
+				end
+			)
+		end
+		if index == 0 then
+			local card = modalCard(1)
+			outlined({
+				Size = UDim2.fromScale(1, 1),
+				Text = "No prisoners. Enemies who flee the field are captured when you win.",
+				TextSize = 18,
+				TextWrapped = true,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.5)
+		end
+	end
+
 	local function openModal(kind: string)
 		modalKind = kind
 		modal.Visible = true
 		send("Pause", true)
 		if kind == "Board" then
 			fillBoard()
+		elseif kind == "Prisoners" then
+			fillPrisoners()
 		elseif kind == "Branch" then
 			fillBranch()
 		else
 			fillHire()
 		end
 	end
+
+	openCompanyModal = openModal
 
 	function api.openBranch(squadId: number)
 		branchSquad = squadId
@@ -1302,6 +1400,21 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			addOption(1, "🍺 Heard anything else?", Color3.fromRGB(190, 140, 60), function()
 				openDialogue("Innkeeper", talkingTo)
 			end)
+		elseif role == "RansomBroker" then
+			local value = campaign.ransomValue or 0
+			speech.Text = if (campaign.prisonerCount or 0) > 0
+				then string.format(
+					"%d prisoners? Families and regiments pay to get their men back. I'll give you <b>%d gold</b> for the lot.",
+					campaign.prisonerCount,
+					value
+				)
+				else "Bring me prisoners, captain. Families and regiments pay well to get their men back."
+			if value > 0 then
+				addOption(1, string.format("⛓ Ransom every prisoner (💰 %d)", value), C.Green, function()
+					send("RansomPrisoners")
+					closeDialogue()
+				end)
+			end
 		elseif role == "Gate" then
 			speech.Text = "Heading out, captain? The road awaits."
 			addOption(1, "🗺 Back to the map", C.Blue, function()
@@ -1569,6 +1682,13 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			placeAssault.Visible = contract ~= nil and contract.canAssault == true
 		end
 		queueNotice.Visible = campaign.queued == true
+		setButtonText(
+			prisonersButton,
+			string.format("⛓ %d/%d", campaign.prisonerCount or 0, campaign.prisonerCapacity or 0)
+		)
+		if modal.Visible and modalKind == "Prisoners" then
+			fillPrisoners()
+		end
 		if campaign.enlisted then
 			placePanel.Visible = false
 		end

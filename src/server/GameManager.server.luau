@@ -650,7 +650,14 @@ task.spawn(function()
 					if result == "Victory" then "VICTORY!" else "DEFEAT",
 					if result == "Victory" then "good" else "bad"
 				)
-				local lines = CampaignService.resolveBattle(spec, result == "Victory")
+				-- enemies still running when the battle ends are taken prisoner (if you won)
+				local prisoners = {}
+				for _, squad in SquadService.getByTeam("Red") do
+					if squad.routing and squad.alive then
+						prisoners[squad.unitId] = (prisoners[squad.unitId] or 0) + squad.soldierCount
+					end
+				end
+				local lines = CampaignService.resolveBattle(spec, result == "Victory", prisoners)
 				runReward(cfg, result, lines)
 			end
 		end)
