@@ -620,19 +620,29 @@ end
 
 local function fireArtillery(squad: Squad, target: any, distance: number, range: number)
 	local def = squad.def
-	local scatter = Combat.ArtilleryScatter * math.clamp(distance / range, 0.2, 1)
+	local scatter = Combat.ArtilleryScatter * (def.scatterMult or 1) * math.clamp(distance / range, 0.2, 1)
 	local angle = math.random() * math.pi * 2
 	local impact = target.position + Vector3.new(math.cos(angle), 0, math.sin(angle)) * (math.random() * scatter)
 	impact = Vector3.new(impact.X, MapService.groundY(impact.X, impact.Z, target.position.Y), impact.Z)
 	local muzzle = (CFrame.new(squad.position) * CFrame.Angles(0, squad.yaw, 0) * CFrame.new(0, 1.7, -5.3)).Position
-	local flight = distance / Combat.ArtilleryShellSpeed
-	vfxRemote:FireAllClients({ kind = "Cannon", squadId = squad.id, from = muzzle, to = impact, flight = flight })
+	-- howitzers lob their shells in a high, slow arc (def.arc)
+	local flight = distance / (Combat.ArtilleryShellSpeed * (def.shellSpeedMult or 1))
+	vfxRemote:FireAllClients({
+		kind = "Cannon",
+		squadId = squad.id,
+		from = muzzle,
+		to = impact,
+		flight = flight,
+		arc = def.arc,
+	})
 
 	-- Damage lands when the ball does. Capture values now: the gun may be dead by then.
 	local team = squad.team
 	local baseDamage = def.damage * squad.damageMult * strengthFactor(squad) * damageRoll()
 	local splash = def.splashRadius or 12
+	local gateDamage = baseDamage * (def.wallDamageMult or 1)
 	task.delay(flight, function()
+		MapService.damageGates(impact, splash, gateDamage, team)
 		for _, other in table.clone(squadList) do
 			if other.alive and other.team ~= team then
 				local d = MathUtil.flatDistance(other.position, impact)
@@ -732,6 +742,41 @@ local function pierce(squad: Squad, now: number): boolean
 	return true -- keep galloping: no stopping to fight while piercing
 end
 
+-- Sieges: guns of the attacking side shell the closed gates. Howitzers (siegeGun) prefer a
+-- gate to troops unless ordered onto a squad; other guns only when nothing else is in range.
+local function siegeTarget(squad: Squad, target: any): any
+	local def = squad.def
+	if def.attackType ~= "Artillery" or #MapService.gates == 0 then
+		return target
+	end
+	if target and (not def.siegeGun or target.squad == squad.preferredTarget) then
+		return target
+	end
+	local range = def.attackRange * rangeMultiplier(squad)
+	local gate = MapService.gateTarget(squad.position, squad.team, range, def.minRange or 0)
+	if gate then
+		return { kind = "Gate", gate = gate, position = gate.position, radius = 1 }
+	end
+	return target
+end
+
+-- Stuck at a closed gate with nobody to fight: attackers hack at it
+local function batterGate(squad: Squad, now: number)
+	local gate = squad.atGate
+	local def = squad.def
+	if
+		gate.open
+		or squad.team == MapService.castleDefender
+		or def.attackType == "Artillery"
+		or now - squad.lastMelee < def.meleeCooldown
+	then
+		return
+	end
+	squad.lastMelee = now
+	squad.inCombatUntil = now + Morale.CombatCooldown
+	MapService.damageGate(gate, def.meleeDamage * strengthFactor(squad) * GameConfig.Siege.BatterMult)
+end
+
 local function attemptAttack(squad: Squad, target: any, now: number)
 	local def = squad.def
 	local offset = MathUtil.flat(target.position - squad.position)
@@ -743,7 +788,7 @@ local function attemptAttack(squad: Squad, target: any, now: number)
 
 	-- Hand-to-hand when close enough (bayonets for infantry, sabres for cavalry)
 	local edge = distance - squad.radius - target.radius
-	if edge <= def.meleeRange then
+	if edge <= def.meleeRange and target.kind ~= "Gate" then
 		if now - squad.lastMelee >= def.meleeCooldown then
 			squad.lastMelee = now
 			doMelee(squad, target, now)
@@ -888,6 +933,15 @@ local function nextPoint(squad: Squad, now: number): (Vector3?, boolean)
 	if not goal then
 		return nil, false
 	end
+	-- getting round a castle wall: first walk to its opening
+	local detour = squad.wallDetour
+	if detour then
+		if now > squad.wallDetourUntil or MathUtil.flatDistance(squad.position, detour) < 3 then
+			squad.wallDetour = nil
+		else
+			return detour, false
+		end
+	end
 	local distance = MathUtil.flatDistance(squad.position, goal)
 	if distance <= squad.stopDistance then
 		return nil, false
@@ -953,10 +1007,22 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 					* (if squad.routing then Morale.RoutSpeedMult else 1)
 				local direction = offset / distance
 				local newPosition = squad.position + direction * math.min(remaining, speed * dt)
+				-- castle walls and closed gates block the way (sieges)
+				local blocked, gate, wall, along = MapService.crossing(squad.position, newPosition)
+				if blocked == "Gate" then
+					squad.atGate = gate -- stuck at a closed gate: attackers batter it (combat tick)
+					newPosition = squad.position
+				elseif blocked == "Wall" then
+					squad.wallDetour = MapService.detour(wall, along, squad.position)
+					squad.wallDetourUntil = now + 25
+					newPosition = squad.position
+				else
+					squad.atGate = nil
+				end
 				local y = MapService.groundY(newPosition.X, newPosition.Z, squad.position.Y)
 				squad.position = Vector3.new(newPosition.X, y, newPosition.Z)
 				squad.moveYaw = MathUtil.yawFromDirection(direction)
-				moving = true
+				moving = blocked == nil
 				-- Charge build-up: sustained speed arms the charge bonus
 				if
 					def.chargeMultiplier > 1
@@ -1031,8 +1097,11 @@ function SquadService.update(dt: number)
 			updateMorale(squad, tickDt, now, heroes)
 			if squad.alive and not squad.routing and now >= squad.formingUntil and not pierce(squad, now) then
 				local target = findTarget(squad, heroes)
+				target = siegeTarget(squad, target)
 				if target then
 					attemptAttack(squad, target, now)
+				elseif squad.atGate then
+					batterGate(squad, now)
 				end
 			end
 			if squad.alive then

@@ -67,6 +67,14 @@ end
 
 print("[Napoleonic Commander] server starting… version " .. GameConfig.Version)
 MapService.ensureMap()
+MapService.onGateBroken = function()
+	-- Blue (you) attacks when the castle's defender is Red
+	if MapService.castleDefender == "Red" then
+		notifyAll("💥 The gate is broken — the way into the castle is open!", "good")
+	else
+		notifyAll("💥 The enemy broke through a gate!", "bad")
+	end
+end
 ZoneService.init()
 print("[Napoleonic Commander] map ready:", #ZoneService.getZones(), "capture zones")
 

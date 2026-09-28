@@ -52,6 +52,9 @@ CampaignService.hooks = {
 	onPartyDefeated = function(_camp: any, _party: any) end,
 	onFactionChosen = function(_camp: any) end,
 	onGearChanged = function(_player: Player) end, -- PlayerCombatService re-equips the commander
+	onVillageRaided = function(_camp: any, _villageId: string) end, -- QuestService (raid contracts)
+	onSiegeStarted = function(_camp: any, _lord: any, _castleId: string) end, -- QuestService posts a Defend contract
+	onSiegeEnded = function(_camp: any, _lord: any) end, -- QuestService drops that contract
 	describe = function(_camp: any): any
 		return nil
 	end, -- { contract, board } for the client
@@ -62,6 +65,9 @@ CampaignService.refreshMercenaries = function(_camp: any) end
 CampaignService.atFriendly = function(_camp: any, _kinds: { string }): any
 	return nil
 end
+CampaignService.stepRaid = function(_camp: any, _dtDays: number) end
+CampaignService.lordRaids = function(_camp: any, _lord: any) end
+CampaignService.lordSieges = function(_camp: any, _lord: any, _dtDays: number) end
 
 -- extra client actions registered by other services: actions[name] = function(camp, arg)
 CampaignService.actions = {}
@@ -331,6 +337,7 @@ local BANDIT_EQUIVALENT = {
 	Skirmishers = "BanditGunners",
 	Cavalry = "BanditSwordsmen",
 	Artillery = "BanditGunners",
+	Howitzer = "BanditGunners",
 	EliteGuard = "BanditSwordsmen",
 }
 
@@ -383,6 +390,11 @@ local function buildBattleConfig(camp: any, spec: any): any
 	local battlefield
 	if spec.kind == "Raid" or spec.kind == "Garrison" then
 		battlefield = { theme = "Castle", defender = if spec.kind == "Raid" then "Red" else "Blue" }
+		-- the castle flies its owner's banner (the kingdom holding it right now)
+		local owner = spec.castleId and CampaignConfig.Factions[CampaignService.getOwner(camp, spec.castleId)]
+		if owner then
+			battlefield.banner = { color = owner.color, emblem = owner.emblem, name = owner.short }
+		end
 	else
 		-- field battles (encounters, ambushes, bounties, escorts, generals' fights): open
 		-- terrain shaped by where you are on the map, no buildings, no capture zones
@@ -764,6 +776,9 @@ function CampaignService.flush(camp: any)
 		prisoners = camp.data.Prisoners or {},
 		gear = camp.data.Gear,
 		companions = CampaignService.describeCompanions(camp),
+		villages = camp.data.VillageProsperity or {},
+		garrisons = camp.data.Garrisons or {},
+		sieges = CampaignService.describeSieges(camp),
 		items = camp.data.Items,
 		prisonerCount = CampaignService.prisonerCount(camp),
 		prisonerCapacity = CampaignConfig.Prisoners.Capacity,
@@ -831,6 +846,7 @@ local function sendTick(camp: any)
 		z = camp.pos.Y,
 		moving = camp.moving,
 		waiting = camp.timeMode == "Fast",
+		raiding = camp.raiding,
 		timeMode = camp.timeMode,
 		dest = if camp.dest and camp.moving then { x = camp.dest.X, z = camp.dest.Y } else nil,
 		parties = parties,
@@ -947,8 +963,23 @@ local function updateParties(camp: any, dtDays: number)
 				end
 				continue
 			end
+		elseif party.siegeTarget then
+			CampaignService.lordSieges(camp, party, dtDays)
+			if not camp.parties[party.id] then
+				continue
+			end
 		elseif party.resting and party.restPoint then
 			party.dest = party.restPoint -- a weakened general goes home to rest and refill
+		elseif party.raidTarget then
+			local village = CampaignConfig.getLocation(party.raidTarget)
+			if village then
+				party.dest = locationPos(village)
+				if (party.dest - party.pos).Magnitude <= Travel.ArriveRadius then
+					CampaignService.lordRaids(camp, party)
+				end
+			else
+				party.raidTarget = nil
+			end
 		elseif party.targetParty then
 			-- ambushers go for their prey (a caravan)
 			local target = camp.parties[party.targetParty]
@@ -1016,8 +1047,8 @@ end
 
 -- The party a general is hunting (hostile to his faction, not tied to your contract), if any
 function CampaignService.lordTarget(camp: any, lord: any): any
-	if camp.data.Day < (lord.restUntil or 0) or lord.resting then
-		return nil
+	if camp.data.Day < (lord.restUntil or 0) or lord.resting or lord.siegeUntil then
+		return nil -- resting, or camped outside a castle it besieges
 	end
 	local best, bestDistance = nil, Enlist.LordHuntRadius
 	for _, other in camp.parties do
@@ -1137,9 +1168,244 @@ function CampaignService.lordLoss(camp: any, lord: any, amount: number, beaten: 
 	return false
 end
 
--- Share (0-1) of a faction's recruits still coming in (villages; 1 = everything intact)
-function CampaignService.factionProsperity(_camp: any, _faction: string): number
-	return 1
+-- Villages -----------------------------------------------------------------------
+local Villages = CampaignConfig.Villages
+
+function CampaignService.prosperity(camp: any, villageId: string): number
+	local value = (camp.data.VillageProsperity or {})[villageId]
+	return if value then value else 1
+end
+
+local function setProsperity(camp: any, villageId: string, value: number)
+	camp.data.VillageProsperity = camp.data.VillageProsperity or {}
+	camp.data.VillageProsperity[villageId] = math.clamp(value, 0, 1)
+	camp.dirty = true
+end
+
+-- Share (0-1) of a faction's recruits still coming in: the mean prosperity of its villages
+function CampaignService.factionProsperity(camp: any, faction: string): number
+	local total, count = 0, 0
+	for _, location in CampaignService.locationsOwnedBy(camp, faction, "Village") do
+		total += CampaignService.prosperity(camp, location.id)
+		count += 1
+	end
+	return if count > 0 then total / count else 1
+end
+
+-- A village is sacked: it loses prosperity. Returns the gold taken.
+function CampaignService.sackVillage(camp: any, villageId: string, mult: number?): number
+	local before = CampaignService.prosperity(camp, villageId)
+	setProsperity(camp, villageId, before - Villages.ProsperityLoss * (mult or 1))
+	return math.floor(Villages.RaidGold * before)
+end
+
+-- Once a day: villages recover; idle generals may ride out to raid a hostile village
+function CampaignService.villagesDaily(camp: any)
+	for _, location in CampaignConfig.Locations do
+		if location.kind == "Village" then
+			local value = CampaignService.prosperity(camp, location.id)
+			if value < 1 then
+				setProsperity(camp, location.id, value + Villages.RecoveryPerDay)
+			end
+		end
+	end
+	for _, lord in camp.parties do
+		if
+			lord.kind == "Lord"
+			and not lord.resting
+			and not lord.raidTarget
+			and not lord.siegeTarget
+			and rng:NextNumber() < Villages.AIRaidChancePerDay
+		then
+			local best, bestDistance = nil, Villages.AIRaidRadius
+			for _, location in CampaignConfig.Locations do
+				local owner = CampaignService.getOwner(camp, location.id)
+				if
+					location.kind == "Village"
+					and owner ~= "Bandits"
+					and CampaignConfig.hostile(owner, lord.faction)
+					and CampaignService.prosperity(camp, location.id) >= 0.5
+				then
+					local distance = (locationPos(location) - lord.pos).Magnitude
+					if distance < bestDistance then
+						best, bestDistance = location, distance
+					end
+				end
+			end
+			if best then
+				lord.raidTarget = best.id
+			end
+		end
+	end
+end
+
+-- A general reached the village he wanted to raid
+function CampaignService.lordRaids(camp: any, lord: any)
+	local location = CampaignConfig.getLocation(lord.raidTarget)
+	lord.raidTarget = nil
+	if not location or CampaignService.prosperity(camp, location.id) < Villages.MinToRaid then
+		return
+	end
+	CampaignService.sackVillage(camp, location.id, 0.8)
+	if CampaignService.getOwner(camp, location.id) == camp.data.Faction then
+		CampaignService.notify(camp, lord.lordName .. " has raided " .. location.name .. "!", "bad")
+	end
+end
+
+-- Castles --------------------------------------------------------------------------
+local Capture = CampaignConfig.Capture
+
+function CampaignService.garrison(camp: any, castleId: string): number
+	local value = (camp.data.Garrisons or {})[castleId]
+	return if value then value else 1
+end
+
+local function setGarrison(camp: any, castleId: string, value: number)
+	camp.data.Garrisons = camp.data.Garrisons or {}
+	camp.data.Garrisons[castleId] = math.clamp(value, 0, 1)
+	camp.dirty = true
+end
+
+-- A Raid won: the castle goes to your employer with a weak garrison (you get a bonus, not the castle)
+function CampaignService.captureCastle(camp: any, castleId: string, faction: string)
+	CampaignService.setOwner(camp, castleId, faction)
+	camp.data.Captured = camp.data.Captured or {}
+	camp.data.Captured[castleId] = if faction == camp.data.Faction then true else nil
+	setGarrison(camp, castleId, Capture.GarrisonStart)
+end
+
+-- Castles under siege, for the client: [castleId] = { lordName, faction, assaultDay }
+function CampaignService.describeSieges(camp: any): any
+	local sieges = {}
+	for _, party in camp.parties do
+		if party.kind == "Lord" and party.siegeTarget and party.siegeUntil then
+			sieges[party.siegeTarget] =
+				{ lordName = party.lordName, faction = party.faction, assaultDay = party.siegeUntil }
+		end
+	end
+	return sieges
+end
+
+-- The general who besieges a castle (nil if none)
+function CampaignService.besieger(camp: any, castleId: string): any
+	for _, party in camp.parties do
+		if party.kind == "Lord" and party.siegeTarget == castleId then
+			return party
+		end
+	end
+	return nil
+end
+
+-- Lift a siege: the castle held (the besieger is beaten back) or fell (it changes hands)
+function CampaignService.endSiege(camp: any, lord: any, fell: boolean)
+	local castleId = lord.siegeTarget
+	lord.siegeTarget = nil
+	lord.siegeUntil = nil
+	CampaignService.hooks.onSiegeEnded(camp, lord)
+	if not castleId then
+		return
+	end
+	local location = CampaignConfig.getLocation(castleId)
+	if fell then
+		CampaignService.captureCastle(camp, castleId, lord.faction)
+		CampaignService.notify(
+			camp,
+			string.format("%s has taken %s!", lord.lordName, location.name),
+			if CampaignConfig.hostile(lord.faction, camp.data.Faction) then "bad" else "info"
+		)
+	elseif camp.parties[lord.id] then
+		CampaignService.lordLoss(camp, lord, lord.strength * Capture.LordLossOnRepulse, true)
+	end
+	camp.dirty = true
+end
+
+-- Nobody came to help: the garrison fights alone
+function CampaignService.autoResolveSiege(camp: any, lord: any)
+	local castleId = lord.siegeTarget
+	local defence = CampaignService.garrison(camp, castleId) * Capture.GarrisonPower
+	local fell = rng:NextNumber() < lord.strength / (lord.strength + defence)
+	local location = CampaignConfig.getLocation(castleId)
+	if not fell then
+		setGarrison(camp, castleId, CampaignService.garrison(camp, castleId) * 0.6)
+		CampaignService.notify(camp, string.format("%s held against %s.", location.name, lord.lordName), "info")
+	end
+	CampaignService.endSiege(camp, lord, fell)
+end
+
+-- A general besieging a castle: ride there, camp outside, then assault on the day
+function CampaignService.lordSieges(camp: any, lord: any, _dtDays: number)
+	local location = CampaignConfig.getLocation(lord.siegeTarget)
+	if not location or not CampaignConfig.hostile(CampaignService.getOwner(camp, location.id), lord.faction) then
+		lord.siegeTarget = nil
+		lord.siegeUntil = nil
+		CampaignService.hooks.onSiegeEnded(camp, lord)
+		return
+	end
+	if lord.resting and not lord.siegeUntil then
+		lord.siegeTarget = nil -- too weak to start a siege: goes home instead
+		return
+	end
+	lord.dest = locationPos(location) + Vector2.new(20, 14) -- camps outside the walls (out of contact range)
+	if not lord.siegeUntil and (lord.dest - lord.pos).Magnitude <= Travel.ArriveRadius then
+		lord.siegeUntil = camp.data.Day + Capture.SiegeDays
+		CampaignService.notify(
+			camp,
+			string.format("⚔ %s besieges %s! A Defend contract is posted.", lord.lordName, location.name),
+			if CampaignService.getOwner(camp, location.id) == camp.data.Faction then "bad" else "info"
+		)
+		CampaignService.hooks.onSiegeStarted(camp, lord, location.id)
+		camp.dirty = true
+	elseif lord.siegeUntil and camp.data.Day >= lord.siegeUntil then
+		-- the Defend contract you hold for this siege decides it (you fight); else auto-resolve
+		local contract = camp.contract
+		if not (contract and contract.lordId == lord.id) then
+			CampaignService.autoResolveSiege(camp, lord)
+		end
+	end
+end
+
+-- Once a day: garrisons grow back; idle enemy generals ride out to retake your employer's castles
+function CampaignService.castlesDaily(camp: any)
+	for _, location in CampaignConfig.Locations do
+		if location.kind == "Castle" then
+			local value = CampaignService.garrison(camp, location.id)
+			if value < 1 then
+				setGarrison(camp, location.id, value + Capture.GarrisonPerDay)
+			end
+		end
+	end
+	local employer = camp.data.Faction
+	if not employer then
+		return
+	end
+	local besieged = CampaignService.describeSieges(camp)
+	for _, lord in camp.parties do
+		if
+			lord.kind ~= "Lord"
+			or lord.resting
+			or lord.raidTarget
+			or lord.siegeTarget
+			or not CampaignConfig.hostile(lord.faction, employer)
+			or rng:NextNumber() >= Capture.RetakeChancePerDay
+		then
+			continue
+		end
+		local best, bestScore = nil, math.huge
+		for _, location in CampaignService.locationsOwnedBy(camp, employer, "Castle") do
+			local distance = (locationPos(location) - lord.pos).Magnitude
+			if distance <= Capture.RetakeRadius and not besieged[location.id] then
+				-- captured castles first: they were theirs, and their garrison is weak
+				local score = distance - (if camp.data.Captured and camp.data.Captured[location.id] then 1000 else 0)
+				if score < bestScore then
+					best, bestScore = location, score
+				end
+			end
+		end
+		if best then
+			lord.siegeTarget = best.id
+			besieged[best.id] = true
+		end
+	end
 end
 
 -- Once a day: wounded heal (faster at a friendly town/castle), recruits trickle in unless the
@@ -1153,7 +1419,10 @@ function CampaignService.reinforceLords(camp: any, days: number)
 		local home = lord.home and CampaignConfig.getLocation(lord.home)
 		local atHome = false
 		for _, location in CampaignService.locationsOwnedBy(camp, lord.faction) do
-			if (locationPos(location) - lord.pos).Magnitude <= Generals.RestRadius then
+			if
+				location.kind ~= "Village" -- generals rest in towns and castles, not villages
+				and (locationPos(location) - lord.pos).Magnitude <= Generals.RestRadius
+			then
 				atHome = true
 				home = location
 			end
@@ -1246,6 +1515,8 @@ local function advanceTime(camp: any, dtDays: number)
 	payWages(camp, dtDays)
 	if math.floor(data.Day) > before then
 		CampaignService.reinforceLords(camp, 1)
+		CampaignService.villagesDaily(camp)
+		CampaignService.castlesDaily(camp)
 		RecruitmentService.healWounded(camp.player, CampaignService.atFriendly(camp, { "Town", "Castle" }) ~= nil, 1)
 		desertions(camp)
 		RecruitmentService.sendState(camp.player)
@@ -1275,6 +1546,7 @@ local function stepCamp(camp: any, dt: number)
 	if camp.pendingBattle then
 		return
 	end
+	CampaignService.stepRaid(camp, dtDays)
 	if camp.enlisted then
 		local lord = camp.parties[camp.enlisted.partyId]
 		if not lord then
@@ -1619,6 +1891,63 @@ function ACTIONS.AssignCompanion(camp: any, arg: unknown)
 		end
 	end
 	RecruitmentService.sendState(camp.player)
+	camp.dirty = true
+end
+
+-- Raid the hostile village you stand in (takes a little while; moving away cancels it)
+function ACTIONS.RaidVillage(camp: any)
+	local location = camp.atLocation and CampaignConfig.getLocation(camp.atLocation)
+	if not location or location.kind ~= "Village" or camp.raiding then
+		return
+	end
+	local owner = CampaignService.getOwner(camp, location.id)
+	if owner == camp.data.Faction or owner == "Bandits" then
+		CampaignService.notify(camp, "You won't raid your own employer's village.", "bad")
+		return
+	end
+	if CampaignService.prosperity(camp, location.id) < Villages.MinToRaid then
+		CampaignService.notify(camp, location.name .. " has nothing left to take.", "info")
+		return
+	end
+	camp.raiding = { id = location.id, progress = 0 }
+	if camp.timeMode == "Pause" then
+		camp.timeMode = "Play"
+	end
+	CampaignService.notify(camp, "Your men start plundering " .. location.name .. "…", "info")
+	camp.dirty = true
+end
+
+function CampaignService.stepRaid(camp: any, dtDays: number)
+	local raid = camp.raiding
+	if not raid then
+		return
+	end
+	if camp.moving or camp.atLocation ~= raid.id then
+		camp.raiding = nil -- rode off: raid abandoned
+		camp.dirty = true
+		return
+	end
+	raid.progress += dtDays / Villages.RaidDays
+	if raid.progress < 1 then
+		return
+	end
+	camp.raiding = nil
+	local location = CampaignConfig.getLocation(raid.id)
+	local gold = CampaignService.sackVillage(camp, raid.id)
+	camp.data.Gold += gold
+	local loot = ""
+	if rng:NextNumber() < Villages.RaidLootChance then
+		for _, id in CampaignConfig.ItemOrder do
+			local item = CampaignConfig.Items[id]
+			if item.price > 0 and not table.find(camp.data.Items, id) then
+				table.insert(camp.data.Items, id)
+				loot = " and found a " .. item.name
+				break
+			end
+		end
+	end
+	CampaignService.notify(camp, string.format("%s plundered: +%d gold%s.", location.name, gold, loot), "good")
+	CampaignService.hooks.onVillageRaided(camp, raid.id)
 	camp.dirty = true
 end
 

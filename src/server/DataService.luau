@@ -62,6 +62,9 @@ local function defaultCampaign(): any
 		Gear = table.clone(CampaignConfig.StartingGear), -- equipped item ids by slot
 		Items = { "Sabre", "Uniform", "FarmHorse" }, -- owned item ids
 		Companions = {}, -- { { id, woundedUntil } } (roster entries carry `companion = id`)
+		VillageProsperity = {}, -- [villageId] = 0..1 (missing = 1)
+		Garrisons = {}, -- [castleId] = 0..1 garrison strength (missing = 1, a full garrison)
+		Captured = {}, -- [castleId] = true for castles taken for your employer
 	}
 end
 

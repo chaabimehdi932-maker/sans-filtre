@@ -130,6 +130,62 @@ local function buildCastle(location: any)
 	block({ Size = Vector3.new(7, 11, 7), CFrame = CFrame.new(center + Vector3.new(0, 5.5, 0)), Color = STONE })
 end
 
+-- A village: a few cottages among fields
+local function buildVillage(location: any)
+	local center = world(location.x, location.z)
+	for i = 1, 6 do
+		local angle = i / 6 * math.pi * 2 + rng:NextNumber(-0.3, 0.3)
+		house(
+			center + Vector3.new(math.cos(angle) * rng:NextNumber(6, 12), 0, math.sin(angle) * rng:NextNumber(6, 12)),
+			angle
+		)
+	end
+	for i = 1, 4 do
+		local angle = i / 4 * math.pi * 2 + 0.4
+		block({
+			Size = Vector3.new(14, 0.3, 9),
+			CFrame = CFrame.new(center + Vector3.new(math.cos(angle) * 22, 0.1, math.sin(angle) * 22))
+				* CFrame.Angles(0, angle, 0),
+			Color = if i % 2 == 0 then Color3.fromRGB(200, 175, 90) else Color3.fromRGB(120, 150, 70),
+			Material = Enum.Material.Grass,
+		})
+	end
+end
+
+-- The owner's flag over every town, castle and village (recoloured when it changes hands)
+local placeFlags: { [string]: any } = {}
+local function placeFlag(location: any, height: number)
+	local base = world(location.x, location.z)
+	block({
+		Size = Vector3.new(0.5, height, 0.5),
+		CFrame = CFrame.new(base + Vector3.new(3, height / 2, 3)),
+		Color = WOOD,
+	})
+	local cloth = block({
+		Size = Vector3.new(0.2, 4, 6),
+		CFrame = CFrame.new(base + Vector3.new(3, height - 2, 6)),
+		Material = Enum.Material.Fabric,
+	})
+	local emblems = {}
+	for _, face in { Enum.NormalId.Left, Enum.NormalId.Right } do
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = face
+		gui.LightInfluence = 0.3
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 25
+		gui.Parent = cloth
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.Fantasy
+		label.TextScaled = true
+		label.TextColor3 = Color3.fromRGB(255, 225, 150)
+		label.Parent = gui
+		table.insert(emblems, label)
+	end
+	placeFlags[location.id] = { cloth = cloth, emblems = emblems }
+end
+
 local function buildCamp(location: any)
 	local center = world(location.x, location.z)
 	for i = 1, 6 do
@@ -246,8 +302,13 @@ local function generate()
 	for _, location in CampaignConfig.Locations do
 		if location.kind == "Town" then
 			buildTown(location)
+			placeFlag(location, 18)
 		elseif location.kind == "Castle" then
 			buildCastle(location)
+			placeFlag(location, 16)
+		elseif location.kind == "Village" then
+			buildVillage(location)
+			placeFlag(location, 10)
 		else
 			buildCamp(location)
 		end
@@ -538,7 +599,29 @@ local function refreshPlaces()
 		return
 	end
 	for id, entry in labelGuis do
-		entry.setFaction(campaign.owners[id] or entry.location.faction)
+		local owner = campaign.owners[id] or entry.location.faction
+		entry.setFaction(owner)
+		local info = CampaignConfig.Factions[owner]
+		local flag = placeFlags[id]
+		if flag and info then
+			flag.cloth.Color = info.color
+			for _, label in flag.emblems do
+				label.Text = info.emblem or "⚑"
+			end
+		end
+		if entry.location.kind == "Village" then
+			local prosperity = (campaign.villages or {})[id] or 1
+			entry.plate.Text = string.format("  %s · %d%%  ", entry.location.name, math.floor(prosperity * 100 + 0.5))
+			entry.plate.TextColor3 = if prosperity < 0.5
+				then Color3.fromRGB(255, 150, 120)
+				else Color3.fromRGB(245, 235, 215)
+		elseif entry.location.kind == "Castle" then
+			local besieged = campaign.sieges and campaign.sieges[id]
+			entry.plate.Text = if besieged
+				then string.format("  ⚔ %s (besieged)  ", entry.location.name)
+				else string.format("  %s  ", entry.location.name)
+			entry.plate.TextColor3 = if besieged then Color3.fromRGB(255, 150, 120) else Color3.fromRGB(245, 235, 215)
+		end
 	end
 end
 

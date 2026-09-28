@@ -15,6 +15,9 @@
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local GameConfig = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameConfig"))
 
 local MapService = {}
 
@@ -487,6 +490,11 @@ local undoTerrain: { () -> () } = {}
 -- terrain features of the current battlefield (MapService.terrainAt)
 MapService.forests = {} :: { any }
 MapService.waters = {} :: { any }
+-- castle walls and gates (sieges): walls = { a, b (Vector2), length, gaps = { { from, to, gate? } } }
+MapService.walls = {} :: { any }
+MapService.gates = {} :: { any }
+MapService.castleDefender = nil :: string?
+MapService.onGateBroken = function(_gate: any) end -- GameManager announces it
 local STONE = Color3.fromRGB(150, 145, 135)
 
 local function themeFolder(): Folder?
@@ -566,15 +574,74 @@ local function tower(parent: Instance, position: Vector3, height: number, radius
 end
 
 -- A walled line along x at depth z with gaps (breaches / gates) centred on `gaps`
-local function wallWithGaps(parent: Instance, z: number, x0: number, x1: number, gaps: { number }, gapWidth: number)
+local function registerWall(a: Vector3, b: Vector3): any
+	local wall = {
+		a = Vector2.new(a.X, a.Z),
+		b = Vector2.new(b.X, b.Z),
+		length = (Vector2.new(b.X, b.Z) - Vector2.new(a.X, a.Z)).Magnitude,
+		gaps = {},
+	}
+	table.insert(MapService.walls, wall)
+	return wall
+end
+
+-- A wooden gate closing an opening (breaks under battering or shellfire)
+local function gate(parent: Instance, center: Vector3, width: number): any
+	local y = MapService.groundY(center.X, center.Z)
+	local part = newPart(parent, {
+		Name = "Gate",
+		Size = Vector3.new(width, 10, 1.6),
+		CFrame = CFrame.new(center.X, y + 4, center.Z),
+		Color = Color3.fromRGB(105, 70, 40),
+		Material = Enum.Material.WoodPlanks,
+	})
+	for _, dy in { -2.5, 2.5 } do
+		local band = newPart(parent, {
+			Name = "GateBand",
+			Size = Vector3.new(width, 0.5, 1.8),
+			CFrame = CFrame.new(center.X, y + 4 + dy, center.Z),
+			Color = Color3.fromRGB(50, 50, 55),
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+		})
+		band.Parent = part
+	end
+	local record = {
+		part = part,
+		position = Vector3.new(center.X, y, center.Z),
+		width = width,
+		health = GameConfig.Siege.GateHealth,
+		maxHealth = GameConfig.Siege.GateHealth,
+		open = false,
+	}
+	table.insert(MapService.gates, record)
+	return record
+end
+
+local function wallWithGaps(
+	parent: Instance,
+	z: number,
+	x0: number,
+	x1: number,
+	gaps: { number },
+	gapWidth: number,
+	gated: boolean?
+)
 	local cursor = x0
 	table.sort(gaps)
+	local wall = registerWall(Vector3.new(x0, 0, z), Vector3.new(x1, 0, z))
 	for _, gx in gaps do
 		wallSegment(parent, Vector3.new(cursor, 0, z), Vector3.new(gx - gapWidth / 2, 0, z), 12, 4)
 		tower(parent, Vector3.new(gx - gapWidth / 2 - 3, 0, z), 16, 4)
 		tower(parent, Vector3.new(gx + gapWidth / 2 + 3, 0, z), 16, 4)
+		table.insert(wall.gaps, {
+			from = gx - gapWidth / 2 - x0,
+			to = gx + gapWidth / 2 - x0,
+			center = gx - x0,
+			gate = if gated then gate(parent, Vector3.new(gx, 0, z), gapWidth) else nil,
+		})
 		-- rubble in the breach
-		for _ = 1, 4 do
+		for _ = 1, if gated then 0 else 4 do
 			local p = Vector3.new(gx + rng:NextNumber(-gapWidth / 2, gapWidth / 2), 0, z + rng:NextNumber(-4, 4))
 			local y = MapService.groundY(p.X, p.Z)
 			newPart(parent, {
@@ -592,7 +659,41 @@ local function wallWithGaps(parent: Instance, z: number, x0: number, x1: number,
 end
 
 -- Siege: a curtain wall around the objectives, breached on the attackers' side
-local function buildCastle(parent: Instance, defender: string)
+-- A banner on a pole in the colours of the kingdom holding the castle
+local function banner(parent: Instance, position: Vector3, top: number, info: any)
+	local y = MapService.groundY(position.X, position.Z)
+	newPart(parent, {
+		Name = "FlagPole",
+		Size = Vector3.new(0.5, 9, 0.5),
+		CFrame = CFrame.new(position.X, y + top + 4.5, position.Z),
+		Color = Color3.fromRGB(70, 55, 40),
+		Material = Enum.Material.Wood,
+		CanCollide = false,
+	})
+	local cloth = newPart(parent, {
+		Name = "Banner",
+		Size = Vector3.new(6, 4, 0.2),
+		CFrame = CFrame.new(position.X + 3.2, y + top + 6.8, position.Z),
+		Color = info.color,
+		Material = Enum.Material.Fabric,
+		CanCollide = false,
+	})
+	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = face
+		gui.CanvasSize = Vector2.new(120, 80)
+		gui.Parent = cloth
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Text = info.emblem or ""
+		label.TextScaled = true
+		label.TextColor3 = Color3.new(1, 1, 1)
+		label.Parent = gui
+	end
+end
+
+local function buildCastle(parent: Instance, defender: string, flag: any?)
 	local x0, x1 = -185, 185
 	local front, back
 	if defender == "Red" then
@@ -601,12 +702,19 @@ local function buildCastle(parent: Instance, defender: string)
 		front, back = -125, 268 -- they attack from the north (-z)
 	end
 	local attackerWall = front
-	wallWithGaps(parent, attackerWall, x0, x1, { -120, 0, 120 }, 24)
-	wallWithGaps(parent, back, x0, x1, { 0 }, 18)
+	MapService.castleDefender = defender
+	-- every opening is closed by a gate: batter it or shell it open (GameConfig.Siege)
+	wallWithGaps(parent, attackerWall, x0, x1, { -120, 0, 120 }, 24, true)
+	wallWithGaps(parent, back, x0, x1, { 0 }, 18, true)
 	for _, x in { x0, x1 } do
-		wallSegment(parent, Vector3.new(x, 0, math.min(front, back)), Vector3.new(x, 0, math.max(front, back)), 12, 4)
+		local a, b = Vector3.new(x, 0, math.min(front, back)), Vector3.new(x, 0, math.max(front, back))
+		wallSegment(parent, a, b, 12, 4)
+		registerWall(a, b)
 		tower(parent, Vector3.new(x, 0, front), 18, 5)
 		tower(parent, Vector3.new(x, 0, back), 18, 5)
+		if flag then
+			banner(parent, Vector3.new(x, 0, front), 18, flag)
+		end
 	end
 	-- the keep, deep inside
 	local keepZ = if defender == "Red" then -150 else 150
@@ -621,6 +729,9 @@ local function buildCastle(parent: Instance, defender: string)
 	for _, dx in { -17, 17 } do
 		tower(parent, Vector3.new(dx, 0, keepZ - 13), 32, 5)
 		tower(parent, Vector3.new(dx, 0, keepZ + 13), 32, 5)
+	end
+	if flag then
+		banner(parent, Vector3.new(0, 0, keepZ), 26, flag)
 	end
 end
 
@@ -747,10 +858,13 @@ function MapService.setBattlefield(battlefield: any?): boolean
 	end
 	table.clear(MapService.forests)
 	table.clear(MapService.waters)
+	table.clear(MapService.walls)
+	table.clear(MapService.gates)
+	MapService.castleDefender = nil
 	-- no village and no field walls: open terrain (sieges build their own castle)
 	setVillageVisible(false)
 	if theme == "Castle" then
-		buildCastle(folder, battlefield and battlefield.defender or "Red")
+		buildCastle(folder, battlefield and battlefield.defender or "Red", battlefield and battlefield.banner)
 	elseif theme == "Forest" then
 		buildForest(folder)
 	elseif theme == "River" then
@@ -772,6 +886,126 @@ function MapService.setBattlefield(battlefield: any?): boolean
 end
 
 -- What the ground is like at a battlefield position: { forest, water } (placeholder map)
+-- Walls -----------------------------------------------------------------------------
+
+local function cross(a: Vector2, b: Vector2): number
+	return a.X * b.Y - a.Y * b.X
+end
+
+--[[
+	Does a step from `from` to `to` cross a wall? Returns nil when the way is free, else
+	("Gate", gate, wall, along) for a closed gate or ("Wall", nil, wall, along) for solid wall
+	(`along` = distance along the wall where it's crossed).
+]]
+function MapService.crossing(from: Vector3, to: Vector3): (string?, any, any, number)
+	if #MapService.walls == 0 then
+		return nil, nil, nil, 0
+	end
+	local p = Vector2.new(from.X, from.Z)
+	local r = Vector2.new(to.X, to.Z) - p
+	for _, wall in MapService.walls do
+		local s = wall.b - wall.a
+		local denom = cross(r, s)
+		if math.abs(denom) < 1e-9 then
+			continue
+		end
+		local qp = wall.a - p
+		local t = cross(qp, s) / denom
+		local u = cross(qp, r) / denom
+		if t >= 0 and t <= 1 and u >= 0 and u <= 1 then
+			local along = u * wall.length
+			local passable = false
+			for _, gap in wall.gaps do
+				if along >= gap.from and along <= gap.to then
+					if gap.gate and not gap.gate.open then
+						return "Gate", gap.gate, wall, along
+					end
+					passable = true
+				end
+			end
+			if not passable then
+				return "Wall", nil, wall, along
+			end
+		end
+	end
+	return nil, nil, nil, 0
+end
+
+-- Where to walk to get round a wall hit at `along`: in front of its nearest opening (or past
+-- its nearer end if it has none), on the walker's side
+function MapService.detour(wall: any, along: number, from: Vector3): Vector3
+	local s = wall.b - wall.a
+	local direction = s / wall.length
+	local normal = Vector2.new(-direction.Y, direction.X)
+	local side = if cross(s, Vector2.new(from.X, from.Z) - wall.a) >= 0 then 1 else -1
+	local target
+	local best = math.huge
+	for _, gap in wall.gaps do
+		-- open breaches first, then the nearest gate
+		local score = math.abs(gap.center - along) + (if gap.gate and not gap.gate.open then 60 else 0)
+		if score < best then
+			best, target = score, gap.center
+		end
+	end
+	if not target then
+		target = if along < wall.length / 2 then -10 else wall.length + 10
+	end
+	local point = wall.a + direction * target + normal * side * 7
+	return Vector3.new(point.X, MapService.groundY(point.X, point.Y, from.Y), point.Y)
+end
+
+local function breakGate(record: any)
+	record.open = true
+	record.health = 0
+	local part = record.part
+	if part and part.Parent then
+		-- the smashed gate falls flat (no longer blocks anyone)
+		part.CanCollide = false
+		part.CFrame = CFrame.new(record.position + Vector3.new(0, 0.4, 3)) * CFrame.Angles(math.rad(90), 0, 0)
+		part.Color = Color3.fromRGB(70, 50, 35)
+	end
+	MapService.onGateBroken(record)
+end
+
+function MapService.damageGate(record: any, amount: number)
+	if record.open or amount <= 0 then
+		return
+	end
+	record.health -= amount
+	if record.health <= 0 then
+		breakGate(record)
+	end
+end
+
+-- A shell landed: closed gates near the impact take damage (only the attackers' shells)
+function MapService.damageGates(impact: Vector3, splash: number, amount: number, team: string)
+	if team == MapService.castleDefender then
+		return
+	end
+	local reach = splash + GameConfig.Siege.GateSplashPadding
+	for _, record in MapService.gates do
+		local distance = (Vector2.new(record.position.X, record.position.Z) - Vector2.new(impact.X, impact.Z)).Magnitude
+		if not record.open and distance <= reach then
+			MapService.damageGate(record, amount * (1 - 0.5 * distance / reach))
+		end
+	end
+end
+
+-- The nearest closed gate within a gun's range (attackers only), or nil
+function MapService.gateTarget(position: Vector3, team: string, range: number, minRange: number): any
+	if team == MapService.castleDefender then
+		return nil
+	end
+	local best, bestDistance = nil, math.huge
+	for _, record in MapService.gates do
+		local distance = (Vector2.new(record.position.X, record.position.Z) - Vector2.new(position.X, position.Z)).Magnitude
+		if not record.open and distance <= range and distance >= minRange and distance < bestDistance then
+			best, bestDistance = record, distance
+		end
+	end
+	return best
+end
+
 function MapService.terrainAt(position: Vector3): (boolean, boolean)
 	local forest = false
 	for _, wood in MapService.forests do

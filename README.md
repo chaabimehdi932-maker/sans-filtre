@@ -82,11 +82,15 @@ squad for their skill; if they fall they're only wounded for a few days.
    faction patrols travel between their castles; hostile parties chase you and a contact means
    battle. Leaving the roads makes random encounters much more likely.
 3. **Quest board** (your employer's town) — accept or decline freely:
-   - **Raid**: storm an enemy castle (biggest pay, hardest fight). Won castles become your employer's.
+   - **Raid**: storm an enemy castle (biggest pay, hardest fight). A won castle goes to your
+     employer (its banner changes) and pays a capture bonus; you stay a mercenary, you don't own it.
+   - **Raid village**: plunder an enemy village (🔥 RAID VILLAGE while standing in it).
    - **Bounty**: hunt a named bandit warband (its leader fights as a boss squad).
    - **Escort**: the caravan leaves when you join it; bandits ambush it on the way, stay close
      or it's plundered.
-   - **Garrison**: be at one of your castles on the attack day and defend it (or it falls).
+   - **Garrison / Defend**: be at one of your castles on the attack day and defend it (or it falls).
+     When an enemy general besieges one of your employer's castles, a Defend contract for that
+     siege is posted; if nobody defends, the garrison fights alone.
    Success pays gold + reputation; failure (deadline, caravan lost, castle fallen, abandoned)
    costs reputation. Losing a battle outside a contract costs no reputation.
 4. **Battle**: deploy (READY) → fight → summary with the campaign report.
@@ -95,10 +99,16 @@ squad for their skill; if they fall they're only wounded for a few days.
 5. **Town** (🚶 ENTER THE TOWN when you stand in your employer's town): you walk in on foot and
    deal with its people — contracts, recruits, mercenaries, quartermaster, arms merchant, rumours.
    Time is paused while you're in town.
-6. **Reputation** unlocks commanding more squads at once (rank table in `CampaignConfig`).
+6. **Reputation** earns rank titles (`CampaignConfig.Reputation`). You command your whole army.
 7. **Squad evolution**: each squad earns XP (kills, survival, victories). Every ★ is an evolution
    tier: more HP, damage and morale, and better kit (chevrons → gold epaulettes, brass musket and
    long bayonet / polished sabre → gold facings and tall plume). Casualties never reset the tier.
+8. **Wounded vs dead**: most of the fallen are only wounded (fewer if the squad routed or was
+   overrun). They heal over the days, faster in a friendly town or castle. AI generals too.
+9. **Villages**: raiding one gives gold (and maybe loot) and drops its prosperity, which cuts its
+   kingdom's recruits until it slowly recovers. AI generals raid your employer's villages too.
+10. **Castles**: every castle and town flies its owner's banner, on the map and in siege battles.
+    Captured castles start with a weak garrison that grows daily; enemy generals try to retake them.
 
 Commander level/XP, unlocks and the whole campaign (faction, gold, reputation, day, castle
 owners, roster with each squad's XP and headcount) are saved. ☰ → New campaign starts over.
@@ -114,7 +124,11 @@ each runs their own campaign and battles take turns on the one battlefield.
   (capped by `Rendering.MaxRagdolls`, scripted fall beyond it), galloping cavalry with sabres,
   recoiling cannons.
 - **Army size**: weaker, cheaper units field more men (Line 20, Skirmishers 14, Cavalry 10,
-  Guard 12, Artillery 4 crew). Armies are mostly line infantry; artillery is always the rarest.
+  Guard 12, Artillery / Howitzer 4 crew). Armies are mostly line infantry; artillery is always the rarest.
+- **Howitzer**: siege gun. High-arc shells, longest range, big blast, very slow reload, very
+  fragile. It prefers castle gates to troops and breaks them fast.
+- **Sieges**: castle walls block movement and every opening has a gate. Attackers stuck at a gate
+  batter it; cannon and howitzer shells damage gates near the impact. A broken gate is a breach.
 - **Formations**: Line (firepower, weak flanks), Column (fast, fragile), Square (stops cavalry,
   weak against cannons). Changing formation takes 3 s, during which the squad is vulnerable.
 - **Morale**: drops from casualties, flanking, charges and isolation. At 0 the squad routs, flees
@@ -135,7 +149,7 @@ ServerScriptService/                    (src/server)
   CampaignService                       overworld per player: travel, days, parties, encounters, battles
   QuestService                          quest board, Raid / Bounty / Escort / Garrison contracts
   TownService                           the walkable town and its people (ProximityPrompts)
-  ReputationService                     reputation per faction → max squads commanded
+  ReputationService                     reputation per faction → rank titles
   SquadService                          squads, movement/pathfinding, combat, morale, visuals
   EnemyAIController                     enemy squad AI
   SquadController                       one decision path per squad: player orders OR AI

@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.13"
+GameConfig.Version = "0.14"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -110,6 +110,15 @@ GameConfig.Morale = {
 	RoutSafeDistance = 15, -- …or when they reach their spawn
 	RoutSpeedMult = 1.2,
 	RegroupTime = 3,
+}
+
+-- Castle sieges: the castle's openings are closed by gates. Squads can't walk through walls or
+-- closed gates; attackers batter a gate they're stuck at, and cannon / howitzer shells damage
+-- gates near their impact. A broken gate is an open breach.
+GameConfig.Siege = {
+	GateHealth = 2400, -- PLACEHOLDER
+	BatterMult = 0.5, -- PLACEHOLDER: × melee damage per melee swing when a squad batters a gate
+	GateSplashPadding = 12, -- a shell within splash radius + this of a gate damages it
 }
 
 GameConfig.Combat = {

@@ -108,6 +108,17 @@ CampaignConfig.Locations = {
 	{ id = "Eisenwald", name = "Castle Eisenwald", kind = "Castle", faction = "Borussia", x = 340, z = 300 },
 	{ id = "Falkenhorst", name = "Castle Falkenhorst", kind = "Castle", faction = "Borussia", x = 670, z = 310 },
 
+	-- villages feed their faction's recruits; they can be raided
+	{ id = "Belleville", name = "Belleville", kind = "Village", faction = "Francia", x = 270, z = 700 },
+	{ id = "SaintAubin", name = "Saint-Aubin", kind = "Village", faction = "Francia", x = 300, z = 555 },
+	{ id = "Clairvaux", name = "Clairvaux", kind = "Village", faction = "Francia", x = 90, z = 655 },
+	{ id = "Hartfield", name = "Hartfield", kind = "Village", faction = "Albion", x = 720, z = 730 },
+	{ id = "Brookmere", name = "Brookmere", kind = "Village", faction = "Albion", x = 820, z = 660 },
+	{ id = "Whitmoor", name = "Whitmoor", kind = "Village", faction = "Albion", x = 760, z = 555 },
+	{ id = "Rosenthal", name = "Rosenthal", kind = "Village", faction = "Borussia", x = 395, z = 250 },
+	{ id = "Lindenau", name = "Lindenau", kind = "Village", faction = "Borussia", x = 590, z = 230 },
+	{ id = "Altdorf", name = "Altdorf", kind = "Village", faction = "Borussia", x = 410, z = 125 },
+
 	{ id = "WolfDen", name = "Wolf's Den", kind = "BanditCamp", faction = "Bandits", x = 500, z = 520 },
 	{ id = "RavenHollow", name = "Raven Hollow", kind = "BanditCamp", faction = "Bandits", x = 180, z = 330 },
 	{ id = "SmugglersCove", name = "Smugglers' Cove", kind = "BanditCamp", faction = "Bandits", x = 830, z = 390 },
@@ -372,6 +383,38 @@ CampaignConfig.Wages = {
 	DesertAfterDays = 3, -- PLACEHOLDER: after this many unpaid days, a squad deserts each day
 }
 
+-- Villages: raid a hostile village for gold and loot; it loses prosperity, which cuts its
+-- faction's recruits until it recovers. AI generals raid your employer's villages too.
+CampaignConfig.Villages = {
+	RaidDays = 0.5, -- PLACEHOLDER: how long a raid takes (you stay put; moving away cancels it)
+	RaidGold = 220, -- PLACEHOLDER: × the village's prosperity
+	RaidLootChance = 0.25, -- PLACEHOLDER: chance to find a piece of gear
+	ProsperityLoss = 0.6, -- PLACEHOLDER: prosperity lost per raid (0-1 scale)
+	MinToRaid = 0.3, -- below this there is nothing left to take
+	RecoveryPerDay = 0.06, -- PLACEHOLDER: prosperity regained per day
+	AIRaidChancePerDay = 0.25, -- PLACEHOLDER: an idle general's chance per day to go raiding
+	AIRaidRadius = 260, -- how far a general will ride to raid
+}
+
+--[[
+	Castle capture: a won Raid hands the castle to your employer (its banner changes). You stay
+	a mercenary: the payout is a bonus, not ownership. A captured castle starts with a weak
+	garrison that grows each day; enemy generals ride out to retake your employer's castles
+	(captured ones first). A siege posts a Defend contract; if nobody defends, the garrison
+	fights alone (auto-resolved).
+]]
+CampaignConfig.Capture = {
+	BonusGold = 400, -- PLACEHOLDER: capture bonus on top of the Raid contract's pay
+	BonusReputation = 15, -- PLACEHOLDER
+	GarrisonStart = 0.25, -- PLACEHOLDER: garrison of a freshly taken castle (1 = full)
+	GarrisonPerDay = 0.08, -- PLACEHOLDER: garrison growth per day
+	GarrisonPower = 6, -- PLACEHOLDER: a full garrison is worth this much army strength when auto-resolving
+	RetakeChancePerDay = 0.15, -- PLACEHOLDER: an idle hostile general's chance per day to besiege
+	RetakeRadius = 320, -- how far a general will ride to besiege
+	SiegeDays = 3, -- PLACEHOLDER: days between the siege starting and the assault
+	LordLossOnRepulse = 0.35, -- PLACEHOLDER: share of the besieger's strength lost when beaten back
+}
+
 -- Wounded vs dead: most soldiers who fall are only wounded. They stay on the roster, the squad
 -- fights under strength until they heal (faster in a friendly town or castle).
 CampaignConfig.Wounds = {
@@ -615,6 +658,14 @@ CampaignConfig.Contracts = {
 			escortRadius = 60, -- PLACEHOLDER: you must be this close to intercept an ambush
 			ambushes = 2, -- PLACEHOLDER: ambushes along the route
 		},
+		RaidVillage = {
+			displayName = "Raid village",
+			icon = "🔥",
+			gold = 250, -- PLACEHOLDER (plus what you plunder)
+			reputation = 12, -- PLACEHOLDER
+			failReputation = 8, -- PLACEHOLDER
+			deadlineDays = 8, -- PLACEHOLDER
+		},
 		Garrison = {
 			displayName = "Garrison",
 			icon = "🏰",
@@ -626,7 +677,7 @@ CampaignConfig.Contracts = {
 		},
 	},
 	-- Chance weights when the board generates a contract
-	Weights = { Raid = 3, Bounty = 3, Escort = 2, Garrison = 2 }, -- PLACEHOLDER
+	Weights = { Raid = 3, Bounty = 3, Escort = 2, Garrison = 2, RaidVillage = 2 }, -- PLACEHOLDER
 	BountyNames = {
 		"Le Loup's Brigands",
 		"Black Jack's Raiders",

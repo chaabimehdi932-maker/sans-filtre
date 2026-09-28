@@ -1331,6 +1331,26 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			send("Assault")
 		end
 	)
+	local placeRaid = button(
+		{ LayoutOrder = 5, Size = UDim2.fromOffset(300, 56), TextSize = 19, Parent = placeButtons },
+		"🔥 RAID VILLAGE",
+		Color3.fromRGB(200, 90, 40),
+		function()
+			send("RaidVillage")
+		end
+	)
+	local raidProgress = outlined({
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 130),
+		Size = UDim2.fromOffset(420, 32),
+		BackgroundColor3 = BLACK,
+		BackgroundTransparency = 0.3,
+		Text = "",
+		TextSize = 17,
+		Visible = false,
+		Parent = root,
+	}, 1.5)
+	Theme.corner(raidProgress, 8)
 
 	-- time controls (bottom centre) ------------------------------------------------------
 	local timeBar = panel({
@@ -2040,11 +2060,29 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 				if here.kind == "BanditCamp" then "Bandit camp" else here.kind,
 				if ownerInfo then ownerInfo.short else owner
 			)
+			if here.kind == "Castle" then
+				local garrison = campaign.garrisons and campaign.garrisons[here.id] or 1
+				placeTitle.Text ..= string.format(
+					'  <font size="16">🛡 garrison %d%%</font>',
+					math.floor(garrison * 100 + 0.5)
+				)
+				local siege = campaign.sieges and campaign.sieges[here.id]
+				if siege then
+					placeTitle.Text ..= string.format(
+						'  <font size="16" color="#FF8070">⚔ besieged by %s — assault on day %d</font>',
+						siege.lordName,
+						math.floor(siege.assaultDay) + 1
+					)
+				end
+			end
 			enterButton.Visible = friendly and here.kind == "Town"
 			boardButton.Visible = false -- done by talking to people in town now
 			hireButton.Visible = false
 			replenishButton.Visible = friendly and here.kind == "Castle"
 			placeAssault.Visible = contract ~= nil and contract.canAssault == true
+			local prosperity = campaign.villages and campaign.villages[here.id] or 1
+			placeRaid.Visible = here.kind == "Village" and not friendly and owner ~= "Bandits"
+			setButtonText(placeRaid, string.format("🔥 RAID VILLAGE (%d%%)", math.floor(prosperity * 100 + 0.5)))
 		end
 		queueNotice.Visible = campaign.queued == true
 		setButtonText(
@@ -2076,6 +2114,16 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			return
 		end
 		dayLabel.Text = string.format("📅 Day %d", math.floor(world.day) + 1)
+		local raid = world.raiding
+		raidProgress.Visible = raid ~= nil
+		if raid then
+			local location = CampaignConfig.getLocation(raid.id)
+			raidProgress.Text = string.format(
+				"🔥 Plundering %s… %d%%  (move away to stop)",
+				location and location.name or "",
+				math.floor(math.clamp(raid.progress, 0, 1) * 100)
+			)
+		end
 		refreshEnlist()
 		local seasons = { "Spring", "Summer", "Autumn", "Winter" }
 		local day = math.floor(world.day)

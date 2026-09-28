@@ -254,7 +254,7 @@ local function createRender(s: any, shown: number): any
 	r.dust = dust
 
 	if def.visual == "Artillery" then
-		r.cannon = SoldierModels.cannon(model)
+		r.cannon = SoldierModels.cannon(model, def.gunModel)
 	end
 	if s.commander ~= false then
 		r.officer = newOfficer(r)

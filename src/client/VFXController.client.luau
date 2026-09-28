@@ -138,7 +138,10 @@ function handlers.Cannon(data)
 	ball.Color = Color3.fromRGB(30, 30, 30)
 	ball.Material = Enum.Material.Metal
 	ball.Parent = effectsFolder
-	local arcHeight = math.clamp((to - from).Magnitude * 0.15, 5, 40)
+	-- howitzer shells go up high and come down steeply
+	local arcHeight = if data.arc
+		then math.clamp((to - from).Magnitude * 0.45, 25, 140)
+		else math.clamp((to - from).Magnitude * 0.15, 5, 40)
 	local started = os.clock()
 	local connection
 	connection = RunService.RenderStepped:Connect(function()

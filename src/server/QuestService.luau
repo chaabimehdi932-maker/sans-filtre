@@ -150,6 +150,39 @@ function GENERATORS.Escort(camp: any): any
 	})
 end
 
+function GENERATORS.RaidVillage(camp: any): any
+	local employer = CampaignService.employer(camp)
+	local targets = {}
+	for _, location in CampaignConfig.Locations do
+		local owner = CampaignService.getOwner(camp, location.id)
+		if
+			location.kind == "Village"
+			and owner ~= employer
+			and owner ~= "Bandits"
+			and CampaignService.prosperity(camp, location.id) >= 0.6
+		then
+			table.insert(targets, location)
+		end
+	end
+	local target = pick(targets)
+	if not target then
+		return nil
+	end
+	local owner = CampaignService.getOwner(camp, target.id)
+	return newContract("RaidVillage", {
+		title = "Raid " .. target.name,
+		description = string.format(
+			"Burn %s's granaries: raiding %s cuts their recruits for weeks. Keep what you plunder.",
+			CampaignConfig.Factions[owner].short,
+			target.name
+		),
+		targetLocation = target.id,
+		enemyFaction = owner,
+		strength = 1,
+		days = Types.RaidVillage.deadlineDays,
+	})
+end
+
 function GENERATORS.Garrison(camp: any): any
 	local target = pick(CampaignService.locationsOwnedBy(camp, CampaignService.employer(camp), "Castle"))
 	if not target then
@@ -194,7 +227,14 @@ local function generateContract(camp: any): any
 end
 
 local function refreshBoard(camp: any)
-	camp.board = {}
+	-- Defend contracts for sieges in progress stay up until the siege ends
+	local keep = {}
+	for _, contract in camp.board or {} do
+		if contract.lordId and camp.parties[contract.lordId] then
+			table.insert(keep, contract)
+		end
+	end
+	camp.board = keep
 	for _ = 1, Contracts.BoardSize do
 		local contract = generateContract(camp)
 		if contract then
@@ -354,7 +394,7 @@ CampaignService.actions.AcceptContract = function(camp: any, id: unknown)
 	end
 	table.remove(camp.board, index)
 	camp.contract = contract
-	contract.deadlineDay = camp.data.Day + contract.days
+	contract.deadlineDay = contract.assaultDay or (camp.data.Day + contract.days)
 	if contract.type == "Bounty" then
 		startBounty(camp, contract)
 	elseif contract.type == "Escort" then
@@ -391,19 +431,27 @@ CampaignService.actions.Assault = function(camp: any)
 	end
 	CampaignService.startBattle(camp, {
 		kind = "Raid",
+		castleId = location.id,
 		title = "Raid — " .. location.name,
 		enemyFaction = CampaignService.getOwner(camp, location.id),
 		strength = contract.strength,
 		side = "Attacker",
 		allies = allies,
 		onVictory = function(c: any)
-			CampaignService.setOwner(c, location.id, CampaignService.employer(c))
+			-- the castle goes to your employer (you stay a mercenary: a bonus, not the castle)
+			CampaignService.captureCastle(c, location.id, CampaignService.employer(c))
+			local Capture = CampaignConfig.Capture
+			c.data.Gold += Capture.BonusGold
+			ReputationService.add(c.player, Capture.BonusReputation)
 			report(
 				c,
-				location.name
-					.. " now flies the "
-					.. CampaignConfig.Factions[CampaignService.employer(c)].short
-					.. " flag."
+				string.format(
+					'%s now flies the %s flag. <font color="#FFCD28"><b>Capture bonus: +%d gold, +%d reputation.</b></font> Its garrison is weak: expect them to try to take it back.',
+					location.name,
+					CampaignConfig.Factions[CampaignService.employer(c)].short,
+					Capture.BonusGold,
+					Capture.BonusReputation
+				)
 			)
 			succeed(c, contract)
 		end,
@@ -424,21 +472,71 @@ local function garrisonBattle(camp: any, contract: any)
 		table.insert(allies, "LineInfantry")
 	end
 	contract.fought = true
+	-- a real siege: you face the besieging general's army; its outcome ends his siege
+	local lord = contract.lordId and camp.parties[contract.lordId]
 	CampaignService.startBattle(camp, {
 		kind = "Garrison",
-		title = "Defence of " .. location.name,
+		castleId = location.id,
+		title = "Defence of " .. location.name .. (if lord then " against " .. lord.lordName else ""),
 		enemyFaction = contract.enemyFaction,
-		strength = contract.strength,
+		strength = if lord then math.max(1, math.floor(lord.strength + 0.5)) else contract.strength,
 		side = "Defender",
 		allies = allies,
 		onVictory = function(c: any)
 			succeed(c, contract)
+			if lord and c.parties[lord.id] then
+				CampaignService.endSiege(c, lord, false)
+			end
 		end,
 		onDefeat = function(c: any)
-			castleFalls(c, contract)
 			fail(c, contract, "the castle fell")
+			if lord and c.parties[lord.id] then
+				CampaignService.endSiege(c, lord, true)
+			else
+				castleFalls(c, contract)
+			end
 		end,
 	})
+end
+
+-- A general started a siege: post a Defend contract for it (the assault day is fixed)
+CampaignService.hooks.onSiegeStarted = function(camp: any, lord: any, castleId: string)
+	local location = CampaignConfig.getLocation(castleId)
+	if CampaignService.getOwner(camp, castleId) ~= CampaignService.employer(camp) then
+		return
+	end
+	local contract = newContract("Garrison", {
+		title = "Defend " .. location.name,
+		description = string.format(
+			"%s besieges %s and will assault on day %d. Be there (within %d) to hold the walls.",
+			lord.lordName,
+			location.name,
+			math.floor(lord.siegeUntil) + 1,
+			Types.Garrison.stationRadius
+		),
+		targetLocation = castleId,
+		enemyFaction = lord.faction,
+		strength = math.max(1, math.floor(lord.strength + 0.5)),
+		days = math.max(1, math.ceil(lord.siegeUntil - camp.data.Day)),
+		assaultDay = lord.siegeUntil,
+		lordId = lord.id,
+	})
+	table.insert(camp.board, 1, contract)
+	CampaignService.markDirty(camp)
+end
+
+-- The siege ended (castle held, fell, or the besieger left): drop its contract
+CampaignService.hooks.onSiegeEnded = function(camp: any, lord: any)
+	for index = #camp.board, 1, -1 do
+		if camp.board[index].lordId == lord.id then
+			table.remove(camp.board, index)
+		end
+	end
+	local contract = camp.contract
+	if contract and contract.lordId == lord.id and not contract.fought then
+		succeed(camp, contract) -- the besiegers left before the assault
+	end
+	CampaignService.markDirty(camp)
 end
 
 local function updateEscort(camp: any, contract: any)
@@ -489,8 +587,15 @@ CampaignService.hooks.onTime = function(camp: any)
 	if contract.type == "Garrison" then
 		if not contract.fought and day >= contract.deadlineDay then
 			local location = CampaignConfig.getLocation(contract.targetLocation)
-			if (locationPos(location) - camp.pos).Magnitude <= Types.Garrison.stationRadius then
+			local lord = contract.lordId and camp.parties[contract.lordId]
+			if contract.lordId and not lord then
+				succeed(camp, contract) -- the besieging army is gone
+			elseif (locationPos(location) - camp.pos).Magnitude <= Types.Garrison.stationRadius then
 				garrisonBattle(camp, contract)
+			elseif lord then
+				contract.fought = true
+				fail(camp, contract, "you were not there when it was attacked")
+				CampaignService.autoResolveSiege(camp, lord) -- the garrison fights alone
 			else
 				castleFalls(camp, contract)
 				fail(camp, contract, "you were not there when it was attacked")
@@ -567,6 +672,13 @@ CampaignService.hooks.onPartyContact = function(camp: any, ambush: any, caravan:
 	end
 end
 
+CampaignService.hooks.onVillageRaided = function(camp: any, villageId: string)
+	local contract = camp.contract
+	if contract and contract.type == "RaidVillage" and contract.targetLocation == villageId then
+		succeed(camp, contract)
+	end
+end
+
 CampaignService.hooks.onPartyDefeated = function(camp: any, party: any)
 	local contract = camp.contract
 	if contract and party.kind == "Bounty" and contract.partyId == party.id then
@@ -616,6 +728,8 @@ local function describeContract(camp: any, contract: any, active: boolean): any
 			)
 			out.daysLeft = nil
 		end
+	elseif contract.type == "RaidVillage" then
+		out.status = "Ride to " .. CampaignConfig.getLocation(contract.targetLocation).name .. " and raid it"
 	elseif contract.type == "Garrison" then
 		out.status = string.format(
 			"Attack on %s in %.1f days — be there",

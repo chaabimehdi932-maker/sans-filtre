@@ -39,7 +39,7 @@
 local UnitDefinitions = {}
 
 -- Display order in the recruitment shop
-UnitDefinitions.Order = { "LineInfantry", "Skirmishers", "Cavalry", "Artillery", "EliteGuard" }
+UnitDefinitions.Order = { "LineInfantry", "Skirmishers", "Cavalry", "Artillery", "Howitzer", "EliteGuard" }
 
 -- Bandit armies are made of these (never offered to the player)
 UnitDefinitions.BanditOrder = { "BanditSwordsmen", "BanditGunners" }
@@ -157,6 +157,44 @@ UnitDefinitions.Units = {
 		canMoveAndFire = false,
 		spacingMult = 1.6,
 		visual = "Artillery",
+		hatColor = Color3.fromRGB(45, 45, 70),
+		hatHeight = 0.6,
+	},
+
+	-- Siege gun: lobs shells in a high arc over walls and troops. Longer range, bigger blast,
+	-- very slow to reload and very fragile. In castle raids it shells the gates open.
+	Howitzer = {
+		id = "Howitzer",
+		displayName = "Howitzer",
+		icon = "🎯",
+		tier = 3,
+		description = "Siege gun: high-arc shells, longest range, big blast. Breaks castle gates. Very slow to reload, very fragile.",
+		attackType = "Artillery",
+		health = 160, -- PLACEHOLDER (artillery 300)
+		moveSpeed = 4, -- PLACEHOLDER (artillery 5)
+		damage = 150, -- PLACEHOLDER (artillery 170)
+		attackRange = 360, -- PLACEHOLDER (artillery 270)
+		minRange = 60, -- PLACEHOLDER: too close for a high arc
+		attackCooldown = 16, -- PLACEHOLDER (artillery 9)
+		splashRadius = 26, -- PLACEHOLDER (artillery 16)
+		meleeDamage = 4, -- PLACEHOLDER
+		meleeRange = 4,
+		meleeCooldown = 2,
+		chargeMultiplier = 1,
+		cost = 320, -- PLACEHOLDER (artillery 200)
+		morale = 45, -- PLACEHOLDER
+		soldiers = 4,
+		presenceWeight = 0.4,
+		formations = { "Line" },
+		canMoveAndFire = false,
+		spacingMult = 1.6,
+		visual = "Artillery",
+		gunModel = "Howitzer", -- short, fat barrel cocked up high (SoldierModels.cannon)
+		arc = true, -- high, slow shell flight
+		shellSpeedMult = 0.55,
+		scatterMult = 1.4, -- PLACEHOLDER: less precise than a cannon
+		siegeGun = true, -- prefers castle gates over troops
+		wallDamageMult = 4, -- PLACEHOLDER: × damage against gates (artillery 1)
 		hatColor = Color3.fromRGB(45, 45, 70),
 		hatHeight = 0.6,
 	},

@@ -618,7 +618,9 @@ end
 
 -- Field gun drawn in front of an artillery squad (root = axle at wheel-centre height)
 SoldierModels.CANNON_AXLE_HEIGHT = 1.8
-function SoldierModels.cannon(parent: Instance): any
+-- variant "Howitzer": a short, fat barrel cocked up high (siege gun)
+function SoldierModels.cannon(parent: Instance, variant: string?): any
+	local howitzer = variant == "Howitzer"
 	local rig = newRig(parent, "Cannon", Vector3.new(0.5, 0.5, 0.5), nil)
 	local root = rig.root
 	attach(root, part(rig, "Carriage", Vector3.new(1.4, 0.8, 4), WOOD, Enum.Material.Wood), CFrame.new(0, 0.1, 0.4))
@@ -639,18 +641,37 @@ function SoldierModels.cannon(parent: Instance): any
 			CFrame.new(x, 0, 0)
 		)
 	end
-	local barrel = part(rig, "Barrel", Vector3.new(5.4, 1.05, 1.05), IRON, Enum.Material.Metal, Enum.PartType.Cylinder)
-	motor(rig, "barrel", root, barrel, CFrame.new(0, 0.85, -0.6), ALONG_Z:Inverse())
+	local length = if howitzer then 3.2 else 5.4
+	local bore = if howitzer then 1.7 else 1.05
+	local barrel =
+		part(rig, "Barrel", Vector3.new(length, bore, bore), IRON, Enum.Material.Metal, Enum.PartType.Cylinder)
+	-- a howitzer's barrel points up at ~40°
+	local elevation = if howitzer then CFrame.Angles(math.rad(40), 0, 0) else CFrame.identity
+	motor(
+		rig,
+		"barrel",
+		root,
+		barrel,
+		CFrame.new(0, if howitzer then 1.2 else 0.85, -0.6) * elevation,
+		ALONG_Z:Inverse()
+	)
 	attach(
 		barrel,
-		part(rig, "Breech", Vector3.new(0.8, 1.35, 1.35), IRON, Enum.Material.Metal, Enum.PartType.Cylinder),
-		CFrame.new(-2.6, 0, 0)
+		part(rig, "Breech", Vector3.new(0.8, bore + 0.3, bore + 0.3), IRON, Enum.Material.Metal, Enum.PartType.Cylinder),
+		CFrame.new(-length / 2 + 0.1, 0, 0)
 	)
 	-- the barrel's +X points forward
 	attach(
 		barrel,
-		part(rig, "Muzzle", Vector3.new(0.4, 1.3, 1.3), BRASS, Enum.Material.Metal, Enum.PartType.Cylinder),
-		CFrame.new(2.6, 0, 0)
+		part(
+			rig,
+			"Muzzle",
+			Vector3.new(0.4, bore + 0.25, bore + 0.25),
+			BRASS,
+			Enum.Material.Metal,
+			Enum.PartType.Cylinder
+		),
+		CFrame.new(length / 2 - 0.2, 0, 0)
 	)
 	return rig
 end

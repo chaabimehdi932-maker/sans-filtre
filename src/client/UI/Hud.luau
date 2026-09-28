@@ -400,8 +400,14 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 
 	---------------------------------------------------------------- top left: your army (all your squads)
 	-- gold = under your direct command. Click: command only it · Shift+click: add / remove
-	local SHORT =
-		{ LineInfantry = "LINE", Skirmishers = "SKIRM", Cavalry = "CAV", Artillery = "GUNS", EliteGuard = "GUARD" }
+	local SHORT = {
+		LineInfantry = "LINE",
+		Skirmishers = "SKIRM",
+		Cavalry = "CAV",
+		Artillery = "GUNS",
+		Howitzer = "HOWZ",
+		EliteGuard = "GUARD",
+	}
 	local armyTitle = outlined({
 		Size = UDim2.new(1, 0, 0, 20),
 		Text = "YOUR ARMY",
