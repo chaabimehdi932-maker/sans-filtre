@@ -68,7 +68,11 @@ function RecruitmentService.wageFor(entry: any): number
 	local def = UnitDefinitions.get(entry.unitId)
 	local stars = CampaignConfig.tierForXP(entry.xp)
 	local wages = CampaignConfig.Wages
-	return (def.cost or 100) * wages.CostFraction * (1 + stars * wages.PerStar) * (entry.soldiers / def.soldiers)
+	-- the wounded are paid too
+	return (def.cost or 100)
+		* wages.CostFraction
+		* (1 + stars * wages.PerStar)
+		* ((entry.soldiers + (entry.wounded or 0)) / def.soldiers)
 end
 
 function RecruitmentService.totalWages(player: Player): number
@@ -99,6 +103,7 @@ function RecruitmentService.chooseBranch(player: Player, squadId: number, unitId
 			local old, new = UnitDefinitions.get(entry.unitId), UnitDefinitions.get(unitId)
 			entry.unitId = unitId
 			entry.soldiers = math.max(1, math.floor(entry.soldiers / old.soldiers * new.soldiers + 0.5))
+			entry.wounded = math.floor((entry.wounded or 0) / old.soldiers * new.soldiers + 0.5)
 			RecruitmentService.sendState(player)
 			return true, string.format("The %s become %s!", old.displayName, new.displayName)
 		end
@@ -140,6 +145,7 @@ function RecruitmentService.sendState(player: Player)
 			stars = stars,
 			nextXP = nextTierXP(stars),
 			soldiers = entry.soldiers,
+			wounded = entry.wounded or 0,
 			maxSoldiers = def.soldiers,
 		})
 	end
@@ -249,7 +255,7 @@ function RecruitmentService.replenishCost(player: Player): number
 	local total = 0
 	for _, entry in roster(player) do
 		local def = UnitDefinitions.get(entry.unitId)
-		total += math.max(0, def.soldiers - entry.soldiers) * soldierCost(entry.unitId)
+		total += math.max(0, def.soldiers - entry.soldiers - (entry.wounded or 0)) * soldierCost(entry.unitId)
 	end
 	return math.ceil(total)
 end
@@ -264,7 +270,8 @@ function RecruitmentService.replenish(player: Player): (number, number)
 	for _, entry in campaign.Roster do
 		local def = UnitDefinitions.get(entry.unitId)
 		local price = soldierCost(entry.unitId)
-		while entry.soldiers < def.soldiers and campaign.Gold - spent >= price do
+		-- only the missing (dead) are replaced: the wounded will come back
+		while entry.soldiers + (entry.wounded or 0) < def.soldiers and campaign.Gold - spent >= price do
 			entry.soldiers += 1
 			spent += price
 			added += 1
@@ -342,6 +349,21 @@ end)
 
 -- The companion leading a roster squad, if he is fit to lead
 local Companions = CampaignConfig.Companions
+local Wounds = CampaignConfig.Wounds
+
+-- Once a day: wounded soldiers get back on their feet (faster resting in a friendly place)
+function RecruitmentService.healWounded(player: Player, resting: boolean, days: number)
+	for _, entry in roster(player) do
+		local wounded = entry.wounded or 0
+		if wounded > 0 then
+			local rate = if resting then Wounds.HealPerDayTown else Wounds.HealPerDayRoad
+			local healed = math.min(wounded, math.max(1, math.floor(wounded * rate * days + 0.5)))
+			entry.wounded = wounded - healed
+			entry.soldiers += healed
+		end
+	end
+	sendState(player)
+end
 function RecruitmentService.companionOf(player: Player, entry: any): any
 	local campaign = DataService.getCampaign(player)
 	if not campaign or not entry.companion then
@@ -513,7 +535,7 @@ end
 ]]
 function RecruitmentService.afterBattle(player: Player, victory: boolean): any
 	local session = sessions[player]
-	local report = { lost = {}, evolved = {}, wounded = {}, survivors = 0 }
+	local report = { lost = {}, evolved = {}, wounded = {}, casualties = {}, survivors = 0 }
 	if not session then
 		return report
 	end
@@ -543,11 +565,18 @@ function RecruitmentService.afterBattle(player: Player, victory: boolean): any
 				continue
 			end
 		else
+			-- the fallen: most are only wounded (fewer if the squad was fleeing at the end)
 			local skill = Companions.Skills[squad.companionSkill or ""]
-			local dead = entry.soldiers - squad.soldierCount
-			local recovered = if skill and skill.recover and dead > 0 then math.floor(dead * skill.recover) else 0
-			entry.soldiers = math.max(1, squad.soldierCount + recovered)
+			local fallen = math.max(0, entry.soldiers - squad.soldierCount)
+			local share = if squad.routing then Wounds.RoutedShare else Wounds.WoundedShare
+			share = math.min(1, share + (if skill and skill.woundedBonus then skill.woundedBonus else 0))
+			local wounded = math.floor(fallen * share + 0.5)
+			entry.soldiers = math.max(1, squad.soldierCount)
+			entry.wounded = (entry.wounded or 0) + wounded
 			report.survivors += 1
+			if fallen > 0 then
+				table.insert(report.casualties, { name = name, wounded = wounded, dead = fallen - wounded })
+			end
 		end
 		local before = CampaignConfig.tierForXP(entry.xp)
 		local gained = squad.stats.kills * Evolution.XPPerKill

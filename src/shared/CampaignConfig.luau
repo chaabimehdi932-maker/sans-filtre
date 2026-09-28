@@ -372,6 +372,15 @@ CampaignConfig.Wages = {
 	DesertAfterDays = 3, -- PLACEHOLDER: after this many unpaid days, a squad deserts each day
 }
 
+-- Wounded vs dead: most soldiers who fall are only wounded. They stay on the roster, the squad
+-- fights under strength until they heal (faster in a friendly town or castle).
+CampaignConfig.Wounds = {
+	WoundedShare = 0.7, -- PLACEHOLDER: share of the fallen who are only wounded
+	RoutedShare = 0.45, -- PLACEHOLDER: … when the squad was routing at the end (men left behind)
+	HealPerDayRoad = 0.15, -- PLACEHOLDER: share of the wounded back on their feet per day (at least 1)
+	HealPerDayTown = 0.4, -- PLACEHOLDER: … resting in a friendly town or castle
+}
+
 -- Prisoners: enemies who fled (routed, not killed) are captured when you win
 CampaignConfig.Prisoners = {
 	Capacity = 25, -- PLACEHOLDER: prisoners you can drag along
@@ -490,7 +499,7 @@ CampaignConfig.Companions = {
 		Marksman = { text = "+15 % musket precision", accuracyMult = 1.15 }, -- PLACEHOLDER
 		Drillmaster = { text = "+50 % squad XP", xpMult = 1.5 }, -- PLACEHOLDER
 		Cavalier = { text = "+15 % squad speed", speedMult = 1.15 }, -- PLACEHOLDER
-		Surgeon = { text = "25 % of the squad's dead recover after battle", recover = 0.25 }, -- PLACEHOLDER
+		Surgeon = { text = "+15 % of the squad's fallen are only wounded", woundedBonus = 0.15 }, -- PLACEHOLDER
 	},
 }
 

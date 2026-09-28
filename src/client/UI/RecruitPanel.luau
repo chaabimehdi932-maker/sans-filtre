@@ -166,7 +166,11 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 					else "XP " .. entry.xp .. " · MAX",
 				C.Gold
 			)
-			card:setValue(string.format("%d/%d", entry.soldiers, entry.maxSoldiers))
+			card:setValue(
+				if (entry.wounded or 0) > 0
+					then string.format("%d+%d🩹/%d", entry.soldiers, entry.wounded, entry.maxSoldiers)
+					else string.format("%d/%d", entry.soldiers, entry.maxSoldiers)
+			)
 			card:setHealth(entry.soldiers / entry.maxSoldiers)
 		end
 		for id, card in cards do

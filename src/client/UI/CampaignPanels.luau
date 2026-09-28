@@ -1927,8 +1927,9 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			row.stars.TextColor3 = if entry.stars > 0 then C.Gold else Color3.fromRGB(160, 160, 170)
 			local leader = entry.companion and CampaignConfig.Companions.List[entry.companion]
 			row.men.Text = string.format(
-				"%d/%d men · XP %d%s%s",
+				"%d%s/%d men · XP %d%s%s",
 				entry.soldiers,
+				if (entry.wounded or 0) > 0 then " +" .. entry.wounded .. "🩹" else "",
 				entry.maxSoldiers,
 				entry.xp,
 				if entry.nextXP then "/" .. entry.nextXP else "",

@@ -59,6 +59,9 @@ CampaignService.hooks = {
 
 -- defined with the town code below (declared here so earlier functions can call it)
 CampaignService.refreshMercenaries = function(_camp: any) end
+CampaignService.atFriendly = function(_camp: any, _kinds: { string }): any
+	return nil
+end
 
 -- extra client actions registered by other services: actions[name] = function(camp, arg)
 CampaignService.actions = {}
@@ -622,6 +625,21 @@ function CampaignService.resolveBattle(spec: any, victory: boolean, prisoners: {
 				evolved.tierName,
 				string.rep("★", evolved.stars),
 				if evolved.branch then " — choose its new path in your company panel!" else ""
+			)
+		)
+	end
+	local woundedTotal, deadTotal = 0, 0
+	for _, c in report.casualties do
+		woundedTotal += c.wounded
+		deadTotal += c.dead
+	end
+	if woundedTotal + deadTotal > 0 then
+		table.insert(
+			lines,
+			string.format(
+				'<font color="#FFB070">🩹 %d wounded (they will heal), %d dead.</font>',
+				woundedTotal,
+				deadTotal
 			)
 		)
 	end
@@ -1228,6 +1246,7 @@ local function advanceTime(camp: any, dtDays: number)
 	payWages(camp, dtDays)
 	if math.floor(data.Day) > before then
 		CampaignService.reinforceLords(camp, 1)
+		RecruitmentService.healWounded(camp.player, CampaignService.atFriendly(camp, { "Town", "Castle" }) ~= nil, 1)
 		desertions(camp)
 		RecruitmentService.sendState(camp.player)
 		maintainParties(camp)
