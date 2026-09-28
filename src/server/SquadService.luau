@@ -50,10 +50,6 @@ SquadService.hooks = {
 	onCasualties = function(_squad: Squad, _soldiersLost: number, _attackerTeam: string?, _creditPlayer: Player?) end,
 	onSquadDestroyed = function(_squad: Squad, _attackerTeam: string?) end,
 	onRout = function(_squad: Squad) end,
-	-- terrain (MapService): musket precision multiplier for where the squad stands
-	getTerrainAccuracy = function(_squad: Squad): number
-		return 1
-	end,
 	-- the squad's mounted officer was killed
 	onCommanderKilled = function(_squad: Squad, _info: any) end,
 	-- soldiers of `squad` died; info = { attacker?: Squad, creditPlayer?: Player, kind }
@@ -410,6 +406,9 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 		mult *= formationStat(squad, "chargeTakenMult")
 	elseif kind == "Ranged" then
 		mult *= formationStat(squad, "rangedTakenMult")
+		if squad.inForest then
+			mult *= GameConfig.Terrain.ForestCover -- the trees stop many balls
+		end
 	end
 	local side = "Front"
 	if info.fromPosition and kind ~= "Artillery" then
@@ -574,15 +573,35 @@ function SquadService.accuracy(squad: Squad, now: number?): number
 	if squad.isMoving then
 		value *= acc.Moving
 	end
-	value *= SquadService.hooks.getTerrainAccuracy(squad)
+	-- woods break formations, water unsettles the ranks
+	local terrain = GameConfig.Terrain
+	if squad.inForest then
+		value *= terrain.ForestAccuracy
+	end
+	if squad.inWater then
+		value *= terrain.WaterAccuracy
+	end
 	value *= skillValue(squad.companionSkill, "accuracyMult")
 	return math.max(acc.Minimum, value)
+end
+
+-- High ground: firing or fighting downhill hits harder, uphill softer
+local function heightMult(attacker: Squad, targetPosition: Vector3): number
+	local terrain = GameConfig.Terrain
+	local dy = attacker.position.Y - targetPosition.Y
+	if dy >= terrain.HeightAdvantage then
+		return terrain.HighGroundMult
+	elseif dy <= -terrain.HeightAdvantage then
+		return terrain.LowGroundMult
+	end
+	return 1
 end
 
 local function fireVolley(squad: Squad, target: any, distance: number, range: number, now: number)
 	local def = squad.def
 	local falloff = 1 - Combat.RangeFalloff * math.clamp(distance / range, 0, 1)
 	local damage = def.damage
+		* heightMult(squad, target.position)
 		* SquadService.accuracy(squad, now)
 		* squad.damageMult
 		* formationStat(squad, "firepowerMult")
@@ -640,7 +659,11 @@ end
 
 local function doMelee(squad: Squad, target: any, now: number)
 	local def = squad.def
-	local damage = def.meleeDamage * squad.damageMult * strengthFactor(squad) * damageRoll()
+	local damage = def.meleeDamage
+		* squad.damageMult
+		* strengthFactor(squad)
+		* damageRoll()
+		* heightMult(squad, target.position)
 	local kind = "Melee"
 	if def.chargeMultiplier > 1 and now < squad.chargeReadyUntil then
 		-- Charge bonus: consumed by the first hit; the squad must disengage and build speed again
@@ -884,9 +907,31 @@ local function nextPoint(squad: Squad, now: number): (Vector3?, boolean)
 	return goal, true
 end
 
+-- Where the squad stands: woods? water? (checked a few times a second)
+local function refreshTerrain(squad: Squad, now: number)
+	if now < (squad.nextTerrainCheck or 0) then
+		return
+	end
+	squad.nextTerrainCheck = now + GameConfig.Terrain.CheckInterval
+	squad.inForest, squad.inWater = MapService.terrainAt(squad.position)
+end
+
+local function terrainSpeed(squad: Squad): number
+	local terrain = GameConfig.Terrain
+	local mult = 1
+	if squad.inForest then
+		mult *= terrain.ForestSpeed[squad.def.visual] or terrain.ForestSpeed.Infantry
+	end
+	if squad.inWater then
+		mult *= terrain.WaterSpeed
+	end
+	return mult
+end
+
 local function stepMovement(squad: Squad, dt: number, now: number)
 	local def = squad.def
 	local moving = false
+	refreshTerrain(squad, now)
 	if now >= squad.formingUntil then
 		local point, isFinal = nextPoint(squad, now)
 		if point then
@@ -897,6 +942,7 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 				local speed = def.moveSpeed
 					* skillValue(squad.companionSkill, "speedMult")
 					* formationStat(squad, "speedMult")
+					* terrainSpeed(squad)
 					* squad.speedMult
 					* (if squad.routing then Morale.RoutSpeedMult else 1)
 				local direction = offset / distance
@@ -906,7 +952,11 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 				squad.moveYaw = MathUtil.yawFromDirection(direction)
 				moving = true
 				-- Charge build-up: sustained speed arms the charge bonus
-				if def.chargeMultiplier > 1 and speed >= def.moveSpeed * Combat.ChargeSpeedFraction then
+				if
+					def.chargeMultiplier > 1
+					and not squad.inForest -- no charging through the trees
+					and speed >= def.moveSpeed * Combat.ChargeSpeedFraction
+				then
 					squad.movingTime += dt
 					if squad.movingTime >= Combat.ChargeBuildTime then
 						squad.chargeReadyUntil = now + Combat.ChargeGrace
@@ -1017,6 +1067,9 @@ function SquadService.snapshot(): { any }
 			charging = now < squad.chargeReadyUntil,
 			controlled = squad.isPlayerControlled,
 			commander = squad.commanderAlive,
+			forest = squad.inForest == true,
+			water = squad.inWater == true,
+			accuracy = if squad.def.attackType == "Ranged" then SquadService.accuracy(squad, now) else nil,
 			commanderName = squad.commanderName,
 			rank = squad.rank,
 			tier = squad.def.tier,

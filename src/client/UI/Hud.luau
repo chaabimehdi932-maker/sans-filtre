@@ -536,6 +536,85 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 	}, 2)
 	Theme.corner(reinforcementLabel, 8)
 
+	-- terrain bonus / penalty of the squad you command (above its card)
+	local terrainLabel = outlined({
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromOffset(4, 6),
+		Size = UDim2.fromOffset(330, 40),
+		BackgroundColor3 = BLACK,
+		BackgroundTransparency = 0.45,
+		Text = "",
+		RichText = true,
+		TextSize = 14,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Visible = false,
+		ZIndex = 5,
+		Parent = regions.bottomLeft,
+	}, 1.5)
+	Theme.corner(terrainLabel, 6)
+	create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = terrainLabel })
+
+	local function refreshTerrain(squad: any?)
+		if not squad then
+			terrainLabel.Visible = false
+			return
+		end
+		local terrain = GameConfig.Terrain
+		local parts = {}
+		-- height against the closest enemy
+		local closest, best = nil, math.huge
+		for _, other in ClientState.squads do
+			if other.team ~= squad.team then
+				local d = (Vector3.new(other.x, 0, other.z) - Vector3.new(squad.x, 0, squad.z)).Magnitude
+				if d < best then
+					closest, best = other, d
+				end
+			end
+		end
+		if closest and best < 250 then
+			local dy = squad.y - closest.y
+			if dy >= terrain.HeightAdvantage then
+				table.insert(
+					parts,
+					string.format(
+						'<font color="#78E682">⛰ High ground +%d%%</font>',
+						(terrain.HighGroundMult - 1) * 100 + 0.5
+					)
+				)
+			elseif dy <= -terrain.HeightAdvantage then
+				table.insert(
+					parts,
+					string.format(
+						'<font color="#FF8070">⛰ Low ground −%d%%</font>',
+						(1 - terrain.LowGroundMult) * 100 + 0.5
+					)
+				)
+			end
+		end
+		if squad.forest then
+			table.insert(
+				parts,
+				'<font color="#B4E08C">🌲 Woods: cover vs muskets</font>'
+					.. (if squad.accuracy
+						then string.format(
+							', <font color="#FF8070">aim −%d%%</font>',
+							(1 - terrain.ForestAccuracy) * 100 + 0.5
+						)
+						else "")
+					.. ", slowed"
+			)
+		end
+		if squad.water then
+			table.insert(parts, '<font color="#8CC8FF">🌊 Wading: slowed</font>')
+		end
+		if squad.accuracy and squad.accuracy < 0.99 and #parts == 0 then
+			table.insert(parts, string.format("🎯 Precision %d%%", squad.accuracy * 100 + 0.5))
+		end
+		terrainLabel.Visible = #parts > 0
+		terrainLabel.Text = table.concat(parts, "  ·  ")
+	end
+
 	---------------------------------------------------------------- top right: kill feed
 	create("UIListLayout", {
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
@@ -592,6 +671,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		local squad = ClientState.squadsById[ClientActions.controlledId()]
 		-- the card shows your unit type (rebuilt only when it changes)
 		refreshArmy()
+		refreshTerrain(squad)
 		local unitId = if squad then squad.unitId else nil
 		if unitId and unitId ~= unitCardId then
 			if unitCard then

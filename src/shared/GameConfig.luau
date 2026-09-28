@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.11"
+GameConfig.Version = "0.12"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -150,6 +150,19 @@ GameConfig.Commander = {
 	DeathMorale = 45, -- PLACEHOLDER: morale lost when the officer falls
 	RaiseTime = 1.6, -- seconds the officer raises his sabre after an order
 	FrontOffset = 7, -- studs ahead of the front rank
+}
+
+-- Battlefield terrain: height, woods and water
+GameConfig.Terrain = {
+	HeightAdvantage = 4, -- studs higher than the target to count as high ground
+	HighGroundMult = 1.15, -- PLACEHOLDER: damage (volleys and melee) from above
+	LowGroundMult = 0.9, -- PLACEHOLDER: damage from below
+	ForestAccuracy = 0.6, -- PLACEHOLDER: formations break up among the trees
+	ForestCover = 0.75, -- PLACEHOLDER: musket damage taken inside woods
+	ForestSpeed = { Cavalry = 0.55, Infantry = 0.85, Artillery = 0.5 }, -- PLACEHOLDER
+	WaterSpeed = 0.6, -- PLACEHOLDER: wading through a river
+	WaterAccuracy = 0.8, -- PLACEHOLDER
+	CheckInterval = 0.5,
 }
 
 -- Battle rules

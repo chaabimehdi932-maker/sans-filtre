@@ -54,6 +54,25 @@ become forest, hill and river-crossing battlefields.
 **Bandits** field their own troops: sword-and-buckler Bandit Swordsmen who rush in and brawl,
 and Bandit Gunners with stolen muskets.
 
+**Battle rules:** musket lines fight in a single rank — precision drops in extra ranks, in
+column, in square, while forming up or moving (`GameConfig.Combat.Accuracy`). Every squad is
+led by a mounted officer riding in front (he raises his sabre on orders); kill him and the
+squad wavers — you are the officer of the squads you command. Hopelessly outnumbered (1:8,
+`GameConfig.Battle`)? Your army breaks and it's a defeat. An army whose every squad flees
+loses. Field battles are open terrain, a fight to the death; capture zones and walls only
+exist in castle raids and garrison defences. High ground hits harder, woods slow cavalry,
+give cover and spoil musket precision, rivers slow everyone (`GameConfig.Terrain`); the
+squad you command shows its terrain bonus above its card. Top centre: troop counts and the
+live ratio; top right: the kill feed.
+
+**Your company:** every squad draws a daily wage (unpaid troops lose morale, then desert).
+At ★★ a squad chooses a path (Line → Grenadiers / Light Infantry, Skirmishers → Riflemen /
+Voltigeurs, Cavalry → Cuirassiers / Hussars; `CampaignConfig.Branches`). Enemies who flee
+when you win become prisoners: recruit some, or ransom them to Monsieur Vautrin in town.
+Your commander wears gear (weapon, armour, horse) bought from Madame Rosalie and Old Gaspard
+or looted on the field. Hire named officers from the innkeeper and put them at the head of a
+squad for their skill; if they fall they're only wounded for a few days.
+
 ## The mercenary campaign
 
 1. **Choose your employer**: Francia, Albion or Borussia (same units, different colours). You
