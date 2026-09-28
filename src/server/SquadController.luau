@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GameConfig = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameConfig"))
 
 local AllyAIController = require(script.Parent:WaitForChild("AllyAIController"))
+local BattlePlan = require(script.Parent:WaitForChild("BattlePlan"))
 local CommandService = require(script.Parent:WaitForChild("CommandService"))
 local EnemyAIController = require(script.Parent:WaitForChild("EnemyAIController"))
 local SquadService = require(script.Parent:WaitForChild("SquadService"))
@@ -22,6 +23,8 @@ local AI = GameConfig.AI
 
 local SquadController = {}
 
+local lastPlan = 0
+
 function SquadController.tick()
 	local now = time()
 	local active = { Blue = {}, Red = {} }
@@ -29,6 +32,13 @@ function SquadController.tick()
 		if squad.alive and not squad.routing then
 			table.insert(active[squad.team], squad)
 		end
+	end
+	-- each side's shared battle plan (one line, advancing together)
+	if now - lastPlan >= AI.Plan.UpdateInterval then
+		local dt = math.min(now - lastPlan, 1)
+		lastPlan = now
+		BattlePlan.update("Blue", active.Blue, active.Red, dt, now)
+		BattlePlan.update("Red", active.Red, active.Blue, dt, now)
 	end
 	for _, squad in SquadService.getAll() do
 		if not squad.alive or squad.routing or now < (squad.nextThink or 0) then

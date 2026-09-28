@@ -8,6 +8,10 @@
 	  • Routing is automatic (morale hits 0, handled by SquadService).
 	  • Regrouping: morale under `retreatThreshold` → fall back to friends, return at `regroupRecover`.
 
+	Teamwork (BattlePlan): every AI squad has a slot in its side's shared line. Squads walk to
+	their slot, fire from it, don't run ahead of the line, and move up to support an engaged
+	neighbour. Cavalry waits on the flanks until there is something worth charging.
+
 	Tactics (kept readable rather than perfect):
 	  • infantry heads for objectives, engages what comes into range, sometimes flanks a Line
 	  • cavalry hunts artillery and exposed squads, avoids squares, hits and runs to re-charge
@@ -22,6 +26,7 @@ local Modules = ReplicatedStorage:WaitForChild("Modules")
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local MathUtil = require(Modules:WaitForChild("MathUtil"))
 
+local BattlePlan = require(script.Parent:WaitForChild("BattlePlan"))
 local SquadService = require(script.Parent:WaitForChild("SquadService"))
 local ZoneService = require(script.Parent:WaitForChild("ZoneService"))
 
@@ -150,7 +155,46 @@ local function wantsFlank(squad: any, target: any): boolean
 	return mem.flank
 end
 
+-- Teamwork: hold your slot in the shared line; fire what comes into range; help neighbours.
+-- Returns false when there is no plan (the old lone-wolf behaviour then applies).
+local function lineInfantry(squad: any, enemies: { any }): boolean
+	local plan = BattlePlan.get(squad.team)
+	local slot = plan and plan.slots[squad]
+	if not slot then
+		return false
+	end
+	local def = squad.def
+	local range = def.attackRange
+	squad.idleYaw = plan.yaw
+	local target = nearestIn(squad.position, enemies, range * 0.95)
+	if target then
+		squad.preferredTarget = target
+		if MathUtil.flatDistance(squad.position, slot) > AI.Plan.SlotLeash then
+			SquadService.moveTo(squad, slot, 4) -- drifted off: back into the line
+		else
+			SquadService.stop(squad) -- in range: stand and fire
+		end
+		return true
+	end
+	-- a neighbour is caught in a fight: move up so its enemy is in our range
+	local friend = BattlePlan.supportTarget(squad)
+	if friend then
+		local foe = nearestIn(friend.position, enemies, friend.radius + 40)
+		if foe then
+			squad.preferredTarget = foe
+			SquadService.moveTo(squad, foe.position, range * 0.85)
+			return true
+		end
+	end
+	squad.preferredTarget = nil
+	SquadService.moveTo(squad, slot, 4)
+	return true
+end
+
 local function infantry(squad: any, enemies: { any }, allies: { any })
+	if lineInfantry(squad, enemies) then
+		return
+	end
 	local def = squad.def
 	local engageRadius = def.attackRange + 20 + tuning.aggression * 80
 	local isSkirmisher = def.canMoveAndFire
@@ -182,6 +226,23 @@ end
 
 local function cavalry(squad: any, enemies: { any }, allies: { any }, now: number)
 	local mem = squad.aiMemory
+	-- teamwork: wait on the flank until the lines meet, or a gun / an exposed squad is near
+	local plan = BattlePlan.get(squad.team)
+	local slot = plan and plan.slots[squad]
+	if slot and not (mem.disengageUntil and now < mem.disengageUntil) then
+		local lineEngaged = #plan.engaged > 0
+		local prey = nearestIn(squad.position, enemies, 150, function(enemy, distance)
+			if enemy.def.attackType == "Artillery" or isExposed(enemy, enemies) then
+				return distance
+			end
+			return math.huge
+		end)
+		if not lineEngaged and not prey and not squad.preferredTarget then
+			SquadService.moveTo(squad, slot, 5)
+			squad.idleYaw = plan.yaw
+			return
+		end
+	end
 	-- Hit and run: after a charge lands, ride away to build speed for the next one
 	if mem.disengageUntil and now < mem.disengageUntil then
 		if MathUtil.flatDistance(squad.position, mem.disengagePoint) > 5 then
@@ -229,6 +290,25 @@ end
 -- Foot brawlers (bandit swordsmen): rush the nearest enemy, gunners and guns first, and stay
 -- in the melee (no charge-and-pull-back like cavalry)
 local function brawlers(squad: any, enemies: { any })
+	-- teamwork: stand in front of the line until an enemy comes within charging reach
+	local plan = BattlePlan.get(squad.team)
+	local slot = plan and plan.slots[squad]
+	if slot then
+		local near = nearestIn(squad.position, enemies, AI.Plan.ChargeReach)
+		local friend = BattlePlan.supportTarget(squad)
+		if not near and friend then
+			near = nearestIn(friend.position, enemies, friend.radius + 40)
+		end
+		if near then
+			squad.preferredTarget = near
+			SquadService.moveTo(squad, near.position, squad.radius + near.radius + 1, 1.15)
+		else
+			squad.preferredTarget = nil
+			SquadService.moveTo(squad, slot, 4)
+			squad.idleYaw = plan.yaw
+		end
+		return
+	end
 	local search = 140 + tuning.aggression * 160
 	local target = nearestIn(squad.position, enemies, search, function(enemy, distance)
 		if enemy.def.attackType ~= "Melee" then
@@ -263,6 +343,14 @@ local function artillery(squad: any, enemies: { any })
 		return
 	end
 	squad.preferredTarget = nil
+	-- teamwork: guns follow the line from behind instead of trundling at the enemy alone
+	local plan = BattlePlan.get(squad.team)
+	local slot = plan and plan.slots[squad]
+	if slot then
+		SquadService.moveTo(squad, slot, 4)
+		squad.idleYaw = plan.yaw
+		return
+	end
 	local anyEnemy = nearestIn(squad.position, enemies, math.huge)
 	if anyEnemy then
 		SquadService.moveTo(squad, anyEnemy.position, range * 0.75)

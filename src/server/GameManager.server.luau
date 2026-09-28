@@ -21,6 +21,7 @@ local Modules = ReplicatedStorage:WaitForChild("Modules")
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local Remotes = require(Modules:WaitForChild("Remotes"))
 
+local BattlePlan = require(script.Parent:WaitForChild("BattlePlan"))
 local CampaignService = require(script.Parent:WaitForChild("CampaignService"))
 local CommandService = require(script.Parent:WaitForChild("CommandService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
@@ -431,6 +432,7 @@ end
 
 local function runRecruitment(cfg: any)
 	SquadService.clearAll()
+	BattlePlan.reset()
 	SquadService.setPaused(false)
 	-- the battlefield matches where the fight happens (castle walls, woods, river, …)
 	if MapService.setBattlefield(cfg.battlefield) then

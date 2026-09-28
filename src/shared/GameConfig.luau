@@ -202,6 +202,21 @@ GameConfig.AI = {
 	CavalryDisengageTime = 5,
 	ExposedRadius = 30, -- a squad with no friend this close is "exposed"
 	SquareThreatRadius = 50, -- infantry forms square when enemy cavalry is this close
+	-- Shared battle plan per side (BattlePlan): one line, advancing together
+	Plan = {
+		UpdateInterval = 0.5,
+		SquadGap = 10, -- PLACEHOLDER: studs between neighbouring squads in the line
+		MeleeDepth = 14, -- PLACEHOLDER: melee foot stand this far in front of the line
+		ArtilleryDepth = -45, -- PLACEHOLDER: guns this far behind it
+		CavalryDepth = -5,
+		CavalryFlankGap = 35, -- PLACEHOLDER: cavalry wait this far beyond the line's ends
+		LagTolerance = 30, -- PLACEHOLDER: the line waits while a squad is further than this from its slot
+		AdvanceSpeedMult = 0.85, -- line pace = slowest line squad × this
+		StandoffFraction = 0.9, -- halt at this share of the shortest musket range
+		SupportRadius = 80, -- PLACEHOLDER: idle squads this close to an engaged friend help it
+		ChargeReach = 60, -- PLACEHOLDER: melee foot leave the line to hit enemies this close
+		SlotLeash = 45, -- a firing squad drifting further than this from its slot walks back
+	},
 }
 
 -- Client-side soldier rendering
