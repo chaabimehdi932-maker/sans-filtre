@@ -2,8 +2,9 @@
 	ReputationService
 	Reputation per player per faction (saved in profile.Campaign.Reputation). Only the
 	reputation with your employer matters in v1: it is gained by completing contracts, lost
-	by failing them, and unlocks direct command of more squads in battle
-	(CampaignConfig.Reputation.Tiers: reputation threshold → maxSquads).
+	by failing them; it earns rank titles
+	(CampaignConfig.Reputation.Tiers: reputation threshold → rank title). Since v0.13 it no
+	longer limits how many squads you command (you command your whole army).
 	Losing a battle outside a contract never costs reputation.
 ]]
 
@@ -45,13 +46,8 @@ function ReputationService.add(player: Player, amount: number)
 		player,
 		after,
 		after - before,
-		if newTier.maxSquads > oldTier.maxSquads then newTier else nil
+		if newTier.reputation > oldTier.reputation then newTier else nil
 	)
-end
-
--- How many squads the player may command directly at once
-function ReputationService.maxControllableSquads(player: Player): number
-	return CampaignConfig.reputationTier(ReputationService.get(player)).maxSquads
 end
 
 return ReputationService

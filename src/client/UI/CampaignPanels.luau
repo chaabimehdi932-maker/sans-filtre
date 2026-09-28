@@ -787,12 +787,12 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 				Position = UDim2.fromOffset(14, 44),
 				Size = UDim2.new(1, -28, 0, 110),
 				Text = string.format(
-					"%s\n\n%d soldiers · %d HP · speed %d · wage ~%d gold/day",
+					"%s\n\n%d soldiers · %d HP · speed %d · wage ~%.1f gold/day",
 					def.description,
 					def.soldiers,
 					def.health,
 					def.moveSpeed,
-					math.ceil((def.cost or 100) * CampaignConfig.Wages.CostFraction)
+					(def.cost or 100) * CampaignConfig.Wages.CostFraction
 				),
 				TextSize = 15,
 				TextWrapped = true,
@@ -1791,7 +1791,7 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			return
 		end
 		companyTitle.Text = string.format(
-			'YOUR COMPANY %d/%d  <font size="15" color="%s">💰 %d/day%s</font>',
+			'YOUR COMPANY %d/%d  <font size="15" color="%s">💰 %.1f/day%s</font>',
 			#recruit.roster,
 			recruit.maxRoster or 6,
 			if (recruit.unpaidDays or 0) > 0 then "#FF8070" else "#FFCD28",
@@ -1855,14 +1855,10 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		local tier, nextTier = campaign.tier, campaign.nextTier
 		if tier then
 			repLabel.Text = string.format(
-				'<font color="#8CD2FF">★ %d reputation · %s</font>  —  command <b>%d</b> squad%s%s',
+				'<font color="#8CD2FF">★ %d reputation · %s</font>%s',
 				campaign.reputation,
 				tier.title,
-				tier.maxSquads,
-				if tier.maxSquads > 1 then "s" else "",
-				if nextTier
-					then string.format("  (next: %d → %d)", nextTier.reputation, nextTier.maxSquads)
-					else "  (max)"
+				if nextTier then string.format("  (next rank: %s at %d)", nextTier.title, nextTier.reputation) else ""
 			)
 		end
 

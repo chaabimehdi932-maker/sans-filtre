@@ -127,6 +127,7 @@ function soldierFromRig(rig: any, r: any): any
 		speedMult = 0.85 + math.random() * 0.3,
 		reaction = math.random() * 0.6,
 		slotNoise = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5) * 1.1,
+		lag = math.random() * 0.6, -- seconds this soldier trails the squad while marching
 		idleYaw = (math.random() - 0.5) * 0.3,
 		foe = nil,
 		foeUntil = 0,
@@ -448,8 +449,7 @@ local function applySnapshot(r: any, s: any, shown: number, now: number)
 			end
 			r.officer = nil
 		else
-			local hidden = s.controlled == true
-			officer.rig.model.Parent = if hidden then nil else r.model
+			officer.rig.model.Parent = r.model
 			-- a named companion leads this squad: his name floats over him
 			if s.commanderName and not officer.tag then
 				local tag = Instance.new("BillboardGui")
@@ -575,6 +575,12 @@ local function updateSquad(r: any, dt: number, now: number, near: boolean, detai
 		r.moveStart = now -- soldiers set off one after another
 	end
 	r.wasMoving = r.moving
+	-- strict ranks only when standing: marching or wheeling to aim, the men loosen into a
+	-- slightly messy group, then settle back into their slots when the squad halts
+	local turning = math.abs(MathUtil.angleDiff(r.yaw, r.snapYaw)) > 0.35
+	local wantLoose = if (r.moving or turning) and not artillery then 1 else 0
+	r.looseness = lerp(r.looseness or 0, wantLoose, 1 - math.exp(-dt * (if wantLoose > 0 then 3 else 1.2)))
+	local loose = r.looseness
 
 	for i, soldier in r.soldiers do
 		-- 1) where this soldier wants to be
@@ -590,8 +596,13 @@ local function updateSquad(r: any, dt: number, now: number, near: boolean, detai
 			slot += soldier.jitter * 2.5
 		elseif r.rushing then
 			slot += soldier.jitter
+		elseif loose > 0.01 then
+			slot = slot * (1 + 0.2 * loose) + soldier.jitter * (1.3 * loose)
 		end
 		local target = (base * CFrame.new(slot.X, 0, slot.Z)).Position
+		if loose > 0.01 then
+			target -= r.vel * soldier.lag * loose -- stragglers trail behind
+		end
 		local facePoint: Vector3? = nil
 
 		if foes and #foes > 0 then

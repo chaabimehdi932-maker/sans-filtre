@@ -364,7 +364,7 @@ CampaignConfig.Economy = {
 -- Troop wages: every squad is paid daily (more for evolved squads and full ranks)
 CampaignConfig.Wages = {
 	-- gold per day = unit cost × CostFraction × (1 + stars × PerStar) × (men / full strength)
-	CostFraction = 0.08, -- PLACEHOLDER
+	CostFraction = 0.008, -- PLACEHOLDER (a tenth of v0.12: a typical army ≈ 5 gold/day)
 	PerStar = 0.3, -- PLACEHOLDER
 	EnlistedMult = 0.5, -- PLACEHOLDER: your company costs half while you serve a general
 	MoralePenaltyPerDay = 0.15, -- PLACEHOLDER: unpaid squads start battles with −15 % morale per unpaid day
@@ -619,12 +619,13 @@ CampaignConfig.Contracts = {
 
 CampaignConfig.Reputation = {
 	Min = 0, -- reputation never drops below this
-	-- ascending: at `reputation` or more you command `maxSquads` squads at once
+	-- ascending ranks (titles). Reputation pays off through contracts and unlocks; it no longer
+	-- limits how many squads you command (v0.13: you command your whole army).
 	Tiers = {
-		{ reputation = 0, maxSquads = 1, title = "Sellsword" }, -- PLACEHOLDER
-		{ reputation = 50, maxSquads = 2, title = "Captain" }, -- PLACEHOLDER
-		{ reputation = 150, maxSquads = 3, title = "Condottiere" }, -- PLACEHOLDER
-		{ reputation = 350, maxSquads = 4, title = "Warlord" }, -- PLACEHOLDER
+		{ reputation = 0, title = "Sellsword" }, -- PLACEHOLDER
+		{ reputation = 50, title = "Captain" }, -- PLACEHOLDER
+		{ reputation = 150, title = "Condottiere" }, -- PLACEHOLDER
+		{ reputation = 350, title = "Warlord" }, -- PLACEHOLDER
 	},
 }
 

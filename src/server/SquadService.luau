@@ -446,8 +446,9 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 	end
 	squad.morale = math.max(0, squad.morale - moraleLoss)
 
-	-- the officer riding at the front can be hit too (not when the player leads the squad)
-	if squad.commanderAlive and not squad.isPlayerControlled and dealt > 0 then
+	-- the officer riding at the front can be hit too (every squad has one; in your army he
+	-- relays your orders)
+	if squad.commanderAlive and dealt > 0 then
 		local exposure = GameConfig.Commander.Exposure[kind] or 0.05
 		squad.commanderHealth -= dealt * exposure
 		if squad.commanderHealth <= 0 then
@@ -572,6 +573,11 @@ function SquadService.accuracy(squad: Squad, now: number?): number
 	end
 	if squad.isMoving then
 		value *= acc.Moving
+	elseif (now or time()) < (squad.settleUntil or 0) then
+		value *= acc.Settling -- halted but not yet back in strict ranks
+	end
+	if math.abs(MathUtil.angleDiff(squad.yaw, squad.combatYaw)) > math.rad(20) then
+		value *= acc.Turning
 	end
 	-- woods break formations, water unsettles the ranks
 	local terrain = GameConfig.Terrain
@@ -967,6 +973,9 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 	end
 	if not moving then
 		squad.movingTime = 0
+		if squad.isMoving then
+			squad.settleUntil = now + Combat.Accuracy.SettleTime
+		end
 	end
 	squad.isMoving = moving
 

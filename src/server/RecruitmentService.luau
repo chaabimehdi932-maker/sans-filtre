@@ -152,7 +152,7 @@ function RecruitmentService.sendState(player: Player)
 		reinforcements = session.reinforcements,
 		reinforcementAt = session.reinforcementAt,
 		replenishCost = RecruitmentService.replenishCost(player),
-		dailyWages = math.floor(RecruitmentService.totalWages(player) + 0.5),
+		dailyWages = math.floor(RecruitmentService.totalWages(player) * 10 + 0.5) / 10,
 		unpaidDays = campaignUnpaid(player),
 	})
 end

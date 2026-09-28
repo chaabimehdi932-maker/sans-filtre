@@ -480,22 +480,40 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 				ClientActions.selectSquad(squad.id)
 			end
 		end)
-		entry = { button = button, stroke = stroke, name = name, count = count, stars = stars, hpFill = hpFill }
+		local key = outlined({
+			Position = UDim2.fromOffset(-6, -8),
+			Size = UDim2.fromOffset(22, 18),
+			BackgroundColor3 = C.KeyBlue,
+			BackgroundTransparency = 0,
+			Text = "",
+			Font = Theme.Bold,
+			TextSize = 13,
+			ZIndex = 5,
+			Parent = button,
+		}, 1.2)
+		Theme.corner(key, 4)
+		entry =
+			{ button = button, stroke = stroke, name = name, count = count, stars = stars, hpFill = hpFill, key = key }
 		chips[squad.id] = entry
 		return entry
 	end
 	local function refreshArmy()
 		local mine = ClientState.mySquads()
 		local alive = {}
-		local commanded = 0
+		local selected = 0
+		local commandedIds = ClientActions.commandedIds()
 		for index, squad in mine do
 			alive[squad.id] = true
 			local entry = chip(squad)
-			entry.button.LayoutOrder = index
+			local number = table.find(commandedIds, squad.id)
+			entry.button.LayoutOrder = number or (100 + index)
 			local controlled = ClientActions.isControlled(squad.id)
 			if controlled then
-				commanded += 1
+				selected += 1
 			end
+			-- number key badge, or "AI" for a squad led by a companion
+			entry.key.Text = if number then tostring(number) else "AI"
+			entry.key.BackgroundColor3 = if number then C.KeyBlue else Color3.fromRGB(120, 100, 150)
 			entry.stroke.Color = if controlled then C.Gold else BLACK
 			entry.stroke.Thickness = if controlled then 4 else 3
 			entry.count.Text = tostring(squad.soldiers)
@@ -510,9 +528,9 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			end
 		end
 		armyTitle.Text = string.format(
-			"YOUR ARMY  ·  commanding %d / %d   (Tab · T · Shift+click)",
-			commanded,
-			ClientActions.maxControlled()
+			"YOUR ARMY  ·  %d / %d selected   (1-9 · Shift+1-9 · 0 all · Tab)",
+			selected,
+			#commandedIds
 		)
 		regions.army.Visible = #mine > 0 and ClientState.phaseName() == "Battle"
 	end
@@ -1070,10 +1088,10 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			"<b>Left click</b>  attack   ·   <b>F</b>  block   ·   <b>Q</b>  roll",
 			"<b>H</b>  heal & rally   ·   <b>G</b>  mount / dismount",
 			"",
-			"You command the squads outlined in gold (more with reputation);",
-			"your other squads and allies fight on their own.",
-			"<b>Tab</b>  command next squad   ·   <b>T</b>  add a squad to your group",
-			"<b>Click</b> a squad card: command it   ·   <b>Shift+click</b>: add / remove",
+			"You command your whole army; orders go to the SELECTED squads (gold).",
+			"Squads led by a companion and allied troops fight on their own.",
+			"<b>1-9</b> select a squad · <b>Shift+1-9</b> add/remove · <b>0</b> all · <b>Tab</b> next",
+			"<b>Click</b> a squad card: select it   ·   <b>Shift+click</b>: add / remove",
 			"",
 			"<b>X</b>  Hold: preview on the ground, <b>1 / 2 / 3</b> Line / Column / Square,",
 			"      <b>Left click</b> to confirm, <b>right click</b> or <b>X</b> to cancel",

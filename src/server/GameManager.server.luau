@@ -202,7 +202,7 @@ ZoneService.hooks.onOwnerChanged = function(zone, newOwner, oldOwner)
 end
 
 RecruitmentService.hooks.onReinforced = function(player, squad)
-	CommandService.setControlled(player, squad)
+	CommandService.addToArmy(player, squad)
 	notifyRemote:FireClient(player, "Reinforcements have arrived: you command a fresh " .. squad.name .. "!", "good")
 end
 RecruitmentService.hooks.getReinforcementBonus = function()
@@ -219,7 +219,6 @@ PlayerCombatService.hooks.onDamageDealt = function(player, amount)
 	DataService.addXP(player, amount * Rewards.XPPerHeroDamage)
 end
 
-CommandService.hooks.getMaxControlled = ReputationService.maxControllableSquads
 CommandService.hooks.notify = function(player, text, tone)
 	notifyRemote:FireClient(player, text, tone)
 end
@@ -232,7 +231,7 @@ ReputationService.hooks.onChanged = function(player, _value, _delta, tierUp)
 	if tierUp then
 		notifyRemote:FireClient(
 			player,
-			string.format("Reputation rank: %s! You can now command %d squads at once.", tierUp.title, tierUp.maxSquads),
+			string.format("Reputation rank: %s! Your employer trusts you with better contracts.", tierUp.title),
 			"good"
 		)
 	end
@@ -514,8 +513,8 @@ local function runBattle(cfg: any): string
 	PlayerCombatService.teleport(participants, MapService.spawnCFrame("Blue"))
 	for _, player in participants do
 		-- you command as many squads as your reputation allows; the rest run on the ally AI
-		CommandService.setGroup(player, {})
-		CommandService.setGroup(player, playerSquads[player] or {})
+		-- you command your whole army; companion-led squads fight on their own
+		CommandService.takeArmy(player, playerSquads[player] or {})
 	end
 	EnemyAIController.setTuning(cfg.ai)
 
@@ -670,7 +669,7 @@ task.spawn(function()
 		SquadService.clearAll()
 		holdInfo = nil
 		for _, player in present() do
-			CommandService.setGroup(player, {})
+			CommandService.takeArmy(player, {})
 			roundStateRemote:FireClient(player, IDLE_PHASE)
 		end
 		phaseInfo = IDLE_PHASE

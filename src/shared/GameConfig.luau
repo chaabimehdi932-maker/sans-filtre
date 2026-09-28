@@ -137,6 +137,9 @@ GameConfig.Combat = {
 		Square = 0.6, -- PLACEHOLDER
 		Forming = 0.5, -- PLACEHOLDER: changing formation (disordered)
 		Moving = 0.6, -- PLACEHOLDER: firing on the move (skirmishers)
+		Settling = 0.75, -- PLACEHOLDER: just halted, the men are still finding their places
+		SettleTime = 1.5, -- PLACEHOLDER: seconds to settle into strict formation after a halt
+		Turning = 0.8, -- PLACEHOLDER: wheeling to face the target
 		Minimum = 0.2,
 	},
 }

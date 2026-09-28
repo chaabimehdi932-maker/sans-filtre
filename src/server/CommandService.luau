@@ -1,19 +1,19 @@
 --[[
 	CommandService
-	The player directly commands a GROUP of squads (squad.isPlayerControlled = true), up to
-	hooks.getMaxControlled(player) at once — 1 at the start of the campaign, more as your
-	reputation grows (CampaignConfig.Reputation.Tiers). Every squad in the group obeys the
-	X Hold · C Follow · V Attack · B Rush hotkeys together; every other friendly squad is run by
-	AllyAIController. SquadController decides each tick which of the two drives a squad, so
-	there is a single code path per squad and the handoff is just this flag.
+	You command every squad of your own army directly (squad.isPlayerControlled = true) —
+	except a squad led by one of your companions: that one fights on its own under him (ally
+	AI). In a general's army you only command your own squad; his run on their AI.
+	(Reputation no longer limits this: it's kept for contract rewards and unlocks.)
 
-	Switching (SelectSquad remote):
-	  id            command only that squad            (click a squad card)
-	  "next"/"prev" command only the next/prev squad    (Tab)
-	  { pin = id }  add/remove that squad to the group  (Shift + click a card)
-	  "pinNext"     add the next free squad to the group (T)
-	The group is published in player attributes: "ControlledSquad" (first id),
-	"ControlledSquads" ("3,5,8") and "MaxControlled".
+	The SELECTION is the subset of your squads that receives the X Hold · C Follow · V Attack ·
+	B Rush orders. Unselected squads keep carrying out their last order.
+	SelectSquad remote:
+	  id             select only that squad            (click a card, or a number key 1-9)
+	  "next"/"prev"  select only the next/prev squad   (Tab / Shift+Tab)
+	  "all"          select every squad you command    (0)
+	  { pin = id }   add/remove a squad to the selection (Shift + click / Shift + number)
+	Published in player attributes: "ControlledSquad" (first selected id), "ControlledSquads"
+	("3,5,8" = selection) and "CommandedSquads" (every squad you command).
 ]]
 
 local Players = game:GetService("Players")
@@ -33,15 +33,13 @@ local Orders = GameConfig.Orders
 local CommandService = {}
 
 CommandService.hooks = {
-	getMaxControlled = function(_player: Player): number
-		return 1
-	end,
 	notify = function(_player: Player, _text: string, _tone: string) end,
 }
 
 local VALID_ORDERS = { Hold = true, Follow = true, Attack = true, Rush = true }
 
-local groups: { [Player]: { any } } = {}
+local commanded: { [Player]: { any } } = {} -- every squad the player commands
+local selections: { [Player]: { any } } = {} -- the ones receiving orders
 
 -- Reset the per-order state so the squad starts clean under its new controller
 local function clearOrderState(squad: any)
@@ -53,15 +51,24 @@ local function clearOrderState(squad: any)
 	squad.speedMult = 1
 end
 
--- Living squads of the player's command group (first = the "main" one)
-function CommandService.getControlledList(player: Player): { any }
-	local list = {}
-	for _, squad in (groups[player] or {}) :: { any } do
+local function alive(list: { any }?): { any }
+	local out = {}
+	for _, squad in (list or {}) :: { any } do
 		if squad.alive then
-			table.insert(list, squad)
+			table.insert(out, squad)
 		end
 	end
-	return list
+	return out
+end
+
+-- Living squads the player commands directly (roster order)
+function CommandService.getCommanded(player: Player): { any }
+	return alive(commanded[player])
+end
+
+-- Living selected squads (first = the "main" one)
+function CommandService.getControlledList(player: Player): { any }
+	return alive(selections[player])
 end
 
 function CommandService.getControlled(player: Player): any
@@ -69,14 +76,17 @@ function CommandService.getControlled(player: Player): any
 end
 
 local function publish(player: Player)
-	local list = CommandService.getControlledList(player)
-	local ids = {}
-	for _, squad in list do
-		table.insert(ids, tostring(squad.id))
+	local function ids(list: { any }): string
+		local out = {}
+		for _, squad in list do
+			table.insert(out, tostring(squad.id))
+		end
+		return table.concat(out, ",")
 	end
-	player:SetAttribute("ControlledSquad", if list[1] then list[1].id else 0)
-	player:SetAttribute("ControlledSquads", table.concat(ids, ","))
-	player:SetAttribute("MaxControlled", CommandService.hooks.getMaxControlled(player))
+	local selection = CommandService.getControlledList(player)
+	player:SetAttribute("ControlledSquad", if selection[1] then selection[1].id else 0)
+	player:SetAttribute("ControlledSquads", ids(selection))
+	player:SetAttribute("CommandedSquads", ids(CommandService.getCommanded(player)))
 end
 
 local function takeCommand(squad: any)
@@ -88,77 +98,76 @@ local function takeCommand(squad: any)
 	SquadService.stop(squad)
 end
 
-local function releaseCommand(squad: any)
-	if squad.alive then
-		squad.isPlayerControlled = false -- back to AllyAIController
-		clearOrderState(squad)
+--[[
+	Start of a battle: the player takes command of these squads (companion-led squads are
+	skipped: they fight on their own). Everything is selected at first.
+]]
+function CommandService.takeArmy(player: Player, squads: { any })
+	for _, squad in (commanded[player] or {}) :: { any } do
+		if squad.alive then
+			squad.isPlayerControlled = false
+		end
 	end
-end
-
--- Command exactly these squads (trimmed to the player's limit). {} = none.
-function CommandService.setGroup(player: Player, squads: { any })
-	local limit = CommandService.hooks.getMaxControlled(player)
-	local wanted = {}
+	local list = {}
 	for _, squad in squads do
-		if #wanted < limit and squad.alive and not table.find(wanted, squad) then
-			table.insert(wanted, squad)
-		end
-	end
-	for _, squad in (groups[player] or {}) :: { any } do
-		if not table.find(wanted, squad) then
-			releaseCommand(squad)
-		end
-	end
-	for _, squad in wanted do
-		if not table.find(groups[player] or {}, squad) then
+		if squad.alive and not squad.companionId then
 			takeCommand(squad)
+			table.insert(list, squad)
 		end
 	end
-	groups[player] = wanted
+	commanded[player] = list
+	selections[player] = table.clone(list)
 	publish(player)
 end
 
--- Hand direct command of `squad` alone (or nothing) to the player
+-- A squad joins the player's command mid-battle (reinforcements) and is selected alone
+function CommandService.addToArmy(player: Player, squad: any)
+	commanded[player] = commanded[player] or {}
+	if squad.alive and not table.find(commanded[player], squad) then
+		takeCommand(squad)
+		table.insert(commanded[player], squad)
+	end
+	CommandService.setControlled(player, squad)
+end
+
+-- Select exactly these squads (only ones the player commands)
+function CommandService.setGroup(player: Player, squads: { any })
+	local own = CommandService.getCommanded(player)
+	local wanted = {}
+	for _, squad in squads do
+		if table.find(own, squad) and not table.find(wanted, squad) then
+			table.insert(wanted, squad)
+		end
+	end
+	selections[player] = wanted
+	publish(player)
+end
+
 function CommandService.setControlled(player: Player, squad: any)
 	CommandService.setGroup(player, if squad then { squad } else {})
 end
 
--- Add / remove one squad from the command group
 function CommandService.togglePin(player: Player, squad: any)
 	local list = CommandService.getControlledList(player)
 	local index = table.find(list, squad)
 	if index then
 		if #list > 1 then
 			table.remove(list, index)
-			CommandService.setGroup(player, list)
 		end
-		return
+	else
+		table.insert(list, squad)
 	end
-	local limit = CommandService.hooks.getMaxControlled(player)
-	if #list >= limit then
-		CommandService.hooks.notify(
-			player,
-			string.format(
-				"You can command %d squad%s at once. Earn reputation for more.",
-				limit,
-				if limit > 1 then "s" else ""
-			),
-			"info"
-		)
-		return
-	end
-	table.insert(list, squad)
 	CommandService.setGroup(player, list)
 end
 
--- Make sure the player commands at least one living squad (e.g. after one was destroyed)
+-- Keep a living selection (e.g. after the selected squad was destroyed)
 function CommandService.ensureControlled(player: Player)
-	local list = CommandService.getControlledList(player)
-	if #list == 0 then
-		local owned = SquadService.getOwnedBy(player)
-		list = if owned[1] then { owned[1] } else {}
+	if #CommandService.getControlledList(player) == 0 then
+		local own = CommandService.getCommanded(player)
+		CommandService.setGroup(player, if own[1] then { own[1] } else {})
+	else
+		publish(player)
 	end
-	CommandService.setGroup(player, list)
 end
 
 -- Rush is on a cooldown so it cannot be spammed
@@ -166,35 +175,30 @@ local lastRushAt: { [Player]: number } = {}
 local feedbackRemote = Remotes.get("CombatFeedback")
 
 function CommandService.removePlayer(player: Player)
-	groups[player] = nil
+	commanded[player] = nil
+	selections[player] = nil
 	lastRushAt[player] = nil
 end
 
 Remotes.get("SelectSquad").OnServerEvent:Connect(function(player: Player, which: unknown)
-	local owned = SquadService.getOwnedBy(player)
-	if #owned == 0 then
+	local own = CommandService.getCommanded(player)
+	if #own == 0 then
 		return
 	end
 	if typeof(which) == "number" then
 		local squad = SquadService.getById(which)
-		if squad and squad.alive and squad.owner == player then
+		if squad and table.find(own, squad) then
 			CommandService.setControlled(player, squad)
 		end
+	elseif which == "all" then
+		CommandService.setGroup(player, own)
 	elseif which == "next" or which == "prev" then
-		local index = table.find(owned, CommandService.getControlled(player)) or 0
+		local index = table.find(own, CommandService.getControlled(player)) or 0
 		local step = if which == "prev" then -1 else 1
-		CommandService.setControlled(player, owned[(index - 1 + step) % #owned + 1])
-	elseif which == "pinNext" then
-		local list = CommandService.getControlledList(player)
-		for _, squad in owned do
-			if not table.find(list, squad) then
-				CommandService.togglePin(player, squad)
-				return
-			end
-		end
+		CommandService.setControlled(player, own[(index - 1 + step) % #own + 1])
 	elseif typeof(which) == "table" and typeof((which :: any).pin) == "number" then
 		local squad = SquadService.getById((which :: any).pin)
-		if squad and squad.alive and squad.owner == player then
+		if squad and table.find(own, squad) then
 			CommandService.togglePin(player, squad)
 		end
 	end

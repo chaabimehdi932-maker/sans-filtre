@@ -3,6 +3,9 @@
 	  X Hold · C Follow · V Attack · B Rush
 	  X opens the Hold preview on the ground: 1 Line · 2 Column · 3 Square,
 	  Left click (or Enter) confirms, right click / X / Backspace cancel.
+	Selection (orders go to the selected squads; you command your whole army):
+	  1-9 select that squad · Shift+1-9 add/remove it · 0 select all · Tab / Shift+Tab cycle.
+	  While the Hold preview is open, 1/2/3 pick its formation instead.
 ]]
 
 local UserInputService = game:GetService("UserInputService")
@@ -16,6 +19,17 @@ local ORDER_KEYS = {
 	[Enum.KeyCode.V] = "Attack",
 	[Enum.KeyCode.B] = "Rush",
 }
+local SQUAD_KEYS = {
+	[Enum.KeyCode.One] = 1,
+	[Enum.KeyCode.Two] = 2,
+	[Enum.KeyCode.Three] = 3,
+	[Enum.KeyCode.Four] = 4,
+	[Enum.KeyCode.Five] = 5,
+	[Enum.KeyCode.Six] = 6,
+	[Enum.KeyCode.Seven] = 7,
+	[Enum.KeyCode.Eight] = 8,
+	[Enum.KeyCode.Nine] = 9,
+}
 local FORMATION_KEYS = {
 	[Enum.KeyCode.One] = "Line",
 	[Enum.KeyCode.Two] = "Column",
@@ -27,14 +41,29 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		return -- battle controls only on the battlefield
 	end
 	local key = input.KeyCode
+	local shift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+		or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 	if key == Enum.KeyCode.Tab then
-		local shift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
-			or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 		ClientActions.selectSquad(if shift then "prev" else "next")
 		return
-	elseif key == Enum.KeyCode.T then
-		ClientActions.pinNext()
-		return
+	end
+	if not ClientActions.holdState().active then
+		if key == Enum.KeyCode.Zero then
+			ClientActions.selectSquad("all")
+			return
+		end
+		local number = SQUAD_KEYS[key]
+		if number then
+			local id = ClientActions.commandedIds()[number]
+			if id then
+				if shift then
+					ClientActions.togglePin(id)
+				else
+					ClientActions.selectSquad(id)
+				end
+			end
+			return
+		end
 	end
 	local order = ORDER_KEYS[key]
 	if order then

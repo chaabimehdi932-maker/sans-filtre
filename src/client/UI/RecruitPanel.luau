@@ -180,11 +180,10 @@ function RecruitPanel.build(screen: ScreenGui, ClientState: any): any
 			total += entry.soldiers
 		end
 		chosenLabel.Text = string.format(
-			"<b>YOUR ARMY:</b> %d squad%s, %d soldiers. You command up to %d at once (reputation), the rest follow your officers.",
+			"<b>YOUR ARMY:</b> %d squad%s, %d soldiers. You command them all (1-9 select, 0 all); squads led by a companion fight on their own.",
 			#state.roster,
 			if #state.roster == 1 then "" else "s",
-			total,
-			(game:GetService("Players").LocalPlayer:GetAttribute("MaxControlled") or 1) :: number
+			total
 		)
 		local phase = ClientState.phase
 		if phase and phase.enlisted then

@@ -147,17 +147,17 @@ end
 -- Army: orders, formations, selection
 ---------------------------------------------------------------------------
 
--- You directly command a group of squads (1 at first, more with reputation); the others follow
--- the ally AI. The server publishes the group in player attributes: "ControlledSquad" (main
--- squad id), "ControlledSquads" ("3,5,8") and "MaxControlled".
+-- You command every squad of your army (companion-led squads fight on their own). Orders go
+-- to the SELECTED squads. Player attributes: "ControlledSquad" (first selected id),
+-- "ControlledSquads" ("3,5,8" = selection) and "CommandedSquads" (all squads you command).
 function ClientActions.controlledId(): number
 	local id = player:GetAttribute("ControlledSquad")
 	return if typeof(id) == "number" then id else 0
 end
 
-function ClientActions.controlledIds(): { number }
+local function parseIds(attribute: string): { number }
 	local ids = {}
-	local raw = player:GetAttribute("ControlledSquads")
+	local raw = player:GetAttribute(attribute)
 	if typeof(raw) == "string" then
 		for id in string.gmatch(raw, "%d+") do
 			table.insert(ids, tonumber(id) :: number)
@@ -166,34 +166,33 @@ function ClientActions.controlledIds(): { number }
 	return ids
 end
 
+function ClientActions.controlledIds(): { number }
+	return parseIds("ControlledSquads")
+end
+
+-- every squad you command (number keys pick among these, in this order)
+function ClientActions.commandedIds(): { number }
+	return parseIds("CommandedSquads")
+end
+
 function ClientActions.isControlled(id: number): boolean
 	return table.find(ClientActions.controlledIds(), id) ~= nil
 end
 
-function ClientActions.maxControlled(): number
-	local n = player:GetAttribute("MaxControlled")
-	return if typeof(n) == "number" then n else 1
-end
-
-for _, attribute in { "ControlledSquad", "ControlledSquads", "MaxControlled" } do
+for _, attribute in { "ControlledSquad", "ControlledSquads", "CommandedSquads" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
 		changed:Fire("Controlled")
 	end)
 end
 
--- Command only this squad (id) or cycle ("next" / "prev")
+-- Select only this squad (id), cycle ("next" / "prev") or everything ("all")
 function ClientActions.selectSquad(which: number | string)
 	selectRemote:FireServer(which)
 end
 
--- Add / remove a squad to the group you command (Shift + click a card)
+-- Add / remove a squad to the selection (Shift + click a card / Shift + number)
 function ClientActions.togglePin(id: number)
 	selectRemote:FireServer({ pin = id })
-end
-
--- Add the next free squad to the group (T)
-function ClientActions.pinNext()
-	selectRemote:FireServer("pinNext")
 end
 
 ---------------------------------------------------------------------------
