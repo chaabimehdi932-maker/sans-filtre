@@ -32,6 +32,8 @@ local vfxRemote = Remotes.get("VFX")
 
 type Squad = any
 
+local skillValue: (skill: string?, key: string) -> number
+
 local SquadService = {}
 
 -- Hooks wired by GameManager (avoids circular requires between services)
@@ -69,6 +71,13 @@ local PATH_MIN_DISTANCE = 30
 ---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
+
+-- Companion skill multiplier (1 when the squad has no companion or the skill lacks the key)
+local CompanionSkills = require(Modules:WaitForChild("CampaignConfig")).Companions.Skills
+function skillValue(skill: string?, key: string): number
+	local info = skill and CompanionSkills[skill]
+	return if info and info[key] then info[key] else 1
+end
 
 local function formationStat(squad: Squad, key: string): number
 	local base = Formations[squad.formation][key]
@@ -158,8 +167,11 @@ function SquadService.create(params: any): Squad
 		name = params.name or def.displayName,
 		maxHealth = def.health * statMult,
 		health = def.health * statMult * math.clamp(params.healthFraction or 1, 0.01, 1),
-		maxMorale = def.morale * statMult,
-		morale = def.morale * statMult * math.clamp(params.moraleFraction or 1, 0.05, 1),
+		maxMorale = def.morale * statMult * skillValue(params.companionSkill, "moraleMult"),
+		morale = def.morale * statMult * math.clamp(params.moraleFraction or 1, 0.05, 1) * skillValue(
+			params.companionSkill,
+			"moraleMult"
+		),
 		damageMult = params.damageMultiplier or 1,
 		alive = true,
 		soldierCount = math.max(1, math.ceil(def.soldiers * math.clamp(params.healthFraction or 1, 0.01, 1))),
@@ -207,6 +219,7 @@ function SquadService.create(params: any): Squad
 		commanderAlive = true, -- the mounted officer leading the squad
 		commanderHealth = GameConfig.Commander.Health * statMult,
 		commanderName = params.commanderName, -- a companion leads it (else a generic officer)
+		companionSkill = params.companionSkill, -- his skill (CampaignConfig.Companions.Skills)
 		aiMemory = {},
 		stats = { damageDealt = 0, kills = 0 },
 	}
@@ -562,6 +575,7 @@ function SquadService.accuracy(squad: Squad, now: number?): number
 		value *= acc.Moving
 	end
 	value *= SquadService.hooks.getTerrainAccuracy(squad)
+	value *= skillValue(squad.companionSkill, "accuracyMult")
 	return math.max(acc.Minimum, value)
 end
 
@@ -777,7 +791,10 @@ local function updateMorale(squad: Squad, dt: number, now: number, heroes: { any
 		end
 	else
 		local bonus = 1 + SquadService.hooks.getTeamBonus(squad.team, "Morale") * GameConfig.Zones.MoraleRegenBonus
-		local regen = Morale.RegenOutOfCombat * (if friendNear then 1 else Morale.RegenAloneMult) * bonus
+		local regen = Morale.RegenOutOfCombat
+			* (if friendNear then 1 else Morale.RegenAloneMult)
+			* bonus
+			* skillValue(squad.companionSkill, "regenMult")
 		squad.morale = math.min(squad.maxMorale, squad.morale + regen * dt)
 	end
 	if squad.morale <= 0 then
@@ -878,6 +895,7 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 			local remaining = if isFinal then distance - squad.stopDistance else distance
 			if remaining > 0.05 and distance > 0.01 then
 				local speed = def.moveSpeed
+					* skillValue(squad.companionSkill, "speedMult")
 					* formationStat(squad, "speedMult")
 					* squad.speedMult
 					* (if squad.routing then Morale.RoutSpeedMult else 1)

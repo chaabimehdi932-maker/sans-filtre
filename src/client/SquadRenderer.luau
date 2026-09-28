@@ -450,6 +450,25 @@ local function applySnapshot(r: any, s: any, shown: number, now: number)
 		else
 			local hidden = s.controlled == true
 			officer.rig.model.Parent = if hidden then nil else r.model
+			-- a named companion leads this squad: his name floats over him
+			if s.commanderName and not officer.tag then
+				local tag = Instance.new("BillboardGui")
+				tag.Size = UDim2.fromOffset(160, 22)
+				tag.StudsOffsetWorldSpace = Vector3.new(0, 4.5, 0)
+				tag.MaxDistance = 120
+				tag.Adornee = officer.rig.root
+				tag.Parent = officer.rig.model
+				local label = Instance.new("TextLabel")
+				label.Size = UDim2.fromScale(1, 1)
+				label.BackgroundTransparency = 1
+				label.Font = Enum.Font.FredokaOne
+				label.TextScaled = true
+				label.TextColor3 = Color3.fromRGB(255, 215, 110)
+				label.TextStrokeTransparency = 0.3
+				label.Text = "👤 " .. s.commanderName
+				label.Parent = tag
+				officer.tag = tag
+			end
 			local cue = (s.order or "") .. "|" .. tostring(s.state == "Engaging")
 			if r.orderCue and cue ~= r.orderCue then
 				r.raiseUntil = now + GameConfig.Commander.RaiseTime

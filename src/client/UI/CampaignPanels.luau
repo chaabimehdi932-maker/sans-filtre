@@ -371,6 +371,14 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			openCompanyModal("Gear")
 		end
 	)
+	button(
+		{ LayoutOrder = 3, Size = UDim2.fromOffset(84, 34), TextSize = 13, Parent = companyButtons },
+		"👤 OFFICERS",
+		Color3.fromRGB(120, 100, 150),
+		function()
+			openCompanyModal("Officers")
+		end
+	)
 	local prisonersButton = button(
 		{ LayoutOrder = 1, Size = UDim2.fromOffset(90, 34), TextSize = 13, Parent = companyButtons },
 		"⛓ 0",
@@ -1047,6 +1055,94 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		end
 	end
 
+	local function fillOfficers()
+		clearModal()
+		local campaign = ClientState.campaign
+		local recruit = ClientState.recruit
+		local companions = campaign and campaign.companions or {}
+		modalTitle.Text = string.format("OFFICERS  %d/%d", #companions, CampaignConfig.Companions.MaxHired)
+		if #companions == 0 then
+			local card = modalCard(1)
+			outlined({
+				Size = UDim2.fromScale(1, 1),
+				Text = "No officers yet. Ask the innkeeper in your employer's town who is looking for work.",
+				TextSize = 18,
+				TextWrapped = true,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.5)
+			return
+		end
+		for index, companion in companions do
+			local info = CampaignConfig.Companions.List[companion.id]
+			local skill = CampaignConfig.Companions.Skills[info.skill]
+			local card = modalCard(index)
+			local leading = nil
+			for _, entry in (recruit and recruit.roster or {}) do
+				if entry.id == companion.squadId then
+					leading = entry.name
+				end
+			end
+			outlined({
+				Position = UDim2.fromOffset(14, 8),
+				Size = UDim2.new(1, -28, 0, 26),
+				Text = string.format("%s  ·  %s", info.name, info.skill),
+				Font = Theme.Bold,
+				TextSize = 20,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.5)
+			outlined({
+				Position = UDim2.fromOffset(14, 36),
+				Size = UDim2.new(1, -28, 0, 40),
+				Text = skill.text .. "\n" .. (if companion.woundedDays > 0
+					then string.format("✚ Wounded: %.1f days", companion.woundedDays)
+					elseif leading then "Leading the " .. leading
+					else "In reserve"),
+				TextSize = 14,
+				TextColor3 = if companion.woundedDays > 0
+					then Color3.fromRGB(255, 170, 120)
+					else Color3.fromRGB(205, 205, 220),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top,
+				ZIndex = 42,
+				Parent = card,
+			}, 1.2)
+			local grid = create("Frame", {
+				Position = UDim2.fromOffset(14, 84),
+				Size = UDim2.new(1, -28, 0, 150),
+				BackgroundTransparency = 1,
+				ZIndex = 42,
+				Parent = card,
+			})
+			create("UIGridLayout", {
+				CellSize = UDim2.fromOffset(140, 32),
+				CellPadding = UDim2.fromOffset(6, 6),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Parent = grid,
+			})
+			for order, entry in (recruit and recruit.roster or {}) do
+				button(
+					{ LayoutOrder = order, TextSize = 12, ZIndex = 43, Parent = grid },
+					"Lead " .. entry.name,
+					if entry.id == companion.squadId then C.Gold else C.Blue,
+					function()
+						send("AssignCompanion", { companion = companion.id, squadId = entry.id })
+					end
+				)
+			end
+			button(
+				{ LayoutOrder = 99, TextSize = 12, ZIndex = 43, Parent = grid },
+				"Stand down",
+				Color3.fromRGB(90, 90, 100),
+				function()
+					send("AssignCompanion", { companion = companion.id })
+				end
+			)
+		end
+	end
+
 	local function openModal(kind: string)
 		modalKind = kind
 		modal.Visible = true
@@ -1055,6 +1151,8 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			fillBoard()
 		elseif kind == "Prisoners" then
 			fillPrisoners()
+		elseif kind == "Officers" then
+			fillOfficers()
 		elseif kind == "Gear" then
 			shopSlots = nil
 			fillItems()
@@ -1514,6 +1612,40 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			addOption(1, "🍺 Heard anything else?", Color3.fromRGB(190, 140, 60), function()
 				openDialogue("Innkeeper", talkingTo)
 			end)
+			addOption(2, "👤 Anyone looking for work?", Color3.fromRGB(120, 100, 150), function()
+				openDialogue("Officers", talkingTo)
+			end)
+		elseif role == "Officers" then
+			speech.Text = "A few officers drink here waiting for a captain who pays. Want me to introduce you?"
+			local hired = {}
+			for _, companion in campaign.companions or {} do
+				hired[companion.id] = true
+			end
+			local shown = 0
+			for i, id in CampaignConfig.Companions.Order do
+				local info = CampaignConfig.Companions.List[id]
+				if not hired[id] then
+					shown += 1
+					addOption(
+						i,
+						string.format(
+							"%s — %s (%s) · 💰 %d",
+							info.name,
+							info.skill,
+							CampaignConfig.Companions.Skills[info.skill].text,
+							info.cost
+						),
+						if campaign.gold >= info.cost then C.Green else Color3.fromRGB(90, 90, 100),
+						function()
+							send("HireCompanion", id)
+							closeDialogue()
+						end
+					)
+				end
+			end
+			if shown == 0 then
+				speech.Text = "You've hired every officer worth his salt, captain."
+			end
 		elseif role == "HorseTrader" then
 			speech.Text = "Good horses, captain. A fast one keeps you alive, a heavy one breaks their lines."
 			addOption(1, "🐎 Show me your horses", Color3.fromRGB(190, 140, 60), function()
@@ -1679,12 +1811,14 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 			row.name.Text = entry.name
 			row.stars.Text = if entry.stars > 0 then string.rep("★", entry.stars) else "recruits"
 			row.stars.TextColor3 = if entry.stars > 0 then C.Gold else Color3.fromRGB(160, 160, 170)
+			local leader = entry.companion and CampaignConfig.Companions.List[entry.companion]
 			row.men.Text = string.format(
-				"%d / %d men   ·   XP %d%s",
+				"%d/%d men · XP %d%s%s",
 				entry.soldiers,
 				entry.maxSoldiers,
 				entry.xp,
-				if entry.nextXP then " / " .. entry.nextXP else " (max)"
+				if entry.nextXP then "/" .. entry.nextXP else "",
+				if leader then " · 👤 " .. leader.name else ""
 			)
 			row.fill.Size = UDim2.fromScale(entry.soldiers / entry.maxSoldiers, 1)
 			row.pathButton.Visible = entry.branchOptions ~= nil
@@ -1808,6 +1942,8 @@ function CampaignPanels.build(screen: ScreenGui, ClientState: any, ClientActions
 		)
 		if modal.Visible and modalKind == "Prisoners" then
 			fillPrisoners()
+		elseif modal.Visible and modalKind == "Officers" then
+			fillOfficers()
 		elseif modal.Visible and (modalKind == "Gear" or modalKind == "ShopArms" or modalKind == "ShopHorses") then
 			fillItems()
 		end

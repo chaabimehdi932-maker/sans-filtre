@@ -61,6 +61,7 @@ local function defaultCampaign(): any
 		Prisoners = {}, -- [unitId] = count
 		Gear = table.clone(CampaignConfig.StartingGear), -- equipped item ids by slot
 		Items = { "Sabre", "Uniform", "FarmHorse" }, -- owned item ids
+		Companions = {}, -- { { id, woundedUntil } } (roster entries carry `companion = id`)
 	}
 end
 

@@ -133,6 +133,7 @@ function RecruitmentService.sendState(player: Player)
 			id = entry.id,
 			unitId = entry.unitId,
 			wage = math.floor(RecruitmentService.wageFor(entry) * 10 + 0.5) / 10,
+			companion = entry.companion,
 			branchOptions = RecruitmentService.branchOptions(entry),
 			name = entryName(entry),
 			xp = math.floor(entry.xp),
@@ -339,8 +340,25 @@ Remotes.get("ConfirmRecruit").OnServerEvent:Connect(function(player: Player)
 	end
 end)
 
+-- The companion leading a roster squad, if he is fit to lead
+local Companions = CampaignConfig.Companions
+function RecruitmentService.companionOf(player: Player, entry: any): any
+	local campaign = DataService.getCampaign(player)
+	if not campaign or not entry.companion then
+		return nil
+	end
+	for _, companion in campaign.Companions or {} do
+		if companion.id == entry.companion and (companion.woundedUntil or 0) <= campaign.Day then
+			return companion
+		end
+	end
+	return nil
+end
+
 local function spawnRosterSquad(player: Player, entry: any, spot: any): any
 	local def = UnitDefinitions.get(entry.unitId)
+	local companion = RecruitmentService.companionOf(player, entry)
+	local info = companion and Companions.List[companion.id]
 	local stars = CampaignConfig.tierForXP(entry.xp)
 	local tier = CampaignConfig.tierInfo(stars)
 	local squad = SquadService.create({
@@ -360,7 +378,10 @@ local function spawnRosterSquad(player: Player, entry: any, spot: any): any
 		),
 		statMultiplier = tier.statMult,
 		damageMultiplier = tier.damageMult,
+		commanderName = info and info.name,
+		companionSkill = info and info.skill,
 	})
+	squad.companionId = companion and companion.id
 	return squad
 end
 
@@ -492,7 +513,7 @@ end
 ]]
 function RecruitmentService.afterBattle(player: Player, victory: boolean): any
 	local session = sessions[player]
-	local report = { lost = {}, evolved = {}, survivors = 0 }
+	local report = { lost = {}, evolved = {}, wounded = {}, survivors = 0 }
 	if not session then
 		return report
 	end
@@ -503,6 +524,16 @@ function RecruitmentService.afterBattle(player: Player, victory: boolean): any
 		if not index then
 			continue -- dismissed meanwhile
 		end
+		-- a companion whose squad was wiped or who fell is wounded (he never dies)
+		local companionId = squad.companionId
+		if companionId and (not squad.alive or not squad.commanderAlive) then
+			for _, companion in campaign.Companions or {} do
+				if companion.id == companionId then
+					companion.woundedUntil = campaign.Day + Companions.WoundDays
+					table.insert(report.wounded, Companions.List[companionId].name)
+				end
+			end
+		end
 		if not squad.alive then
 			if victory and not CampaignConfig.Battle.WipedSquadsLostOnVictory then
 				entry.soldiers = 1
@@ -512,7 +543,10 @@ function RecruitmentService.afterBattle(player: Player, victory: boolean): any
 				continue
 			end
 		else
-			entry.soldiers = math.max(1, squad.soldierCount)
+			local skill = Companions.Skills[squad.companionSkill or ""]
+			local dead = entry.soldiers - squad.soldierCount
+			local recovered = if skill and skill.recover and dead > 0 then math.floor(dead * skill.recover) else 0
+			entry.soldiers = math.max(1, squad.soldierCount + recovered)
 			report.survivors += 1
 		end
 		local before = CampaignConfig.tierForXP(entry.xp)
@@ -520,7 +554,8 @@ function RecruitmentService.afterBattle(player: Player, victory: boolean): any
 		if squad.alive then
 			gained += Evolution.XPSurvive + (if victory then Evolution.XPVictory else 0)
 		end
-		entry.xp += gained
+		local xpSkill = Companions.Skills[squad.companionSkill or ""]
+		entry.xp += gained * (if xpSkill and xpSkill.xpMult then xpSkill.xpMult else 1)
 		local after = CampaignConfig.tierForXP(entry.xp)
 		if after > before then
 			table.insert(report.evolved, {

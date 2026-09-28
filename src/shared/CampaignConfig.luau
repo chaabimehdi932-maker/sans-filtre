@@ -446,6 +446,54 @@ CampaignConfig.Items = {
 CampaignConfig.StartingGear = { weapon = "Sabre", armor = "Uniform", horse = "FarmHorse" }
 CampaignConfig.ItemLootChance = 0.15 -- PLACEHOLDER: chance per victory to loot a piece of gear (+2 % per enemy strength)
 
+-- Companions: named officers hired in town (ask the innkeeper). Assign one to lead a squad:
+-- he replaces its generic officer and brings his skill. If his squad is wiped or he falls,
+-- he is wounded and can't lead for a few days (he never dies).
+CampaignConfig.Companions = {
+	MaxHired = 4, -- PLACEHOLDER
+	WoundDays = 3, -- PLACEHOLDER
+	Order = { "Lefevre", "Marchetti", "Kowalski", "Delacroix", "Varennes" },
+	List = {
+		Lefevre = {
+			name = "Captain Lefèvre",
+			skill = "Rally",
+			cost = 500, -- PLACEHOLDER
+			bio = "A grizzled veteran of twenty campaigns. Men follow him anywhere.",
+		},
+		Marchetti = {
+			name = "Lt. Marchetti",
+			skill = "Marksman",
+			cost = 450, -- PLACEHOLDER
+			bio = "A Piedmontese sharpshooter who drills his men's aim to perfection.",
+		},
+		Kowalski = {
+			name = "Sgt-Major Kowalski",
+			skill = "Drillmaster",
+			cost = 400, -- PLACEHOLDER
+			bio = "Loud, tireless and feared. Recruits become veterans under his cane.",
+		},
+		Delacroix = {
+			name = "Col. Delacroix",
+			skill = "Cavalier",
+			cost = 600, -- PLACEHOLDER
+			bio = "A dashing former hussar who never walks when he can gallop.",
+		},
+		Varennes = {
+			name = "Dr. Varennes",
+			skill = "Surgeon",
+			cost = 450, -- PLACEHOLDER
+			bio = "A field surgeon who carries a sabre as well as a saw.",
+		},
+	},
+	Skills = {
+		Rally = { text = "+25 % morale, rallies faster", moraleMult = 1.25, regenMult = 1.5 }, -- PLACEHOLDER
+		Marksman = { text = "+15 % musket precision", accuracyMult = 1.15 }, -- PLACEHOLDER
+		Drillmaster = { text = "+50 % squad XP", xpMult = 1.5 }, -- PLACEHOLDER
+		Cavalier = { text = "+15 % squad speed", speedMult = 1.15 }, -- PLACEHOLDER
+		Surgeon = { text = "25 % of the squad's dead recover after battle", recover = 0.25 }, -- PLACEHOLDER
+	},
+}
+
 CampaignConfig.Battle = {
 	Reinforcements = 0, -- PLACEHOLDER: free replacement squads per battle (0 = losses are real)
 	RaidAllies = 2, -- PLACEHOLDER: employer squads that join your raid

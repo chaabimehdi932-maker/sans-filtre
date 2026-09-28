@@ -616,6 +616,16 @@ function CampaignService.resolveBattle(spec: any, victory: boolean, prisoners: {
 			)
 		)
 	end
+	for _, name in report.wounded do
+		table.insert(
+			lines,
+			string.format(
+				'<font color="#FFB070">✚ %s is wounded and can\'t lead for %d days.</font>',
+				name,
+				CampaignConfig.Companions.WoundDays
+			)
+		)
+	end
 	if RecruitmentService.ensureArmy(camp.player) then
 		table.insert(lines, "With no army left, a few volunteers join you as a levy.")
 	end
@@ -726,6 +736,7 @@ function CampaignService.flush(camp: any)
 		mercenaries = camp.mercenaries,
 		prisoners = camp.data.Prisoners or {},
 		gear = camp.data.Gear,
+		companions = CampaignService.describeCompanions(camp),
 		items = camp.data.Items,
 		prisonerCount = CampaignService.prisonerCount(camp),
 		prisonerCapacity = CampaignConfig.Prisoners.Capacity,
@@ -733,6 +744,24 @@ function CampaignService.flush(camp: any)
 		enlisted = CampaignService.describeEnlisted(camp),
 	})
 	RecruitmentService.sendState(camp.player)
+end
+
+function CampaignService.describeCompanions(camp: any): { any }
+	local out = {}
+	for _, companion in camp.data.Companions or {} do
+		local leads = nil
+		for _, entry in camp.data.Roster do
+			if entry.companion == companion.id then
+				leads = entry.id
+			end
+		end
+		table.insert(out, {
+			id = companion.id,
+			woundedDays = math.max(0, (companion.woundedUntil or 0) - camp.data.Day),
+			squadId = leads,
+		})
+	end
+	return out
 end
 
 function CampaignService.describeEnlisted(camp: any): any
@@ -1445,6 +1474,64 @@ function ACTIONS.EquipItem(camp: any, itemId: unknown)
 	camp.dirty = true
 end
 
+-- Companions ---------------------------------------------------------------------
+
+function ACTIONS.HireCompanion(camp: any, id: unknown)
+	local info = typeof(id) == "string" and CampaignConfig.Companions.List[id]
+	local data = camp.data
+	data.Companions = data.Companions or {}
+	if not info or not atFriendly(camp, { "Town" }) then
+		return
+	end
+	for _, companion in data.Companions do
+		if companion.id == id then
+			return
+		end
+	end
+	if #data.Companions >= CampaignConfig.Companions.MaxHired then
+		CampaignService.notify(camp, "You can't keep more officers.", "bad")
+		return
+	end
+	if data.Gold < info.cost then
+		CampaignService.notify(camp, "Not enough gold (" .. info.cost .. " needed).", "bad")
+		return
+	end
+	data.Gold -= info.cost
+	table.insert(data.Companions, { id = id :: string, woundedUntil = 0 })
+	CampaignService.notify(camp, info.name .. " joins your company. Assign him a squad (OFFICERS).", "good")
+	camp.dirty = true
+end
+
+-- Put a companion at the head of a squad (squadId = nil: he stands down)
+function ACTIONS.AssignCompanion(camp: any, arg: unknown)
+	if typeof(arg) ~= "table" then
+		return
+	end
+	local id, squadId = (arg :: any).companion, (arg :: any).squadId
+	local data = camp.data
+	local hired = false
+	for _, companion in data.Companions or {} do
+		if companion.id == id then
+			hired = true
+		end
+	end
+	if not hired then
+		return
+	end
+	for _, entry in data.Roster do
+		if entry.companion == id then
+			entry.companion = nil
+		end
+	end
+	for _, entry in data.Roster do
+		if entry.id == squadId then
+			entry.companion = id
+		end
+	end
+	RecruitmentService.sendState(camp.player)
+	camp.dirty = true
+end
+
 function ACTIONS.Stop(camp: any)
 	camp.moving = false
 	camp.dirty = true
@@ -1642,6 +1729,8 @@ end
 
 TOWN_ACTIONS = {
 	ChooseBranch = true,
+	HireCompanion = true,
+	AssignCompanion = true,
 	BuyItem = true,
 	EquipItem = true,
 	RansomPrisoners = true,
