@@ -22,8 +22,8 @@ The code is managed with [Rojo](https://rojo.space).
 | G | Mount / dismount |
 | **X / C / V** | Orders for the squads **you command**: **Hold / Follow / Attack** |
 | **Tab / Shift+Tab** | Command the next / previous squad (alone) |
-| **T** · Shift+click a squad card | Add a squad to the group you command (as many as your reputation allows) |
-| **B → aim → left click** | **Rush**: a striped path shows where your squads will sprint (2× speed); left click charges, right click cancels. Aim it on an enemy squad (the path turns red) to charge that squad wherever it goes. Cavalry ride straight through every enemy squad on the way. 8 s cooldown |
+| **1-9 · 0 · Shift+click a squad card** | Select a squad / all squads / add a squad to the selection |
+| **B → aim → left click** | **Rush**: a striped path shows where your squads will sprint (2× speed); left click charges, right click cancels. Every unit can rush except archers (bows, skirmishers, riflemen) and guns. Aim it on an enemy squad (the path turns red) to charge that squad wherever it goes. Cavalry ride straight through every enemy squad on the way. 8 s cooldown |
 | **T → left click** | **Fire at**: click an enemy squad and your archers / muskets / guns focus it (walking into range if needed); melee squads attack it. Click the ground: guns bombard that spot, shooters take the enemy nearest to it. Right click cancels |
 | **X → 1 / 2 / 3 → Left click** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, left click confirms (right click or X cancels) |
 | F1 · M | Controls panel · minimap |
@@ -56,9 +56,8 @@ become forest, hill and river-crossing battlefields.
 and Bandit Gunners with stolen muskets.
 
 **Battle rules:** musket lines fight in a single rank — precision drops in extra ranks, in
-column, in square, while forming up or moving (`GameConfig.Combat.Accuracy`). Every squad is
-led by a mounted officer riding in front (he raises his sabre on orders); kill him and the
-squad wavers — you are the officer of the squads you command. Hopelessly outnumbered (1:8,
+column, in square, while forming up or moving (`GameConfig.Combat.Accuracy`). Every soldier
+fights on his own (see Systems). Hopelessly outnumbered (1:8,
 `GameConfig.Battle`)? Your army breaks and it's a defeat. An army whose every squad flees
 loses. Field battles are open terrain, a fight to the death; capture zones and walls only
 exist in castle raids and garrison defences. High ground hits harder, woods slow cavalry,
@@ -118,8 +117,15 @@ each runs their own campaign and battles take turns on the one battlefield.
 
 ## Systems
 
-- **Squads**: one logical object with pooled HP, simulated on the server. Every client draws
-  full-size R6 soldiers and animates their joints itself (`client/SquadRenderer`,
+- **Soldiers (Mount & Blade style)**: every soldier is a unit of his own on the server
+  (`server/SoldierService`): his own HP, position, facing, enemy and attack timer. A squad is
+  just the group he belongs to: it takes your orders, keeps one morale and a loose formation
+  (men walk to their own spot and don't fuss once they're close; the formation only turns when
+  it marches or you give it a facing, never to stare at an enemy). In a fight every man picks
+  his own enemy soldier (at most 2 on the same man, so the fight spreads along the front),
+  shooters each fire at a man of the target (arrows fly in a visible arc) and men fall one by
+  one. No mounted officers, no squad health bars. Every client draws full-size R6 soldiers
+  following their server positions and animates their joints itself (`client/SquadRenderer`,
   `client/SoldierModels`): marching,
   aiming, volley recoil, reloading, bayonet thrusts, routing, physics ragdoll casualties
   (capped by `Rendering.MaxRagdolls`, scripted fall beyond it), galloping cavalry with sabres,
@@ -141,6 +147,8 @@ each runs their own campaign and battles take turns on the one battlefield.
 - **Assault**: AI sides no longer trade volleys forever. After a standoff (or when clearly
   winning, or when the enemy is shaken) they go in: melee foot and cavalry charge at a sprint,
   line infantry fix bayonets against shaken or weaker squads, cavalry hunt guns and archers.
+- **AI reacts to your moves**: archers pull back behind their infantry when cavalry (or any
+  rushing squad) comes at them, and nearby foot soldiers move in to intercept.
 - **Enemy AI**: state machine Idle → Advancing → Engaging → Routing → Regrouping. It takes
   objectives, flanks Lines, sends cavalry at guns and exposed squads, forms square against
   cavalry, and falls back when morale is low.

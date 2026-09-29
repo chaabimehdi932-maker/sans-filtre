@@ -26,6 +26,8 @@ local Modules = ReplicatedStorage:WaitForChild("Modules")
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local MathUtil = require(Modules:WaitForChild("MathUtil"))
 
+local UnitDefinitions = require(Modules:WaitForChild("UnitDefinitions"))
+
 local BattlePlan = require(script.Parent:WaitForChild("BattlePlan"))
 local SquadService = require(script.Parent:WaitForChild("SquadService"))
 local ZoneService = require(script.Parent:WaitForChild("ZoneService"))
@@ -413,6 +415,86 @@ local function artillery(squad: any, enemies: { any })
 	end
 end
 
+-- An enemy charging at `target`: cavalry or a rushing squad close and heading at it (nil if none)
+local function chargeComingAt(enemies: { any }, target: any): any
+	local T = AI.Threat
+	for _, enemy in enemies do
+		if enemy.def.attackType ~= "Artillery" and (enemy.def.visual == "Cavalry" or enemy.rushing) then
+			local offset = MathUtil.flat(target.position - enemy.position)
+			local distance = offset.Magnitude
+			if distance <= T.Radius and distance > 0.1 then
+				local heading = MathUtil.lookFromYaw(enemy.moveYaw or enemy.yaw)
+				if
+					enemy.rushing
+					or enemy.preferredTarget == target
+					or (enemy.isMoving and heading:Dot(offset / distance) >= T.HeadingDot)
+				then
+					return enemy
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- Archers under a charge pull back behind their infantry (or just away). True = handled.
+local function evade(squad: any, enemies: { any }, allies: { any }, now: number): boolean
+	local mem = squad.aiMemory
+	if mem.evadeUntil and now < mem.evadeUntil then
+		return true -- keep running to the cover spot
+	end
+	if not UnitDefinitions.isArcher(squad.def) then
+		return false
+	end
+	local threat = chargeComingAt(enemies, squad)
+	if not threat then
+		return false
+	end
+	local T = AI.Threat
+	local cover = nearestIn(squad.position, allies, 150, function(other, distance)
+		if other == squad or UnitDefinitions.isArcher(other.def) or other.def.attackType == "Artillery" then
+			return math.huge
+		end
+		return distance
+	end)
+	local away = MathUtil.flat(squad.position - threat.position)
+	away = if away.Magnitude > 0.1 then away.Unit else -MathUtil.lookFromYaw(squad.yaw)
+	local spot
+	if cover then
+		local behind = MathUtil.flat(cover.position - threat.position)
+		behind = if behind.Magnitude > 0.1 then behind.Unit else away
+		spot = cover.position + behind * (cover.radius + squad.radius + T.CoverDepth)
+	else
+		spot = squad.position + away * 60
+	end
+	squad.preferredTarget = nil
+	SquadService.moveTo(squad, spot, 3, T.RetreatSpeedMult)
+	mem.evadeUntil = now + T.RetreatTime
+	return true
+end
+
+-- Melee foot near a friendly archer squad under a charge move in to intercept the riders
+local function intercept(squad: any, enemies: { any }, allies: { any }): boolean
+	local def = squad.def
+	if def.attackType ~= "Melee" or def.visual == "Cavalry" then
+		return false
+	end
+	for _, friend in allies do
+		if
+			friend ~= squad
+			and UnitDefinitions.isArcher(friend.def)
+			and MathUtil.flatDistance(friend.position, squad.position) <= AI.Threat.InterceptRadius
+		then
+			local threat = chargeComingAt(enemies, friend)
+			if threat then
+				chargeAt(squad, threat)
+				return true
+			end
+		end
+	end
+	return false
+end
+
 -- Decide what `squad` does next. enemies = non-routing squads of the other team.
 function SquadAI.think(squad: any, enemies: { any }, allies: { any }, tuningValues: any, now: number)
 	tuning = tuningValues
@@ -439,6 +521,11 @@ function SquadAI.think(squad: any, enemies: { any }, allies: { any }, tuningValu
 		end
 		mem.regroupPoint = regroup
 		SquadService.moveTo(squad, mem.regroupPoint, 5)
+		return
+	end
+
+	-- answer the enemy's moves first: archers dodge charges, foot soldiers cover them
+	if evade(squad, enemies, allies, now) or intercept(squad, enemies, allies) then
 		return
 	end
 

@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.15"
+GameConfig.Version = "0.16"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -157,6 +157,38 @@ GameConfig.Combat = {
 
 -- Every squad is led by an officer on horseback, riding at its front (the player leads the
 -- squads they command directly). Killing him shakes the whole squad.
+--[[
+	Soldiers (Mount & Blade style): every soldier is a unit of its own, simulated on the server
+	(server/SoldierService). A squad is the GROUP it belongs to: it takes orders, has a loose
+	formation spot for each man and one morale. In a fight each soldier picks his own enemy
+	soldier (at most MaxAttackersPerFoe on the same man, so they spread along the front).
+]]
+GameConfig.Soldiers = {
+	TickInterval = 0.1, -- soldier simulation step (s)
+	FormationLooseness = 1.3, -- PLACEHOLDER: × formation spacing (loose ranks)
+	SlotNoise = 1.2, -- PLACEHOLDER: each man stands up to this far off his exact spot
+	SlotTolerance = 1.5, -- close enough to his spot: he doesn't shuffle around
+	CatchUpMult = 1.35, -- men far from their spot walk this much faster
+	PersonalSpace = 2.3, -- infantry keep this far apart (cavalry ×1.8)
+	EngageRadius = 14, -- PLACEHOLDER: melee men go for enemy soldiers this close
+	ChargeEngageRadius = 40, -- PLACEHOLDER: …this close when their group charges / is in contact
+	LineEngageRadius = 7, -- PLACEHOLDER: musket / line men only when the enemy comes this close
+	SelfDefenseRadius = 4, -- archers, skirmishers and gun crews only defend themselves
+	ChaseLeash = 24, -- PLACEHOLDER: how far a man leaves his spot for a fight (holding)
+	ChargeLeash = 60, -- …when his group is charging / attacking
+	MaxAttackersPerFoe = 2, -- PLACEHOLDER: spreads the fight out
+	MeleeReach = 3, -- infantry swing distance (cavalry 4.2)
+	MeleeHitChance = 0.7, -- PLACEHOLDER (per-hit damage is scaled so the average stays the same)
+	-- Lethality: a unit's damage split over its men made duels last ~20 blows. These make a man
+	-- fall in a few hits (Mount & Blade feel); battles are faster than in v0.15.
+	MeleeDamageMult = 5, -- PLACEHOLDER: ≈ 4 sword / bayonet hits kill a line infantryman
+	RangedDamageMult = 3.5, -- PLACEHOLDER: ≈ 3 musket hits
+	ArrowSpeed = 65, -- studs/s (arrows fly in a visible arc)
+	BulletSpeed = 350,
+	ShotHitAtMaxRange = 0.6, -- hit chance multiplier at maximum range (1 up close)
+	PierceRadius = 2.8, -- rushing riders hit the men they ride through
+}
+
 GameConfig.Commander = {
 	Health = 140, -- PLACEHOLDER
 	-- share of the damage a squad takes that hits its officer, by attack kind
@@ -213,6 +245,16 @@ GameConfig.AI = {
 	CavalryDisengageTime = 5,
 	ExposedRadius = 30, -- a squad with no friend this close is "exposed"
 	SquareThreatRadius = 50, -- infantry forms square when enemy cavalry is this close
+	-- Reacting to your moves: archers pull back behind their infantry when cavalry (or any
+	-- rushing squad) comes at them, and nearby melee foot moves in to intercept
+	Threat = {
+		Radius = 130, -- PLACEHOLDER: a charge this close is noticed
+		HeadingDot = 0.6, -- …if it's heading at us (cos of the angle)
+		RetreatSpeedMult = 1.3, -- PLACEHOLDER
+		RetreatTime = 4, -- s before re-checking
+		CoverDepth = 14, -- archers stand this far behind the friend covering them
+		InterceptRadius = 110, -- PLACEHOLDER: melee foot this close to a threatened archer squad move in
+	},
 	-- Shared battle plan per side (BattlePlan): one line, advancing together
 	Plan = {
 		UpdateInterval = 0.5,
@@ -244,7 +286,8 @@ GameConfig.AI = {
 
 -- Client-side soldier rendering
 GameConfig.Rendering = {
-	MaxActiveSoldiers = 200, -- cap on rendered soldiers (both teams); squads show fewer when over it
+	MaxActiveSoldiers = 260, -- cap on rendered soldiers (both teams); only some are drawn when over it
+	MaxArrows = 120, -- arrows drawn in flight at once
 	MaxRagdolls = 40, -- physics ragdolls simulated at once; extra deaths use the scripted fall
 	RagdollDistance = 180, -- only soldiers this close to the camera ragdoll
 	RagdollSettleTime = 2.8, -- seconds before a ragdoll is frozen in place
@@ -269,6 +312,7 @@ GameConfig.Sounds = {
 	Swing = "rbxasset://sounds/swordslash.wav",
 	Hit = "rbxasset://sounds/swordlunge.wav",
 	ChargeImpact = "rbxasset://sounds/collide.wav",
+	Bow = "", -- PLACEHOLDER: bow release sound asset id (arrows)
 	Music = "", -- PLACEHOLDER: put a drum / battle music asset id here
 }
 

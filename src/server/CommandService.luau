@@ -29,6 +29,8 @@ local GameConfig = require(Modules:WaitForChild("GameConfig"))
 local MathUtil = require(Modules:WaitForChild("MathUtil"))
 local Remotes = require(Modules:WaitForChild("Remotes"))
 
+local UnitDefinitions = require(Modules:WaitForChild("UnitDefinitions"))
+
 local SquadService = require(script.Parent:WaitForChild("SquadService"))
 local ZoneService = require(script.Parent:WaitForChild("ZoneService"))
 
@@ -269,6 +271,18 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 		return
 	end
 	if order == "Rush" then
+		-- every unit can rush except archers (bows, skirmishers, sharpshooters) and guns
+		local rushers = {}
+		for _, squad in squads do
+			if UnitDefinitions.canRush(squad.def) then
+				table.insert(rushers, squad)
+			end
+		end
+		if #rushers == 0 then
+			CommandService.hooks.notify(player, "Archers and guns can't rush.", "bad")
+			return
+		end
+		squads = rushers
 		local now = os.clock()
 		local remaining = (lastRushAt[player] or -math.huge) + Orders.RushCooldown - now
 		if remaining > 0 then

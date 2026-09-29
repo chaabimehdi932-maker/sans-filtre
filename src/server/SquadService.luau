@@ -1,12 +1,15 @@
 --[[
 	SquadService
-	A squad is ONE logical object (pooled HP, morale, position, facing, formation).
-	All combat math runs on the squad, never per soldier. The server owns NO soldier parts:
-	clients draw and animate the soldiers from the snapshots (client/SquadRenderer).
+	A squad is a GROUP of individual soldiers (server/SoldierService: each man has his own
+	position, HP and fight). The squad holds what the group shares: orders, formation anchor
+	(squad.position) and facing (squad.yaw), morale, target. squad.health = sum of its men's HP,
+	squad.soldierCount = living men. The server owns NO soldier parts: clients draw and animate
+	the men from the snapshots (client/SquadRenderer).
 
 	Frame loop (called from GameManager on Heartbeat):
-	  • every frame   : movement along PathfindingService waypoints
-	  • every 0.2 s   : morale, target selection, volleys / melee / artillery
+	  • every frame   : the group's anchor moves along PathfindingService waypoints
+	  • every 0.1 s   : every soldier walks to his spot / his foe, swings, shoots (SoldierService)
+	  • every 0.2 s   : morale, the group's target, artillery
 
 	Behaviour layers (CommandService for the player's squads, EnemyAIController for the enemy)
 	only set intent: moveTo / stop / setFormation / preferredTarget / idleYaw.
@@ -23,6 +26,7 @@ local Remotes = require(Modules:WaitForChild("Remotes"))
 local UnitDefinitions = require(Modules:WaitForChild("UnitDefinitions"))
 
 local MapService = require(script.Parent:WaitForChild("MapService"))
+local SoldierService = require(script.Parent:WaitForChild("SoldierService"))
 
 local Combat = GameConfig.Combat
 local Morale = GameConfig.Morale
@@ -61,6 +65,7 @@ local squadList: { Squad } = {}
 local nextId = 0
 local paused = false
 local combatTimer = 0
+local soldierTimer = 0
 
 local PATH_MIN_DISTANCE = 30
 
@@ -212,13 +217,14 @@ function SquadService.create(params: any): Squad
 		isPlayerControlled = false, -- true = obeys its owner's hotkeys, false = AI (SquadController)
 		rank = params.rank or 0, -- veteran stars = evolution tier
 		rosterId = params.rosterId, -- campaign roster entry this squad was deployed from
-		commanderAlive = true, -- the mounted officer leading the squad
+		commanderAlive = true, -- (no mounted officer any more since v0.16: kept for companions)
 		commanderHealth = GameConfig.Commander.Health * statMult,
 		commanderName = params.commanderName, -- a companion leads it (else a generic officer)
 		companionSkill = params.companionSkill, -- his skill (CampaignConfig.Companions.Skills)
 		aiMemory = {},
 		stats = { damageDealt = 0, kills = 0 },
 	}
+	SoldierService.populate(squad, squad.soldierCount)
 	recomputeRadius(squad)
 	squadsById[squad.id] = squad
 	table.insert(squadList, squad)
@@ -333,22 +339,6 @@ local function destroySquad(squad: Squad, attackerTeam: string?)
 	SquadService.hooks.onSquadDestroyed(squad, attackerTeam)
 end
 
-local function refreshSoldierCount(squad: Squad, attackerTeam: string?, creditPlayer: Player?): number
-	local desired = if squad.health <= 0
-		then 0
-		else math.max(1, math.ceil(squad.def.soldiers * squad.health / squad.maxHealth))
-	local lost = squad.soldierCount - desired
-	if lost > 0 then
-		squad.soldierCount = desired
-		if desired > 0 then
-			recomputeRadius(squad)
-		end
-		SquadService.hooks.onCasualties(squad, lost, attackerTeam, creditPlayer)
-		return lost
-	end
-	return 0
-end
-
 local function startRout(squad: Squad)
 	squad.routing = true
 	squad.aiRegrouping = false
@@ -429,8 +419,29 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 		mult *= Combat.RoutingDamageTakenMult
 	end
 
-	local dealt = math.min(squad.health, amount * mult)
-	squad.health -= dealt
+	-- the blow lands on one man (info.soldier), or on the men nearest to where it came from
+	local total = amount * mult
+	local dealt, lost = 0, 0
+	local victims = if info.soldier then { info.soldier } else SoldierService.nearest(squad, info.fromPosition)
+	for _, soldier in victims do
+		if total - dealt <= 0.001 then
+			break
+		end
+		if soldier.alive and soldier.squad == squad then
+			local hit = math.min(soldier.hp, total - dealt)
+			soldier.hp -= hit
+			soldier.hitUntil = now + 0.35
+			dealt += hit
+			if soldier.hp <= 0.001 then
+				SoldierService.kill(squad, soldier)
+				lost += 1
+			end
+		end
+	end
+	squad.health = math.max(0, squad.health - dealt)
+	if #squad.soldiers == 0 then
+		squad.health = 0
+	end
 	squad.lastDamagedAt = now
 	squad.inCombatUntil = now + Morale.CombatCooldown
 	if info.attacker then
@@ -446,39 +457,33 @@ function SquadService.applyDamage(squad: Squad, amount: number, info: any): numb
 	end
 	squad.morale = math.max(0, squad.morale - moraleLoss)
 
-	-- the officer riding at the front can be hit too (every squad has one; in your army he
-	-- relays your orders)
-	if squad.commanderAlive and dealt > 0 then
-		local exposure = GameConfig.Commander.Exposure[kind] or 0.05
-		squad.commanderHealth -= dealt * exposure
-		if squad.commanderHealth <= 0 then
-			squad.commanderAlive = false
-			squad.morale = math.max(0, squad.morale - GameConfig.Commander.DeathMorale)
-			SquadService.hooks.onCommanderKilled(squad, info)
-		end
-	end
-
-	-- floating damage number at the spot that was hit
-	if dealt >= 0.5 then
+	-- floating damage number where a cannonball or the commander's blade landed
+	if dealt >= 0.5 and (kind == "Artillery" or kind == "Hero") then
 		local offset = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5) * squad.radius
 		vfxRemote:FireAllClients({
 			kind = "DamageNumber",
 			position = squad.position + offset + Vector3.new(0, 6, 0),
 			amount = math.floor(dealt + 0.5),
 			victimTeam = squad.team,
-			big = kind == "Charge" or kind == "Artillery" or kind == "Hero",
+			big = true,
 		})
 	end
 
 	local creditPlayer = info.creditPlayer or (info.attacker and info.attacker.owner)
-	local lost = refreshSoldierCount(squad, info.attackerTeam, creditPlayer)
+	if lost > 0 then
+		squad.soldierCount = #squad.soldiers
+		if squad.soldierCount > 0 then
+			recomputeRadius(squad)
+		end
+		SquadService.hooks.onCasualties(squad, lost, info.attackerTeam, creditPlayer)
+	end
 	if lost > 0 and info.attacker then
 		info.attacker.stats.kills += lost -- squad XP (campaign evolution)
 	end
 	if lost > 0 then
 		SquadService.hooks.onKill(squad, lost, info)
 	end
-	if squad.health <= 0 then
+	if #squad.soldiers == 0 then
 		destroySquad(squad, info.attackerTeam)
 	elseif squad.morale <= 0 and not squad.routing then
 		startRout(squad)
@@ -537,25 +542,6 @@ local function findTarget(squad: Squad, heroes: { any }): any
 	return target
 end
 
-local function dealDamage(attacker: Squad, target: any, amount: number, kind: string, now: number)
-	attacker.inCombatUntil = now + Morale.CombatCooldown
-	if target.kind == "Squad" then
-		SquadService.applyDamage(target.squad, amount, {
-			kind = kind,
-			fromPosition = attacker.position,
-			attackerTeam = attacker.team,
-			attacker = attacker,
-		})
-	else
-		SquadService.hooks.damageHero(
-			target.player,
-			amount * GameConfig.Hero.DamageTakenFromSquadsMult,
-			attacker.position,
-			kind
-		)
-	end
-end
-
 -- Musket precision from formation quality (GameConfig.Combat.Accuracy) and terrain
 function SquadService.accuracy(squad: Squad, now: number?): number
 	local acc = Combat.Accuracy
@@ -575,9 +561,6 @@ function SquadService.accuracy(squad: Squad, now: number?): number
 		value *= acc.Moving
 	elseif (now or time()) < (squad.settleUntil or 0) then
 		value *= acc.Settling -- halted but not yet back in strict ranks
-	end
-	if math.abs(MathUtil.angleDiff(squad.yaw, squad.combatYaw)) > math.rad(20) then
-		value *= acc.Turning
 	end
 	-- woods break formations, water unsettles the ranks
 	local terrain = GameConfig.Terrain
@@ -601,21 +584,6 @@ local function heightMult(attacker: Squad, targetPosition: Vector3): number
 		return terrain.LowGroundMult
 	end
 	return 1
-end
-
-local function fireVolley(squad: Squad, target: any, distance: number, range: number, now: number)
-	local def = squad.def
-	local falloff = 1 - Combat.RangeFalloff * math.clamp(distance / range, 0, 1)
-	local damage = def.damage
-		* heightMult(squad, target.position)
-		* SquadService.accuracy(squad, now)
-		* squad.damageMult
-		* formationStat(squad, "firepowerMult")
-		* strengthFactor(squad)
-		* damageRoll()
-		* falloff
-	dealDamage(squad, target, damage, "Ranged", now)
-	vfxRemote:FireAllClients({ kind = "Volley", squadId = squad.id, direction = MathUtil.lookFromYaw(squad.yaw) })
 end
 
 local function fireArtillery(squad: Squad, target: any, distance: number, range: number)
@@ -673,75 +641,6 @@ local function fireArtillery(squad: Squad, target: any, distance: number, range:
 	end)
 end
 
-local function doMelee(squad: Squad, target: any, now: number)
-	local def = squad.def
-	local damage = def.meleeDamage
-		* squad.damageMult
-		* strengthFactor(squad)
-		* damageRoll()
-		* heightMult(squad, target.position)
-	local kind = "Melee"
-	if def.chargeMultiplier > 1 and now < squad.chargeReadyUntil then
-		-- Charge bonus: consumed by the first hit; the squad must disengage and build speed again
-		damage *= def.chargeMultiplier
-		kind = "Charge"
-		squad.chargeReadyUntil = 0
-		squad.movingTime = 0
-		squad.lastChargeAt = now
-		vfxRemote:FireAllClients({
-			kind = "ChargeImpact",
-			position = target.position,
-			squadId = squad.id,
-			targetId = if target.squad then target.squad.id else nil,
-		})
-	elseif now - (squad.lastClashVfx or 0) > 1.2 then
-		-- tells clients to play the melee animation on both squads (throttled)
-		squad.lastClashVfx = now
-		vfxRemote:FireAllClients({
-			kind = "Clash",
-			position = target.position,
-			squadId = squad.id,
-			targetId = if target.squad then target.squad.id else nil,
-		})
-	end
-	dealDamage(squad, target, damage, kind, now)
-end
-
--- Rushing cavalry ride straight through enemy squads, hitting each one once per rush
-local function pierce(squad: Squad, now: number): boolean
-	if not (squad.rushing and squad.rushTarget and squad.def.attackType == "Melee" and squad.isMoving) then
-		return false
-	end
-	squad.pierced = squad.pierced or {}
-	for _, other in table.clone(squadList) do
-		if other.alive and other.team ~= squad.team and not squad.pierced[other.id] then
-			if MathUtil.flatDistance(squad.position, other.position) <= squad.radius + other.radius then
-				squad.pierced[other.id] = true
-				local damage = squad.def.meleeDamage
-					* squad.def.chargeMultiplier
-					* GameConfig.Orders.RushPierceMult
-					* squad.damageMult
-					* strengthFactor(squad)
-					* damageRoll()
-				SquadService.applyDamage(other, damage, {
-					kind = "Charge",
-					fromPosition = squad.position,
-					attackerTeam = squad.team,
-					attacker = squad,
-				})
-				squad.inCombatUntil = now + Morale.CombatCooldown
-				vfxRemote:FireAllClients({
-					kind = "ChargeImpact",
-					position = other.position,
-					squadId = squad.id,
-					targetId = other.id,
-				})
-			end
-		end
-	end
-	return true -- keep galloping: no stopping to fight while piercing
-end
-
 -- Sieges: guns of the attacking side shell the closed gates. Howitzers (siegeGun) prefer a
 -- gate to troops unless ordered onto a squad; other guns only when nothing else is in range.
 local function siegeTarget(squad: Squad, target: any): any
@@ -786,26 +685,18 @@ local function batterGate(squad: Squad, now: number)
 	MapService.damageGate(gate, def.meleeDamage * strengthFactor(squad) * GameConfig.Siege.BatterMult)
 end
 
+-- The group's target: shooters aim at it man by man (SoldierService); guns fire here
 local function attemptAttack(squad: Squad, target: any, now: number)
 	local def = squad.def
+	if def.attackType ~= "Artillery" then
+		squad.fireTarget = if target.kind == "Squad" or target.kind == "Hero" then target else nil
+		return
+	end
 	local offset = MathUtil.flat(target.position - squad.position)
 	local distance = offset.Magnitude
 	if distance > 0.01 then
 		squad.combatYaw = MathUtil.yawFromDirection(offset)
 		squad.combatYawUntil = now + 1
-	end
-
-	-- Hand-to-hand when close enough (bayonets for infantry, sabres for cavalry)
-	local edge = distance - squad.radius - target.radius
-	if edge <= def.meleeRange and (target.kind == "Squad" or target.kind == "Hero") then
-		if now - squad.lastMelee >= def.meleeCooldown then
-			squad.lastMelee = now
-			doMelee(squad, target, now)
-		end
-		return
-	end
-	if def.attackType == "Melee" then
-		return
 	end
 
 	local range = def.attackRange * rangeMultiplier(squad)
@@ -822,11 +713,21 @@ local function attemptAttack(squad: Squad, target: any, now: number)
 		return
 	end
 	squad.lastAttack = now
-	if def.attackType == "Artillery" then
-		fireArtillery(squad, target, distance, range)
-	else
-		fireVolley(squad, target, distance, range, now)
+	fireArtillery(squad, target, distance, range)
+end
+
+-- Is the group going in for a melee (charge, attack order, bayonets)? Its men then chase
+-- enemies further from their spots (SoldierService)
+local function meleeCommitted(squad: Squad): boolean
+	if squad.rushing then
+		return true
 	end
+	local target = squad.preferredTarget
+	if target and target.alive and squad.goal and squad.stopDistance <= squad.radius + target.radius + 4 then
+		return true
+	end
+	local enemy, distance = SquadService.nearestEnemy(squad, 60)
+	return enemy ~= nil and distance - squad.radius - enemy.radius <= 4
 end
 
 ---------------------------------------------------------------------------
@@ -1001,6 +902,13 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 	local def = squad.def
 	local moving = false
 	refreshTerrain(squad, now)
+	-- how fast the men walk right now (SoldierService)
+	squad.moveSpeedNow = def.moveSpeed
+		* skillValue(squad.companionSkill, "speedMult")
+		* formationStat(squad, "speedMult")
+		* terrainSpeed(squad)
+		* squad.speedMult
+		* (if squad.routing then Morale.RoutSpeedMult else 1)
 	if now >= squad.formingUntil then
 		local point, isFinal = nextPoint(squad, now)
 		if point then
@@ -1054,9 +962,11 @@ local function stepMovement(squad: Squad, dt: number, now: number)
 	end
 	squad.isMoving = moving
 
+	-- the formation turns when it marches or is given a facing, never to stare at an enemy
+	-- (single men turn to their foe); only guns wheel onto their target
 	local desired = if moving
 		then squad.moveYaw
-		elseif now < squad.combatYawUntil then squad.combatYaw
+		elseif def.attackType == "Artillery" and now < squad.combatYawUntil then squad.combatYaw
 		else squad.idleYaw
 	local turnSpeed = if def.attackType == "Artillery" then Combat.ArtilleryTurnSpeed else Combat.TurnSpeed
 	local newYaw = MathUtil.turnTowards(squad.yaw, desired, turnSpeed * dt)
@@ -1093,6 +1003,12 @@ function SquadService.update(dt: number)
 		end
 	end
 
+	soldierTimer += dt
+	if soldierTimer >= GameConfig.Soldiers.TickInterval then
+		SoldierService.tick(squadList, SquadService.hooks.getHeroes(), soldierTimer, now)
+		soldierTimer = 0
+	end
+
 	combatTimer += dt
 	if combatTimer < Combat.TickInterval then
 		return
@@ -1104,12 +1020,15 @@ function SquadService.update(dt: number)
 	for _, squad in table.clone(squadList) do
 		if squad.alive then
 			updateMorale(squad, tickDt, now, heroes)
-			if squad.alive and not squad.routing and now >= squad.formingUntil and not pierce(squad, now) then
+			squad.fireTarget = nil
+			if squad.alive and not squad.routing and now >= squad.formingUntil then
+				squad.meleeCommitted = meleeCommitted(squad)
 				local target = findTarget(squad, heroes)
 				target = orderedTarget(squad, siegeTarget(squad, target))
 				if target then
 					attemptAttack(squad, target, now)
-				elseif squad.atGate then
+				end
+				if squad.atGate and not (target and squad.def.attackType == "Artillery") then
 					batterGate(squad, now)
 				end
 			end
@@ -1118,6 +1037,34 @@ function SquadService.update(dt: number)
 			end
 		end
 	end
+end
+
+-- What the soldiers need from their group (SoldierService.api)
+SoldierService.api.applyDamage = function(squad: Squad, amount: number, info: any): number
+	return SquadService.applyDamage(squad, amount, info)
+end
+SoldierService.api.damageHero = function(player: Player, amount: number, from: Vector3, kind: string)
+	SquadService.hooks.damageHero(player, amount, from, kind)
+end
+SoldierService.api.accuracy = function(squad: Squad, now: number): number
+	return SquadService.accuracy(squad, now)
+end
+SoldierService.api.meleeMult = function(squad: Squad, targetPosition: Vector3): number
+	return squad.damageMult * heightMult(squad, targetPosition) * damageRoll()
+end
+SoldierService.api.rangedMult = function(squad: Squad, targetPosition: Vector3): number
+	return squad.damageMult * heightMult(squad, targetPosition) * formationStat(squad, "firepowerMult") * damageRoll()
+end
+SoldierService.api.chargeImpact = function(squad: Squad, position: Vector3, targetSquad: Squad?)
+	vfxRemote:FireAllClients({
+		kind = "ChargeImpact",
+		position = position,
+		squadId = squad.id,
+		targetId = if targetSquad then targetSquad.id else nil,
+	})
+end
+SoldierService.api.shots = function(list: { any })
+	vfxRemote:FireAllClients({ kind = "Shots", list = list })
 end
 
 function SquadService.setPaused(value: boolean)
@@ -1148,12 +1095,13 @@ function SquadService.snapshot(): { any }
 			z = squad.position.Z,
 			yaw = squad.yaw,
 			soldiers = squad.soldierCount,
+			men = SoldierService.pack(squad, now), -- every man: id, position, facing, flags
 			radius = squad.radius,
 			moving = squad.isMoving,
 			rushing = squad.rushing,
 			charging = now < squad.chargeReadyUntil,
 			controlled = squad.isPlayerControlled,
-			commander = squad.commanderAlive,
+			commander = false, -- no mounted officers since v0.16
 			forest = squad.inForest == true,
 			water = squad.inWater == true,
 			accuracy = if squad.def.attackType == "Ranged" then SquadService.accuracy(squad, now) else nil,
@@ -1179,6 +1127,7 @@ function SquadService.removeOwnedBy(player: Player)
 end
 
 function SquadService.clearAll()
+	SoldierService.clearShots()
 	for _, squad in table.clone(squadList) do
 		SquadService.remove(squad)
 	end

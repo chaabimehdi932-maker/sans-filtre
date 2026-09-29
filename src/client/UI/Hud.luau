@@ -715,9 +715,7 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 				"LVL " .. playerLevel .. (if squad then "  ·  " .. string.upper(squad.order) else ""),
 				C.Gold
 			)
-			unitCard:setValue(
-				if squad then string.format("%d/%d", squad.soldiers, def.soldiers) else "0/" .. def.soldiers
-			)
+			unitCard:setValue(if squad then string.format("%d men", squad.soldiers) else "—")
 			unitCard:setHealth(if squad then squad.hp else 0)
 			unitCard:setSelected(squad ~= nil)
 		end

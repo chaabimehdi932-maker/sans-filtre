@@ -25,6 +25,9 @@
 	  formations        formations this unit may use (first one = default)
 	  formationModifiers optional per-formation multipliers on top of FormationDefinitions
 	  canMoveAndFire    true = can shoot while walking
+	  projectile        "Arrow" (bows: visible arcs) | "Musket" (default for Ranged units)
+	  sharpshooter      true = archer-type (no Rush, keeps out of melee) without canMoveAndFire
+	  health / damage / meleeDamage are for the WHOLE squad: each soldier gets health / soldiers
 	  spacingMult       multiplies soldier spacing inside formations
 	  visual            "Infantry" | "Cavalry" | "Artillery" (placeholder look)
 	  hatColor/hatHeight placeholder colours that make unit types recognisable
@@ -294,6 +297,7 @@ UnitDefinitions.Units = {
 		branchOnly = true,
 		description = "Rifled muskets: they pick off men at long range but reload slowly.",
 		attackType = "Ranged",
+		sharpshooter = true, -- counts as an archer-type unit: no Rush, retreats from cavalry
 		health = 420, -- PLACEHOLDER
 		moveSpeed = 12,
 		damage = 62, -- PLACEHOLDER
@@ -467,6 +471,27 @@ UnitDefinitions.Units = {
 
 function UnitDefinitions.get(unitId: string): any
 	return UnitDefinitions.Units[unitId]
+end
+
+--[[
+	What a shooter fires: def.projectile = "Arrow" (bows: a slow, visible arc) or "Musket"
+	(default for every other Ranged unit). nil for melee units and guns.
+]]
+function UnitDefinitions.projectile(def: any): string?
+	if def.projectile then
+		return def.projectile
+	end
+	return if def.attackType == "Ranged" then "Musket" else nil
+end
+
+-- Archer-type units: bows, skirmishers, sharpshooters. They can't Rush and stay out of melee.
+function UnitDefinitions.isArcher(def: any): boolean
+	return def.projectile == "Arrow" or def.canMoveAndFire == true or def.sharpshooter == true
+end
+
+-- Rush (2× sprint into the enemy): every unit except archers and guns
+function UnitDefinitions.canRush(def: any): boolean
+	return def.attackType ~= "Artillery" and not UnitDefinitions.isArcher(def)
 end
 
 return UnitDefinitions

@@ -1,12 +1,15 @@
 --[[
 	SquadRenderer
-	Draws every squad on this client from the server snapshots: one full-size R6 rig per soldier
-	(SoldierModels) walking to its formation slot, posed by SoldierAnimationService.
-	  • Hybrid HP: the server keeps one pooled HP per squad; when its soldier count drops, random
-	    soldiers here play a death animation and the rest close ranks.
-	  • Performance: at most GameConfig.Rendering.MaxActiveSoldiers rigs across both teams
-	    (squads show proportionally fewer soldiers when over the cap), distance LOD on animation,
-	    and only each rig's anchored root is moved (BulkMoveTo).
+	Draws every soldier on this client from the server snapshots. Since v0.16 every soldier is
+	a unit of its own on the server (SoldierService): each snapshot carries every man's id,
+	position, facing and flags (squad.men, 8 bytes a man). Here each man is one full-size R6
+	rig (SoldierModels) that follows HIS server position smoothly, posed by
+	SoldierAnimationService. A man missing from the snapshot died: he falls (ragdoll).
+	  • Gun crews: the loader and gunner play their drill around the cannon locally.
+	  • Performance: at most GameConfig.Rendering.MaxActiveSoldiers rigs across both teams (over
+	    it, only every 2nd / 3rd… man is drawn), distance LOD on animation, and only each rig's
+	    anchored root is moved (BulkMoveTo).
+	  • No mounted officers and no squad health bars any more: a small name tag over your groups.
 ]]
 
 local Players = game:GetService("Players")
@@ -94,15 +97,6 @@ local function newSoldier(r: any, index: number): any
 	return soldierFromRig(rig, r)
 end
 
--- The mounted officer who leads the squad (not drawn on squads the player leads himself)
-local OFFICER_DEF = { id = "Officer", hatColor = Color3.fromRGB(28, 28, 32) }
-local function newOfficer(r: any): any
-	local rig = SoldierModels.cavalry(r.model, r.team, OFFICER_DEF, math.max(2, (r.rank or 0) + 1))
-	local officer = soldierFromRig(rig, r)
-	officer.isOfficer = true
-	return officer
-end
-
 function soldierFromRig(rig: any, r: any): any
 	local soldier = {
 		rig = rig,
@@ -148,14 +142,15 @@ local function recomputeSlots(r: any)
 	r.slots = slots
 end
 
+-- A small name tag over the group (no health bar: every man is his own unit now)
 local function buildBillboard(r: any)
 	local teamColor = GameConfig.Teams[r.team].color
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Info"
-	gui.Size = UDim2.fromOffset(120, 38)
+	gui.Size = UDim2.fromOffset(160, 30)
 	gui.StudsOffsetWorldSpace = Vector3.new(0, if r.def.visual == "Cavalry" then 11 else 8, 0)
 	gui.AlwaysOnTop = true
-	gui.MaxDistance = 260
+	gui.MaxDistance = 220
 	gui.LightInfluence = 0
 	gui.Adornee = r.disc
 
@@ -163,38 +158,23 @@ local function buildBillboard(r: any)
 	name.BackgroundTransparency = 1
 	name.Size = UDim2.new(1, 0, 0, 16)
 	name.Font = Enum.Font.FredokaOne
-	name.TextSize = 15
+	name.TextSize = 14
 	name.TextColor3 = teamColor:Lerp(Color3.new(1, 1, 1), 0.55)
-	name.TextStrokeTransparency = 0.2
+	name.TextStrokeTransparency = 0.3
 	name.Parent = gui
-	local back = Instance.new("Frame")
-	back.Position = UDim2.fromOffset(20, 18)
-	back.Size = UDim2.new(1, -40, 0, 7)
-	back.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
-	back.BorderSizePixel = 0
-	back.Parent = gui
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
-	corner.Parent = back
-	local hp = Instance.new("Frame")
-	hp.Size = UDim2.fromScale(1, 1)
-	hp.BackgroundColor3 = if r.team == "Blue" then Color3.fromRGB(90, 160, 255) else Color3.fromRGB(235, 60, 60)
-	hp.BorderSizePixel = 0
-	hp.Parent = back
-	corner:Clone().Parent = hp
 	local status = Instance.new("TextLabel")
 	status.BackgroundTransparency = 1
-	status.Position = UDim2.fromOffset(0, 25)
+	status.Position = UDim2.fromOffset(0, 16)
 	status.Size = UDim2.new(1, 0, 0, 13)
 	status.Font = Enum.Font.FredokaOne
 	status.TextSize = 12
 	status.TextStrokeTransparency = 0.3
 	status.Parent = gui
 	gui.Parent = r.disc
-	r.ui = { name = name, hp = hp, status = status }
+	r.ui = { gui = gui, name = name, status = status }
 end
 
-local function createRender(s: any, shown: number): any
+local function createRender(s: any): any
 	local def = UnitDefinitions.get(s.unitId)
 	local model = Instance.new("Model")
 	model.Name = "Squad_" .. s.id
@@ -213,7 +193,8 @@ local function createRender(s: any, shown: number): any
 		snapTime = os.clock(),
 		vel = Vector3.zero,
 		formation = s.formation,
-		soldiers = {},
+		soldiers = {}, -- drawn men, in the order they were first seen
+		bySid = {}, -- server soldier id → drawn man
 		slots = {},
 		lastFire = -math.huge,
 		aimUntil = 0,
@@ -235,7 +216,7 @@ local function createRender(s: any, shown: number): any
 	disc.CastShadow = false
 	disc.Material = Enum.Material.SmoothPlastic
 	disc.Color = GameConfig.Teams[s.team].color
-	disc.Transparency = 0.88
+	disc.Transparency = 1 -- invisible: only carries the name tag and the charge dust
 	disc.Parent = model
 	r.disc = disc
 
@@ -255,19 +236,6 @@ local function createRender(s: any, shown: number): any
 
 	if def.visual == "Artillery" then
 		r.cannon = SoldierModels.cannon(model, def.gunModel)
-	end
-	if s.commander ~= false then
-		r.officer = newOfficer(r)
-		r.officer.pos = position
-	end
-	for i = 1, shown do
-		table.insert(r.soldiers, newSoldier(r, i))
-	end
-	recomputeSlots(r)
-	local base = CFrame.new(position) * CFrame.Angles(0, r.yaw, 0)
-	for i, soldier in r.soldiers do
-		local slot = r.slots[i] or Vector3.zero
-		soldier.pos = (base * CFrame.new(slot.X, 0, slot.Z)).Position
 	end
 	buildBillboard(r)
 	return r
@@ -293,9 +261,6 @@ local function destroyRender(r: any, animate: boolean)
 		local now = os.clock()
 		for _, soldier in r.soldiers do
 			startDying(soldier, now)
-		end
-		if r.officer and r.officer.rig.model.Parent then
-			startDying(r.officer, now)
 		end
 		task.delay(6, function()
 			r.model:Destroy()
@@ -383,7 +348,26 @@ end
 -- Snapshots
 ---------------------------------------------------------------------------
 
-local function applySnapshot(r: any, s: any, shown: number, now: number)
+-- squad.men: 8 bytes a man — u16 id · i16 x×8 · i16 z×8 · u8 facing · u8 flags
+local function decodeMen(data: any): { any }
+	local out = {}
+	if typeof(data) ~= "buffer" then
+		return out
+	end
+	for offset = 0, buffer.len(data) - 8, 8 do
+		table.insert(out, {
+			sid = buffer.readu16(data, offset),
+			x = buffer.readi16(data, offset + 2) / 8,
+			z = buffer.readi16(data, offset + 4) / 8,
+			yaw = buffer.readu8(data, offset + 6) / 256 * math.pi * 2,
+			flags = buffer.readu8(data, offset + 7),
+		})
+	end
+	return out
+end
+
+-- `drawEvery` = 1 draws every man; 2 every other man… (performance cap)
+local function applySnapshot(r: any, s: any, drawEvery: number, now: number)
 	local position = Vector3.new(s.x, s.y, s.z)
 	local elapsed = now - r.snapTime
 	if s.moving and elapsed > 0.05 then
@@ -401,101 +385,84 @@ local function applySnapshot(r: any, s: any, shown: number, now: number)
 	r.charging = s.charging
 	r.forming = s.forming
 
-	-- took damage: a few soldiers flinch (HitReact)
-	if s.hp < r.lastHp - 0.001 then
-		for _, soldier in r.soldiers do
-			if math.random() < 0.3 then
-				soldier.hitUntil = now + 0.35
+	-- every man from the server: follow him; the ones missing died
+	local artillery = r.def.visual == "Artillery"
+	local seen = {}
+	for _, man in decodeMen(s.men) do
+		local drawn = artillery or man.sid % drawEvery == 0
+		if not drawn then
+			continue
+		end
+		seen[man.sid] = true
+		local soldier = r.bySid[man.sid]
+		local netPos = Vector3.new(man.x, r.snapPos.Y, man.z)
+		if not soldier then
+			soldier = newSoldier(r, #r.soldiers + 1)
+			soldier.sid = man.sid
+			soldier.pos = netPos
+			soldier.netPos = netPos
+			soldier.netVel = Vector3.zero
+			soldier.netTime = now
+			soldier.yaw = man.yaw
+			r.bySid[man.sid] = soldier
+			table.insert(r.soldiers, soldier)
+		else
+			local dtNet = now - soldier.netTime
+			if dtNet > 0.05 then
+				local velocity = (netPos - soldier.netPos) / dtNet
+				soldier.netVel = if velocity.Magnitude < 60 then velocity else Vector3.zero
+			end
+			soldier.netPos = netPos
+			soldier.netTime = now
+		end
+		soldier.netYaw = man.yaw
+		if bit32.band(man.flags, 1) ~= 0 then
+			soldier.meleeUntil = now + 0.7 -- swinging at his foe
+		end
+		if bit32.band(man.flags, 2) ~= 0 and now >= soldier.hitUntil then
+			soldier.hitUntil = now + 0.35 -- just got hit
+		end
+		soldier.charging = bit32.band(man.flags, 4) ~= 0
+	end
+	local silent = r.drawEvery ~= nil and r.drawEvery ~= drawEvery -- the cap changed, nobody died
+	r.drawEvery = drawEvery
+	for i = #r.soldiers, 1, -1 do
+		local soldier = r.soldiers[i]
+		if not seen[soldier.sid] then
+			table.remove(r.soldiers, i)
+			r.bySid[soldier.sid] = nil
+			if silent then
+				soldier.rig.model:Destroy()
+			else
+				startDying(soldier, now)
 			end
 		end
-	end
-	r.lastHp = s.hp
-
-	-- casualties: random soldiers fall, the rest close ranks. If the count only dropped because
-	-- the soldier cap tightened (new squads arrived), the extra rigs vanish quietly instead.
-	local silent = r.lastSoldiers ~= nil and s.soldiers == r.lastSoldiers
-	r.lastSoldiers = s.soldiers
-	local changed = false
-	while #r.soldiers > shown and #r.soldiers > 0 do
-		local index = math.random(1, #r.soldiers)
-		if r.def.visual == "Artillery" and #r.soldiers > 2 then
-			index = math.random(3, #r.soldiers) -- the loader and gunner are the last to fall
-		end
-		local soldier = table.remove(r.soldiers, index)
-		if silent then
-			soldier.rig.model:Destroy()
-		else
-			startDying(soldier, now)
-		end
-		changed = true
 	end
 	if s.formation ~= r.formation then
 		r.formation = s.formation
-		changed = true
 	end
-	if changed then
-		recomputeSlots(r)
-	end
-
-	-- the officer: falls when killed, stands aside while the player leads the squad himself,
-	-- raises his sabre when the squad gets an order or goes into action
-	local officer = r.officer
-	if officer then
-		if s.commander == false then
-			if officer.rig.model.Parent then
-				startDying(officer, now)
-			else
-				officer.rig.model:Destroy()
-			end
-			r.officer = nil
-		else
-			officer.rig.model.Parent = r.model
-			-- a named companion leads this squad: his name floats over him
-			if s.commanderName and not officer.tag then
-				local tag = Instance.new("BillboardGui")
-				tag.Size = UDim2.fromOffset(160, 22)
-				tag.StudsOffsetWorldSpace = Vector3.new(0, 4.5, 0)
-				tag.MaxDistance = 120
-				tag.Adornee = officer.rig.root
-				tag.Parent = officer.rig.model
-				local label = Instance.new("TextLabel")
-				label.Size = UDim2.fromScale(1, 1)
-				label.BackgroundTransparency = 1
-				label.Font = Enum.Font.FredokaOne
-				label.TextScaled = true
-				label.TextColor3 = Color3.fromRGB(255, 215, 110)
-				label.TextStrokeTransparency = 0.3
-				label.Text = "👤 " .. s.commanderName
-				label.Parent = tag
-				officer.tag = tag
-			end
-			local cue = (s.order or "") .. "|" .. tostring(s.state == "Engaging")
-			if r.orderCue and cue ~= r.orderCue then
-				r.raiseUntil = now + GameConfig.Commander.RaiseTime
-			end
-			r.orderCue = cue
-		end
-	end
+	recomputeSlots(r)
 
 	local diameter = (s.radius or 4) * 2 + 3
 	r.disc.Size = Vector3.new(0.12, diameter, diameter)
 	r.dust.Enabled = s.charging == true
 
+	-- name tag: your groups (with the order), enemies only close by
 	local ui = r.ui
-	ui.name.Text = (if s.controlled then "★ " else "") .. s.name
-	ui.hp.Size = UDim2.fromScale(s.hp, 1)
-	local status, color
+	local mine = s.ownerId == player.UserId
+	ui.gui.MaxDistance = if mine then 260 else 120
+	ui.name.Text = (if s.controlled then "★ " else "")
+		.. s.name
+		.. (if s.commanderName then "  👤 " .. s.commanderName else "")
+	local status, color = "", Color3.new(1, 1, 1)
 	if r.routing then
 		status, color = "ROUTING!", Color3.fromRGB(255, 90, 90)
-	elseif s.forming then
-		status, color = string.format("Forming %s %d%%", s.formation, s.forming * 100), Color3.fromRGB(255, 220, 120)
-	elseif s.charging then
+	elseif s.charging or s.rushing then
 		status, color = "CHARGE!", Color3.fromRGB(255, 170, 60)
-	elseif s.ownerId == player.UserId then
-		status = if s.controlled then "YOUR COMMAND · " .. s.order else "Ally AI · " .. s.formation
-		color = if s.controlled then Color3.fromRGB(255, 225, 110) else Color3.fromRGB(210, 225, 255)
-	else
-		status, color = s.formation, Color3.fromRGB(255, 220, 220)
+	elseif s.forming then
+		status, color = string.format("Forming %s", s.formation), Color3.fromRGB(255, 220, 120)
+	elseif mine and s.controlled then
+		status, color = string.upper(s.order), Color3.fromRGB(255, 225, 110)
 	end
 	ui.status.Text = status
 	ui.status.TextColor3 = color
@@ -504,24 +471,21 @@ end
 -- `instant` = remove missing squads without death animations (new round)
 function SquadRenderer.sync(list: { any }, instant: boolean)
 	local now = os.clock()
-	-- performance cap: scale the number of drawn soldiers when the battle is too big
+	-- performance cap: draw only every n-th man when the battle is too big
 	local total = 0
 	for _, s in list do
-		total += UnitDefinitions.get(s.unitId).soldiers
+		total += s.soldiers or 0
 	end
-	local scale = math.min(1, Rendering.MaxActiveSoldiers / math.max(1, total))
+	local drawEvery = math.max(1, math.ceil(total / Rendering.MaxActiveSoldiers))
 	local seen = {}
 	for _, s in list do
 		seen[s.id] = true
-		local def = UnitDefinitions.get(s.unitId)
-		local fullShown = math.max(1, math.ceil(def.soldiers * scale))
-		local shown = math.max(if s.soldiers > 0 then 1 else 0, math.ceil(s.soldiers * fullShown / def.soldiers))
 		local r = renders[s.id]
 		if not r then
-			r = createRender(s, shown)
+			r = createRender(s)
 			renders[s.id] = r
 		end
-		applySnapshot(r, s, shown, now)
+		applySnapshot(r, s, drawEvery, now)
 	end
 	for id, r in renders do
 		if not seen[id] then
@@ -541,197 +505,58 @@ local function updateMotion(r: any, dt: number, now: number)
 	r.yaw = MathUtil.normalizeAngle(r.yaw + MathUtil.angleDiff(r.yaw, r.snapYaw) * (1 - math.exp(-dt * 8)))
 end
 
--- Enemy soldiers near a point (for melee pairing)
-local function enemiesNear(r: any, radius: number): { any }
-	local found = {}
-	for _, other in renders do
-		if other.team ~= r.team and (other.pos - r.pos).Magnitude <= radius + 20 then
-			for _, soldier in other.soldiers do
-				table.insert(found, soldier)
-			end
-		end
-	end
-	return found
-end
-
 --[[
-	Soldiers are individuals: each walks to its own spot (formation slot + a personal offset)
-	with its own top speed and reaction delay, accelerates instead of snapping, steps aside
-	from comrades that are too close, and in melee leaves the ranks to face an enemy soldier.
+	Every man follows his own server position (predicted a little ahead, smoothed), turns to
+	his server facing, and his legs follow his real speed. Gun crews: the loader and gunner
+	play their drill around the cannon here instead.
 ]]
 local function updateSquad(r: any, dt: number, now: number, near: boolean, detail: boolean)
 	local base = CFrame.new(r.pos) * CFrame.Angles(0, r.yaw, 0)
 	local poseAlpha = 1 - math.exp(-dt * 10)
-	local accel = 1 - math.exp(-dt * (if r.forming then 2 else 5))
-	local running = r.rushing or r.routing or r.charging
+	local follow = 1 - math.exp(-dt * 12)
+	local groupRunning = r.rushing or r.routing or r.charging
 	local cavalry = r.def.visual == "Cavalry"
 	local artillery = r.def.visual == "Artillery"
-	local personalSpace = if cavalry then 4.2 else 2.3
-	local squadSpeed = math.max(r.vel.Magnitude, 0)
-	local melee = now < r.meleeUntil and not artillery
-	local foes = if melee then enemiesNear(r, 30) else nil
-
-	if r.moving and not r.wasMoving then
-		r.moveStart = now -- soldiers set off one after another
-	end
-	r.wasMoving = r.moving
-	-- strict ranks only when standing: marching or wheeling to aim, the men loosen into a
-	-- slightly messy group, then settle back into their slots when the squad halts
-	local turning = math.abs(MathUtil.angleDiff(r.yaw, r.snapYaw)) > 0.35
-	local wantLoose = if (r.moving or turning) and not artillery then 1 else 0
-	r.looseness = lerp(r.looseness or 0, wantLoose, 1 - math.exp(-dt * (if wantLoose > 0 then 3 else 1.2)))
-	local loose = r.looseness
 
 	for i, soldier in r.soldiers do
-		-- 1) where this soldier wants to be
-		local slot = (r.slots[i] or Vector3.zero) + soldier.slotNoise
-		local yawOffset = 0
+		local target = soldier.netPos + soldier.netVel * math.min(now - soldier.netTime, 0.25)
+		local desiredYaw = soldier.netYaw or soldier.yaw
 		if artillery and not r.routing then
 			local roleSlot, roleYaw = SoldierAnimationService.crewSlot(r, i, now)
 			if roleSlot then
-				slot, yawOffset = roleSlot, roleYaw
+				target = (base * CFrame.new(roleSlot.X, 0, roleSlot.Z)).Position
+				desiredYaw = r.yaw + roleYaw
 			end
 		end
-		if r.routing then
-			slot += soldier.jitter * 2.5
-		elseif r.rushing then
-			slot += soldier.jitter
-		elseif loose > 0.01 then
-			slot = slot * (1 + 0.2 * loose) + soldier.jitter * (1.3 * loose)
-		end
-		local target = (base * CFrame.new(slot.X, 0, slot.Z)).Position
-		if loose > 0.01 then
-			target -= r.vel * soldier.lag * loose -- stragglers trail behind
-		end
-		local facePoint: Vector3? = nil
-
-		if foes and #foes > 0 then
-			-- melee: pick an enemy soldier now and then and square up to them
-			if
-				not soldier.foe
-				or soldier.foe.deathStart
-				or not soldier.foe.rig.root.Parent
-				or now >= soldier.foeUntil
-			then
-				local best, bestDistance = nil, math.huge
-				for _, foe in foes do
-					local d = (foe.pos - soldier.pos).Magnitude
-					if d < bestDistance and not foe.deathStart then
-						best, bestDistance = foe, d
-					end
-				end
-				soldier.foe = best
-				soldier.foeUntil = now + 0.6 + math.random() * 0.6
-			end
-			local foe = soldier.foe
-			if foe then
-				local away = Vector3.new(soldier.pos.X - foe.pos.X, 0, soldier.pos.Z - foe.pos.Z)
-				if away.Magnitude < 0.1 then
-					away = Vector3.new(1, 0, 0)
-				end
-				target = foe.pos + away.Unit * (personalSpace + 0.4)
-				facePoint = foe.pos
-			end
-		else
-			soldier.foe = nil
-		end
-
-		-- 2) accelerate towards it at this soldier's own pace
-		local toTarget = Vector3.new(target.X - soldier.pos.X, 0, target.Z - soldier.pos.Z)
-		local distance = toTarget.Magnitude
-		local topSpeed = math.max(squadSpeed * 1.15, if running then 16 else 9) * soldier.speedMult
-		if distance > 6 then
-			topSpeed *= 1.35 -- catching up with the ranks
-		end
-		local desired = Vector3.zero
-		local waiting = r.moving and now - (r.moveStart or 0) < soldier.reaction
-		if distance > 0.25 and not waiting then
-			desired = toTarget.Unit * math.min(topSpeed, distance * 3)
-		end
-		soldier.vel = soldier.vel:Lerp(desired, accel)
-
-		-- 3) personal space: step away from comrades that are too close
-		local push = Vector3.zero
-		for j, other in r.soldiers do
-			if j ~= i then
-				local offset = Vector3.new(soldier.pos.X - other.pos.X, 0, soldier.pos.Z - other.pos.Z)
-				local d = offset.Magnitude
-				if d < personalSpace and d > 0.01 then
-					push += offset / d * (personalSpace - d) * 4
-				end
-			end
-		end
-		local step = (soldier.vel + push) * dt
-		local flat = Vector3.new(soldier.pos.X + step.X, soldier.pos.Y, soldier.pos.Z + step.Z)
-
+		local before = soldier.pos
+		local flatX = lerp(soldier.pos.X, target.X, follow)
+		local flatZ = lerp(soldier.pos.Z, target.Z, follow)
 		if near and now >= soldier.nextGround then
 			soldier.nextGround = now + 0.35 + math.random() * 0.3
-			local hit = Workspace:Raycast(flat + Vector3.new(0, 8, 0), Vector3.new(0, -24, 0), groundParams)
+			local hit =
+				Workspace:Raycast(Vector3.new(flatX, soldier.pos.Y + 8, flatZ), Vector3.new(0, -24, 0), groundParams)
 			soldier.groundY = if hit then hit.Position.Y else nil
 		end
 		local groundY = if near and soldier.groundY then soldier.groundY else r.pos.Y
-		soldier.pos = Vector3.new(flat.X, lerp(soldier.pos.Y, groundY, math.min(1, dt * 8)), flat.Z)
-
-		-- 4) face where you walk, your opponent, or the squad's front
-		local speed = soldier.vel.Magnitude
-		local desiredYaw
-		if facePoint then
-			desiredYaw =
-				MathUtil.yawFromDirection(Vector3.new(facePoint.X - soldier.pos.X, 0, facePoint.Z - soldier.pos.Z))
-		elseif speed > 1.5 then
-			desiredYaw = MathUtil.yawFromDirection(soldier.vel)
-		else
-			desiredYaw = r.yaw + yawOffset + soldier.idleYaw + (if r.routing then soldier.yawJitter else 0)
-		end
+		soldier.pos = Vector3.new(flatX, lerp(soldier.pos.Y, groundY, math.min(1, dt * 8)), flatZ)
+		local velocity = Vector3.new(soldier.pos.X - before.X, 0, soldier.pos.Z - before.Z) / math.max(dt, 1e-3)
+		soldier.vel = velocity
 		soldier.yaw = MathUtil.normalizeAngle(soldier.yaw + MathUtil.angleDiff(soldier.yaw, desiredYaw) * poseAlpha)
 
-		-- 5) legs follow the real speed
+		-- legs follow the real speed
+		local speed = velocity.Magnitude
 		local walking = speed > 0.8
-		local soldierRunning = running or speed > 13
+		local running = speed > 13 or (groupRunning and walking) or soldier.charging
 		soldier.phase += dt * speed * (if cavalry then 0.55 else 0.8)
-		local amplitude = if not walking then 0 elseif soldierRunning then 0.9 else 0.6
+		local amplitude = if not walking then 0 elseif running then 0.9 else 0.6
 		soldier.legSwing = lerp(soldier.legSwing, amplitude, poseAlpha)
 
 		local feet = CFrame.new(soldier.pos) * CFrame.Angles(0, soldier.yaw, 0)
 		table.insert(bulkParts, soldier.rig.root)
 		table.insert(
 			bulkCFrames,
-			SoldierAnimationService.update(r, soldier, i, feet, dt, now, walking, soldierRunning, detail)
+			SoldierAnimationService.update(r, soldier, i, feet, dt, now, walking, running, detail)
 		)
-	end
-
-	local officer = r.officer
-	if officer and officer.rig.model.Parent then
-		-- rides at the front, and ahead in the direction of march: he leads, they follow
-		local minZ = 0
-		for _, slot in r.slots do
-			minZ = math.min(minZ, slot.Z)
-		end
-		local lead = -minZ + GameConfig.Commander.FrontOffset
-		local heading = Vector3.new(r.vel.X, 0, r.vel.Z)
-		local direction = if heading.Magnitude > 1 then heading.Unit else base.LookVector
-		local target = r.pos + direction * (lead + (if heading.Magnitude > 1 then 4 else 0))
-		local toTarget = Vector3.new(target.X - officer.pos.X, 0, target.Z - officer.pos.Z)
-		local speed = math.min(toTarget.Magnitude * 3, math.max(squadSpeed * 1.4, 10))
-		officer.vel = if toTarget.Magnitude > 0.3 then toTarget.Unit * speed else Vector3.zero
-		local flat = officer.pos + officer.vel * dt
-		if near and now >= officer.nextGround then
-			officer.nextGround = now + 0.4
-			local hit = Workspace:Raycast(flat + Vector3.new(0, 8, 0), Vector3.new(0, -24, 0), groundParams)
-			officer.groundY = if hit then hit.Position.Y else nil
-		end
-		officer.pos = Vector3.new(flat.X, lerp(officer.pos.Y, officer.groundY or r.pos.Y, math.min(1, dt * 8)), flat.Z)
-		local moving = officer.vel.Magnitude > 1
-		local desiredYaw = if moving then MathUtil.yawFromDirection(officer.vel) else r.yaw
-		officer.yaw = MathUtil.normalizeAngle(officer.yaw + MathUtil.angleDiff(officer.yaw, desiredYaw) * poseAlpha)
-		officer.phase += dt * officer.vel.Magnitude * 0.55
-		officer.legSwing = lerp(officer.legSwing, if moving then 0.7 else 0, poseAlpha)
-		local feet = CFrame.new(officer.pos) * CFrame.Angles(0, officer.yaw, 0)
-		table.insert(bulkParts, officer.rig.root)
-		table.insert(bulkCFrames, SoldierAnimationService.update(r, officer, 0, feet, dt, now, moving, running, detail))
-		if detail and now < (r.raiseUntil or 0) then
-			SoldierModels.pose(officer.rig, "armR", CFrame.Angles(2.9, 0, -0.25)) -- sabre raised: "Forward!"
-		end
 	end
 
 	if r.cannon then
@@ -812,6 +637,23 @@ function SquadRenderer.melee(squadId: number?)
 	if r then
 		r.meleeUntil = os.clock() + 1.6
 	end
+end
+
+-- One man fired (VFX "Shots"): his shooting pose restarts; returns where the shot leaves
+-- (bow hand / muzzle), or nil when this man isn't drawn
+function SquadRenderer.soldierFired(squadId: number, sid: number): Vector3?
+	local r = renders[squadId]
+	local soldier = r and r.bySid[sid]
+	if not soldier then
+		return nil
+	end
+	local now = os.clock()
+	soldier.lastFire = now
+	r.aimUntil = now + r.def.attackCooldown + 2
+	local torso = CFrame.new(soldier.pos)
+		* CFrame.Angles(0, soldier.yaw, 0)
+		* CFrame.new(0, SoldierModels.TORSO_HEIGHT, 0)
+	return (torso * SoldierAnimationService.GUN_AIM * SoldierAnimationService.MUZZLE).Position
 end
 
 function SquadRenderer.getModel(squadId: number): Model?

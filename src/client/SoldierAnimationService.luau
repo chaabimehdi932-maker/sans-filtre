@@ -139,15 +139,25 @@ function SoldierAnimationService.crewSlot(r: any, index: number, now: number): (
 	return nil, 0
 end
 
+-- Each man has his own fight since v0.16: s.meleeUntil (he's swinging) and s.lastFire (his
+-- own shot) come from the server's per-soldier data; r.* is the group's fallback
+local function meleeUntil(_r: any, s: any): number
+	return s.meleeUntil or 0
+end
+
+local function firedAt(r: any, s: any): number
+	return s.lastFire or (r.lastFire + s.delay)
+end
+
 local function infantryState(r: any, s: any, now: number, walking: boolean, running: boolean): string
 	if now < s.hitUntil then
 		return "HitReact"
 	elseif r.routing then
 		return "Running"
-	elseif now < r.meleeUntil then
+	elseif now < meleeUntil(r, s) then
 		return "MeleeSwing"
 	end
-	local since = now - r.lastFire - s.delay
+	local since = now - firedAt(r, s)
 	if since >= 0 and since < 0.3 then
 		return "Firing"
 	elseif since >= 0.3 and since < math.min(r.def.attackCooldown * 0.7, 5) then
@@ -202,7 +212,7 @@ local function infantryPose(state: string, r: any, s: any, now: number): ({ Vect
 			GUN_BAYONET * CFrame.new(0, thrust * 1.1, 0),
 			-0.1 * thrust
 	elseif state == "Firing" then
-		local kick = 1 - math.clamp((now - r.lastFire - s.delay) / 0.3, 0, 1)
+		local kick = 1 - math.clamp((now - firedAt(r, s)) / 0.3, 0, 1)
 		return { ARMS.Aim[1], ARMS.Aim[2] + Vector2.new(kick * 0.3, 0) },
 			GUN_AIM * CFrame.new(0, -0.5 * kick, 0.15 * kick),
 			0.12 * kick
@@ -251,9 +261,9 @@ end
 local function sabrePose(r: any, s: any, now: number): Vector2
 	if r.routing then
 		return Vector2.new(0.3, 0)
-	elseif now < r.meleeUntil then
+	elseif now < meleeUntil(r, s) then
 		return Vector2.new(1.0 + (math.sin(now * 9 + s.phase) + 1) * 0.85, -0.2) -- slashing
-	elseif r.charging then
+	elseif r.charging or s.charging then
 		return Vector2.new(1.55, 0) -- sabre pointed forward
 	end
 	return Vector2.new(0.35, 0.1)
@@ -323,7 +333,7 @@ function SoldierAnimationService.update(
 	if kind == "Cavalry" then
 		local state = if r.routing
 			then "Running"
-			elseif now < r.meleeUntil then "MeleeSwing"
+			elseif now < meleeUntil(r, soldier) then "MeleeSwing"
 			elseif walking then "Running"
 			else "Idle"
 		soldier.state = state

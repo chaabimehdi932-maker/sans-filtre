@@ -2,7 +2,8 @@
 	Client-side effects. The server only says "a volley happened here" through the VFX remote;
 	all the particles, projectiles, sounds and screen shake are made locally (cheap for the server,
 	one effect per squad rather than per soldier).
-	Kinds: Volley · Cannon · ChargeImpact · Clash · Hit · Heal
+	Kinds: Shots (every man's shot: arrows fly in a visible arc, muskets flash and smoke) ·
+	       Cannon · ChargeImpact · Clash · Hit · Heal · (Volley: old squad volleys)
 	(Swing / Roll are animated by CharacterAnimator; soldier poses by SquadRenderer)
 	Optional battle music: set GameConfig.Sounds.Music to an asset id.
 ]]
@@ -108,6 +109,119 @@ local function addShake(position: Vector3, strength: number, radius: number)
 end
 
 local handlers = {}
+
+---------------------------------------------------------------------------
+-- Arrows in flight: one pooled part each, moved along its arc every frame
+---------------------------------------------------------------------------
+
+local arrows: { any } = {}
+local arrowPool: { BasePart } = {}
+
+local function arrowPart(): BasePart
+	local part = table.remove(arrowPool)
+	if part then
+		return part
+	end
+	local shaft = Instance.new("Part")
+	shaft.Name = "Arrow"
+	shaft.Anchored = true
+	shaft.CanCollide = false
+	shaft.CanQuery = false
+	shaft.CanTouch = false
+	shaft.CastShadow = false
+	shaft.Size = Vector3.new(0.12, 0.12, 2.6)
+	shaft.Color = Color3.fromRGB(95, 70, 45)
+	shaft.Material = Enum.Material.Wood
+	local fletching = Instance.new("Part")
+	fletching.Name = "Fletching"
+	fletching.Anchored = true
+	fletching.CanCollide = false
+	fletching.CanQuery = false
+	fletching.CanTouch = false
+	fletching.Size = Vector3.new(0.35, 0.05, 0.5)
+	fletching.Color = Color3.fromRGB(235, 235, 225)
+	fletching.Parent = shaft
+	return shaft
+end
+
+local function arcPoint(arrow: any, t: number): Vector3
+	return arrow.from:Lerp(arrow.to, t) + Vector3.new(0, 4 * arrow.height * t * (1 - t), 0)
+end
+
+RunService.RenderStepped:Connect(function()
+	local now = os.clock()
+	for i = #arrows, 1, -1 do
+		local arrow = arrows[i]
+		local t = (now - arrow.start) / arrow.flight
+		if t >= 1 then
+			-- stuck in the ground (or in someone) for a moment
+			if not arrow.landed then
+				arrow.landed = true
+				arrow.removeAt = now + 2.5
+			end
+			if now >= arrow.removeAt then
+				arrow.part.Parent = nil
+				table.insert(arrowPool, arrow.part)
+				table.remove(arrows, i)
+			end
+			continue
+		end
+		local position = arcPoint(arrow, t)
+		local ahead = arcPoint(arrow, math.min(1, t + 0.02))
+		local cframe = if (ahead - position).Magnitude > 0.001
+			then CFrame.lookAt(position, ahead)
+			else CFrame.new(position)
+		arrow.part.CFrame = cframe
+		local fletching = arrow.part:FindFirstChild("Fletching")
+		if fletching and fletching:IsA("BasePart") then
+			fletching.CFrame = cframe * CFrame.new(0, 0, 1.1)
+		end
+	end
+end)
+
+-- Every man's shot this tick: { s = squadId, i = soldier id, x, y, z = where it lands, t = flight, a = arrow? }
+function handlers.Shots(data)
+	local list = data.list or {}
+	local smoke = 0
+	local soundAt: Vector3? = nil
+	local bowAt: Vector3? = nil
+	for _, shot in list do
+		local from = SquadRenderer.soldierFired(shot.s, shot.i)
+		if not from then
+			continue -- a man that isn't drawn (performance cap)
+		end
+		local to = Vector3.new(shot.x, shot.y + 1.2, shot.z)
+		if shot.a then
+			bowAt = bowAt or from
+			if #arrows < GameConfig.Rendering.MaxArrows then
+				local part = arrowPart()
+				part.Parent = effectsFolder
+				table.insert(arrows, {
+					part = part,
+					from = from,
+					to = to,
+					flight = math.max(0.1, shot.t),
+					start = os.clock(),
+					-- a high lob at long range, flatter up close
+					height = math.clamp((to - from).Magnitude * 0.22, 3, 45),
+				})
+			end
+		else
+			soundAt = soundAt or from
+			if smoke < 14 then
+				smoke += 1
+				flash(from, 0.6)
+				smokePuff(from + (to - from).Unit * 1.5, 2.2)
+			end
+		end
+	end
+	if soundAt then
+		playSound(Sounds.Volley, soundAt, 0.7, 0.9 + math.random() * 0.2)
+	end
+	if bowAt and Sounds.Bow then
+		playSound(Sounds.Bow, bowAt, 0.6, 0.9 + math.random() * 0.2)
+	end
+end
 
 function handlers.Volley(data)
 	local positions = SquadRenderer.fire(data.squadId)
