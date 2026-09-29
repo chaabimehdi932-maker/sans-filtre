@@ -292,30 +292,31 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 		"Frame",
 		{ Name = "OrdersColumn", Size = UDim2.new(0, 92, 1, 0), BackgroundTransparency = 1, Parent = regions.left }
 	)
-	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = orders })
+	create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = orders })
 	local ORDER_DEFS = {
 		{ name = "Hold", iconName = "OrderHold", key = "X", icon = "🛡️", color = C.KeyRed },
 		{ name = "Follow", iconName = "OrderFollow", key = "C", icon = "🏃", color = C.KeyRed },
 		{ name = "Attack", iconName = "OrderAttack", key = "V", icon = "⚔️", color = C.KeyRed },
 		{ name = "Rush", iconName = "OrderRush", key = "B", icon = "⚡", color = C.KeyBlue },
+		{ name = "FireAt", label = "FIRE AT", iconName = "OrderFire", key = "T", icon = "🎯", color = C.KeyBlue },
 	}
 	local orderTiles = {}
 	for i, def in ORDER_DEFS do
-		local tile = Theme.tile({ Name = def.name, LayoutOrder = i, Size = UDim2.fromOffset(88, 84), Parent = orders })
+		local tile = Theme.tile({ Name = def.name, LayoutOrder = i, Size = UDim2.fromOffset(88, 66), Parent = orders })
 		local stroke = Theme.border(tile, BLACK, 3)
 		-- icon in the upper part, label above it (higher ZIndex): every label stays readable
 		Theme.icon(def.iconName, def.icon, {
 			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.new(0.5, 0, 0, 6),
-			Size = UDim2.fromOffset(50, 48),
-			TextSize = 36,
+			Position = UDim2.new(0.5, 0, 0, 4),
+			Size = UDim2.fromOffset(40, 36),
+			TextSize = 28,
 			ZIndex = 1,
 			Parent = tile,
 		})
 		outlined({
 			Position = UDim2.new(0, 0, 1, -25),
 			Size = UDim2.new(1, 0, 0, 22),
-			Text = string.upper(def.name),
+			Text = def.label or string.upper(def.name),
 			Font = Theme.Bold,
 			TextSize = 17,
 			ZIndex = 3,
@@ -1102,7 +1103,10 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 			"<b>X</b>  Hold: preview on the ground, <b>1 / 2 / 3</b> Line / Column / Square,",
 			"      <b>Left click</b> to confirm, <b>right click</b> or <b>X</b> to cancel",
 			"<b>C</b>  Follow   ·   <b>V</b>  Attack",
-			"<b>B</b>  Rush: aim the path, <b>left click</b> charge, <b>right click</b> cancel",
+			"<b>B</b>  Rush (2× sprint): aim the path, <b>left click</b> charge, <b>right click</b> cancel",
+			"      aim it on an enemy squad (red path) to charge that squad",
+			"<b>T</b>  Fire at: <b>left click</b> an enemy squad (shooters focus it)",
+			"      or the ground (guns bombard it), <b>right click</b> cancel",
 			"",
 			"<b>M</b>  minimap   ·   <b>F1</b>  close this panel",
 		}, "\n"),
@@ -1188,6 +1192,9 @@ function Hud.build(screen: ScreenGui, ClientState: any, ClientActions: any): any
 
 		if ClientActions.rushState().aiming then
 			orderTiles.Rush.stroke.Color = C.Gold
+		end
+		if ClientActions.fireState().aiming then
+			orderTiles.FireAt.stroke.Color = C.Gold
 		end
 		local rushFraction = ClientActions.cooldownFraction("Rush")
 		orderTiles.Rush.overlay.Size = UDim2.fromScale(1, rushFraction)

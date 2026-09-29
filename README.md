@@ -23,7 +23,8 @@ The code is managed with [Rojo](https://rojo.space).
 | **X / C / V** | Orders for the squads **you command**: **Hold / Follow / Attack** |
 | **Tab / Shift+Tab** | Command the next / previous squad (alone) |
 | **T** · Shift+click a squad card | Add a squad to the group you command (as many as your reputation allows) |
-| **B → aim → left click** | **Rush**: a striped path shows where your unit will sprint; left click charges, right click cancels. Cavalry ride straight through every enemy squad on the way. 15 s cooldown |
+| **B → aim → left click** | **Rush**: a striped path shows where your squads will sprint (2× speed); left click charges, right click cancels. Aim it on an enemy squad (the path turns red) to charge that squad wherever it goes. Cavalry ride straight through every enemy squad on the way. 8 s cooldown |
+| **T → left click** | **Fire at**: click an enemy squad and your archers / muskets / guns focus it (walking into range if needed); melee squads attack it. Click the ground: guns bombard that spot, shooters take the enemy nearest to it. Right click cancels |
 | **X → 1 / 2 / 3 → Left click** | Hold: glowing markers preview where every soldier will stand in front of you, 1/2/3 pick Line / Column / Square, left click confirms (right click or X cancels) |
 | F1 · M | Controls panel · minimap |
 
@@ -137,6 +138,9 @@ each runs their own campaign and battles take turns on the one battlefield.
   re-charge), artillery shells with splash damage. All of it runs server-side.
 - **Zones**: capture progress based on the presence weight of squads inside; frozen when
   contested. Held zones give a bonus: *Reinforcements* (faster), *Morale* (regen), *ArtilleryRange* (+25%).
+- **Assault**: AI sides no longer trade volleys forever. After a standoff (or when clearly
+  winning, or when the enemy is shaken) they go in: melee foot and cavalry charge at a sprint,
+  line infantry fix bayonets against shaken or weaker squads, cavalry hunt guns and archers.
 - **Enemy AI**: state machine Idle → Advancing → Engaging → Routing → Regrouping. It takes
   objectives, flanks Lines, sends cavalry at guns and exposed squads, forms square against
   cavalry, and falls back when morale is low.

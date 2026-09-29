@@ -761,6 +761,15 @@ local function siegeTarget(squad: Squad, target: any): any
 end
 
 -- Stuck at a closed gate with nobody to fight: attackers hack at it
+-- A Fire-at order on a spot: guns bombard it whatever is (or isn't) there
+local function orderedTarget(squad: Squad, target: any): any
+	local point = squad.firePoint
+	if not point or not squad.isPlayerControlled or squad.order ~= "FireAt" or squad.def.attackType ~= "Artillery" then
+		return target
+	end
+	return { kind = "Point", position = point, radius = 0 }
+end
+
 local function batterGate(squad: Squad, now: number)
 	local gate = squad.atGate
 	local def = squad.def
@@ -788,7 +797,7 @@ local function attemptAttack(squad: Squad, target: any, now: number)
 
 	-- Hand-to-hand when close enough (bayonets for infantry, sabres for cavalry)
 	local edge = distance - squad.radius - target.radius
-	if edge <= def.meleeRange and target.kind ~= "Gate" then
+	if edge <= def.meleeRange and (target.kind == "Squad" or target.kind == "Hero") then
 		if now - squad.lastMelee >= def.meleeCooldown then
 			squad.lastMelee = now
 			doMelee(squad, target, now)
@@ -1097,7 +1106,7 @@ function SquadService.update(dt: number)
 			updateMorale(squad, tickDt, now, heroes)
 			if squad.alive and not squad.routing and now >= squad.formingUntil and not pierce(squad, now) then
 				local target = findTarget(squad, heroes)
-				target = siegeTarget(squad, target)
+				target = orderedTarget(squad, siegeTarget(squad, target))
 				if target then
 					attemptAttack(squad, target, now)
 				elseif squad.atGate then

@@ -155,6 +155,41 @@ local function wantsFlank(squad: any, target: any): boolean
 	return mem.flank
 end
 
+local function share(value: number, maximum: number): number
+	return value / math.max(1, maximum)
+end
+
+-- Charge `target` at a sprint (AI): melee range, charge bonus, running animation
+local function chargeAt(squad: any, target: any)
+	squad.preferredTarget = target
+	squad.rushing = true
+	SquadService.moveTo(squad, target.position, squad.radius + target.radius + 1, AI.Plan.ChargeSpeedMult)
+end
+
+-- During the assault a line squad fixes bayonets against a shaken or weaker enemy
+local function bayonetTarget(squad: any, enemies: { any }): any
+	local def = squad.def
+	if def.canMoveAndFire or def.meleeDamage < AI.Plan.BayonetMinMelee then
+		return nil -- skirmishers / archers stay shooters
+	end
+	local mem = squad.aiMemory
+	local current = mem.bayonetTarget
+	if current and current.alive and not current.routing then
+		return current -- committed: see the charge through
+	end
+	local mine = share(squad.health, squad.maxHealth)
+	local target = nearestIn(squad.position, enemies, def.attackRange * 1.2, function(enemy, distance)
+		local shaken = share(enemy.morale, enemy.maxMorale) < AI.Plan.BayonetMoraleBelow
+		local weaker = mine - share(enemy.health, enemy.maxHealth) >= AI.Plan.BayonetHealthEdge
+		if shaken or weaker or enemy.def.attackType == "Artillery" then
+			return distance
+		end
+		return math.huge
+	end)
+	mem.bayonetTarget = target
+	return target
+end
+
 -- Teamwork: hold your slot in the shared line; fire what comes into range; help neighbours.
 -- Returns false when there is no plan (the old lone-wolf behaviour then applies).
 local function lineInfantry(squad: any, enemies: { any }): boolean
@@ -166,6 +201,15 @@ local function lineInfantry(squad: any, enemies: { any }): boolean
 	local def = squad.def
 	local range = def.attackRange
 	squad.idleYaw = plan.yaw
+	if plan.assault then
+		local foe = bayonetTarget(squad, enemies)
+		if foe then
+			chargeAt(squad, foe)
+			return true
+		end
+	else
+		squad.aiMemory.bayonetTarget = nil
+	end
 	local target = nearestIn(squad.position, enemies, range * 0.95)
 	if target then
 		squad.preferredTarget = target
@@ -230,9 +274,13 @@ local function cavalry(squad: any, enemies: { any }, allies: { any }, now: numbe
 	local plan = BattlePlan.get(squad.team)
 	local slot = plan and plan.slots[squad]
 	if slot and not (mem.disengageUntil and now < mem.disengageUntil) then
-		local lineEngaged = #plan.engaged > 0
-		local prey = nearestIn(squad.position, enemies, 150, function(enemy, distance)
-			if enemy.def.attackType == "Artillery" or isExposed(enemy, enemies) then
+		local lineEngaged = #plan.engaged > 0 or plan.assault
+		local prey = nearestIn(squad.position, enemies, AI.Plan.CavalryPreyRadius, function(enemy, distance)
+			if enemy.formation == "Square" then
+				return math.huge
+			end
+			-- guns, archers / skirmishers (they can't hold a melee) and lonely squads
+			if enemy.def.attackType == "Artillery" or enemy.def.canMoveAndFire or isExposed(enemy, enemies) then
 				return distance
 			end
 			return math.huge
@@ -272,6 +320,8 @@ local function cavalry(squad: any, enemies: { any }, allies: { any }, now: numbe
 	local target = nearestIn(squad.position, enemies, search, function(enemy, distance)
 		if enemy.def.attackType == "Artillery" then
 			return distance * 0.4 -- guns first
+		elseif enemy.def.canMoveAndFire and enemy.formation ~= "Square" then
+			return distance * 0.55 -- then archers / skirmishers
 		elseif enemy.formation == "Square" then
 			return distance * 3 -- avoid squares
 		elseif isExposed(enemy, allies) then
@@ -294,14 +344,19 @@ local function brawlers(squad: any, enemies: { any })
 	local plan = BattlePlan.get(squad.team)
 	local slot = plan and plan.slots[squad]
 	if slot then
-		local near = nearestIn(squad.position, enemies, AI.Plan.ChargeReach)
+		local reach = if plan.assault then AI.Plan.AssaultReach else AI.Plan.ChargeReach
+		local near = nearestIn(squad.position, enemies, reach, function(enemy, distance)
+			if enemy.def.attackType ~= "Melee" then
+				return distance * 0.75 -- shooters can't hold a brawl
+			end
+			return distance
+		end)
 		local friend = BattlePlan.supportTarget(squad)
 		if not near and friend then
 			near = nearestIn(friend.position, enemies, friend.radius + 40)
 		end
 		if near then
-			squad.preferredTarget = near
-			SquadService.moveTo(squad, near.position, squad.radius + near.radius + 1, 1.15)
+			chargeAt(squad, near)
 		else
 			squad.preferredTarget = nil
 			SquadService.moveTo(squad, slot, 4)
@@ -317,8 +372,7 @@ local function brawlers(squad: any, enemies: { any })
 		return distance
 	end)
 	if target then
-		squad.preferredTarget = target
-		SquadService.moveTo(squad, target.position, squad.radius + target.radius + 1, 1.15)
+		chargeAt(squad, target)
 	else
 		goToObjective(squad, enemies)
 	end

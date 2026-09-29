@@ -1,6 +1,7 @@
 --[[
 	Army orders for the squad under your direct command (see SquadSelectionController):
-	  X Hold · C Follow · V Attack · B Rush
+	  X Hold · C Follow · V Attack · B Rush (aim, click: 2× sprint; on an enemy squad: charge it)
+	  T Fire at (click an enemy squad: shooters focus it · click the ground: guns bombard it)
 	  X opens the Hold preview on the ground: 1 Line · 2 Column · 3 Square,
 	  Left click (or Enter) confirms, right click / X / Backspace cancel.
 	Selection (orders go to the selected squads; you command your whole army):
@@ -18,6 +19,7 @@ local ORDER_KEYS = {
 	[Enum.KeyCode.C] = "Follow",
 	[Enum.KeyCode.V] = "Attack",
 	[Enum.KeyCode.B] = "Rush",
+	[Enum.KeyCode.T] = "FireAt",
 }
 local SQUAD_KEYS = {
 	[Enum.KeyCode.One] = 1,

@@ -7,7 +7,7 @@
 local GameConfig = {}
 
 -- Bump on every update: printed in the Output and shown in the HUD so you can check what runs
-GameConfig.Version = "0.14"
+GameConfig.Version = "0.15"
 
 GameConfig.Teams = {
 	Blue = { displayName = "France", color = Color3.fromRGB(45, 95, 215), uniform = Color3.fromRGB(35, 60, 150) },
@@ -80,11 +80,13 @@ GameConfig.Hero = {
 }
 
 GameConfig.Orders = {
-	List = { "Hold", "Follow", "Attack", "Rush" },
+	List = { "Hold", "Follow", "Attack", "Rush", "FireAt" },
+	FireAtPointRadius = 35, -- aiming at the ground: shooters take the enemy nearest the spot within this
+	FireAtMaxDistance = 600, -- furthest point a Fire-at order can be aimed at
 	FollowDistance = 24, -- how far behind the commander following squads stand
 	FollowSpacing = 30, -- side-by-side spacing of several following squads
-	RushSpeedMult = 2.1, -- rushing infantry sprint
-	RushCavalrySpeedMult = 1.7, -- cavalry at full gallop
+	RushSpeedMult = 2, -- PLACEHOLDER: rushing squads run at 2× speed
+	RushCavalrySpeedMult = 2, -- PLACEHOLDER: cavalry at full gallop (was 1.7)
 	RushMaxDistance = 220, -- furthest point a Rush can be aimed at (studs from the squad)
 	RushPierceMult = 1.4, -- rushing cavalry hit every squad they ride through (× charge damage)
 	RushDamageTakenMult = 1.2, -- rushing breaks formation discipline
@@ -92,7 +94,7 @@ GameConfig.Orders = {
 	HoldAhead = 16, -- the Hold preview is placed this far in front of the commander
 	HoldMaxDistance = 250, -- server rejects Hold positions further than this from the commander
 	RushEnemyRadius = 90,
-	RushCooldown = 15, -- seconds between two Rush orders (server enforced)
+	RushCooldown = 8, -- PLACEHOLDER: seconds between two Rush orders (server enforced, was 15)
 }
 
 GameConfig.Morale = {
@@ -223,8 +225,20 @@ GameConfig.AI = {
 		AdvanceSpeedMult = 0.85, -- line pace = slowest line squad × this
 		StandoffFraction = 0.9, -- halt at this share of the shortest musket range
 		SupportRadius = 80, -- PLACEHOLDER: idle squads this close to an engaged friend help it
-		ChargeReach = 60, -- PLACEHOLDER: melee foot leave the line to hit enemies this close
+		ChargeReach = 130, -- PLACEHOLDER: melee foot leave the line to hit enemies this close (was 60)
 		SlotLeash = 45, -- a firing squad drifting further than this from its slot walks back
+		-- Assault: after exchanging fire a while, or when clearly winning, the side goes in.
+		-- Melee foot and cavalry charge, line infantry fix bayonets against shaken enemies.
+		AssaultAfter = 12, -- PLACEHOLDER: seconds of standoff before the assault
+		AssaultRatio = 1.35, -- PLACEHOLDER: …or as soon as we're this much stronger (HP)
+		AssaultEnemyMorale = 0.5, -- PLACEHOLDER: …or the enemy's average morale drops below this
+		AbortRatio = 0.7, -- PLACEHOLDER: call the assault off when we fall this far behind
+		AssaultReach = 260, -- PLACEHOLDER: how far chargers go for a target during the assault
+		ChargeSpeedMult = 1.6, -- PLACEHOLDER: AI charge sprint (player Rush is Orders.RushSpeedMult)
+		BayonetMinMelee = 18, -- line squads with at least this melee damage may charge
+		BayonetMoraleBelow = 0.6, -- PLACEHOLDER: …a target whose morale is under this share
+		BayonetHealthEdge = 0.2, -- PLACEHOLDER: …or when our HP share beats its by this much
+		CavalryPreyRadius = 220, -- PLACEHOLDER: cavalry leave the flank for guns / archers / exposed squads this close
 	},
 }
 

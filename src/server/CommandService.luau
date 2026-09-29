@@ -6,7 +6,11 @@
 	(Reputation no longer limits this: it's kept for contract rewards and unlocks.)
 
 	The SELECTION is the subset of your squads that receives the X Hold · C Follow · V Attack ·
-	B Rush orders. Unselected squads keep carrying out their last order.
+	B Rush · T Fire-at orders.
+	  Rush   aimed point (or an enemy squad under the cursor): sprint there at 2×, crash into it
+	  FireAt an enemy squad: shooters and guns target it (walking into range if needed), melee
+	         squads attack it. A spot on the ground: guns bombard it, shooters take the enemy
+	         nearest to it. Unselected squads keep carrying out their last order.
 	SelectSquad remote:
 	  id             select only that squad            (click a card, or a number key 1-9)
 	  "next"/"prev"  select only the next/prev squad   (Tab / Shift+Tab)
@@ -36,7 +40,7 @@ CommandService.hooks = {
 	notify = function(_player: Player, _text: string, _tone: string) end,
 }
 
-local VALID_ORDERS = { Hold = true, Follow = true, Attack = true, Rush = true }
+local VALID_ORDERS = { Hold = true, Follow = true, Attack = true, Rush = true, FireAt = true }
 
 local commanded: { [Player]: { any } } = {} -- every squad the player commands
 local selections: { [Player]: { any } } = {} -- the ones receiving orders
@@ -44,6 +48,9 @@ local selections: { [Player]: { any } } = {} -- the ones receiving orders
 -- Reset the per-order state so the squad starts clean under its new controller
 local function clearOrderState(squad: any)
 	squad.rushTarget = nil
+	squad.rushEnemy = nil
+	squad.focusTarget = nil
+	squad.firePoint = nil
 	squad.preferredTarget = nil
 	squad.holdPosition = nil
 	squad.pendingFormation = nil
@@ -270,13 +277,43 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 		end
 		lastRushAt[player] = now
 	end
-	-- aimed rush: every squad of the group gets its own lane next to the aimed point
+	-- aimed orders: a point on the ground and/or an enemy squad under the cursor
 	local rushPoint: Vector3? = nil
-	if order == "Rush" and typeof(data) == "table" then
+	local enemy: any = nil
+	if typeof(data) == "table" then
 		local x, z = (data :: any).x, (data :: any).z
 		if typeof(x) == "number" and typeof(z) == "number" and x == x and z == z then
 			rushPoint = Vector3.new(x, squads[1].position.Y, z)
 		end
+		local id = (data :: any).targetId
+		local candidate = if typeof(id) == "number" then SquadService.getById(id) else nil
+		if candidate and candidate.alive and candidate.team ~= squads[1].team then
+			enemy = candidate
+		end
+	end
+	if order == "FireAt" then
+		if not enemy and not rushPoint then
+			return
+		end
+		if rushPoint and MathUtil.flatDistance(rushPoint, squads[1].position) > Orders.FireAtMaxDistance then
+			return
+		end
+		for _, squad in squads do
+			clearOrderState(squad)
+			if squad.def.attackType == "Melee" then
+				-- sabres and spears can't shoot: they go for it
+				squad.order = "Attack"
+				squad.preferredTarget = enemy
+					or SquadService.nearestEnemy(squad, math.huge, function(other)
+						return MathUtil.flatDistance(other.position, rushPoint :: Vector3)
+					end)
+			else
+				squad.order = "FireAt"
+				squad.focusTarget = enemy
+				squad.firePoint = if enemy then nil else rushPoint
+			end
+		end
+		return
 	end
 	local center = Vector3.zero
 	for _, squad in squads do
@@ -299,6 +336,7 @@ Remotes.get("OrderUnits").OnServerEvent:Connect(function(player: Player, order: 
 				squad.rushYaw = MathUtil.yawFromDirection(offset)
 				squad.pierced = {} -- each enemy squad can be pierced once per rush
 			end
+			squad.rushEnemy = enemy -- aimed at an enemy squad: charge it wherever it goes
 		end
 		if order == "Hold" then
 			squad.idleYaw = squad.yaw
@@ -397,6 +435,16 @@ end
 
 local function doRush(squad: any)
 	-- Aimed rush (the client's path preview): sprint to the point, cavalry pierce through enemies
+	local foe = squad.rushEnemy
+	if foe then
+		if foe.alive and not foe.routing then
+			squad.preferredTarget = foe
+			SquadService.moveTo(squad, foe.position, squad.radius + foe.radius + 1, rushSpeed(squad))
+			return
+		end
+		squad.rushEnemy = nil
+		squad.rushTarget = nil
+	end
 	local target = squad.rushTarget
 	if target then
 		if MathUtil.flatDistance(squad.position, target) <= 3 then
@@ -407,6 +455,12 @@ local function doRush(squad: any)
 			squad.holdPosition = nil
 			squad.holdYaw = squad.rushYaw or squad.yaw
 			SquadService.stop(squad)
+			-- landed next to an enemy: fight it instead of standing there
+			local near = nearestEnemy(squad, squad.radius + 30)
+			if near then
+				squad.order = "Attack"
+				squad.preferredTarget = near
+			end
 			return
 		end
 		if squad.def.attackType ~= "Melee" then
@@ -451,6 +505,57 @@ local function doRush(squad: any)
 	end
 end
 
+-- Fire at: shoot the chosen squad (walking into range first), or bombard / cover a spot
+local function doFireAt(squad: any)
+	local def = squad.def
+	local range = def.attackRange
+	local target = squad.focusTarget
+	if target and not (target.alive and not target.routing) then
+		target = nil
+		squad.focusTarget = nil
+		if not squad.firePoint then
+			-- the target is gone: hold here
+			squad.order = "Hold"
+			squad.holdPosition = nil
+			squad.holdYaw = squad.yaw
+			squad.preferredTarget = nil
+			SquadService.stop(squad)
+			return
+		end
+	end
+	local point = squad.firePoint
+	if not target and point and def.attackType ~= "Artillery" then
+		-- muskets / bows: the enemy nearest to the spot
+		target = SquadService.nearestEnemy(squad, math.huge, function(other)
+			local d = MathUtil.flatDistance(other.position, point)
+			return if d <= Orders.FireAtPointRadius + other.radius then d else math.huge
+		end)
+	end
+	local aim = if target then target.position else point
+	if not aim then
+		SquadService.stop(squad)
+		return
+	end
+	squad.preferredTarget = target
+	local distance = MathUtil.flatDistance(squad.position, aim)
+	if distance > range * 0.95 then
+		SquadService.moveTo(squad, aim, range * 0.85)
+	elseif def.minRange and distance < def.minRange then
+		local away = MathUtil.flat(squad.position - aim)
+		SquadService.moveTo(
+			squad,
+			aim + (if away.Magnitude > 0.1 then away.Unit else Vector3.xAxis) * def.minRange * 1.3,
+			2
+		)
+	else
+		SquadService.stop(squad)
+	end
+	local toward = MathUtil.flat(aim - squad.position)
+	if toward.Magnitude > 0.1 then
+		squad.idleYaw = MathUtil.yawFromDirection(toward)
+	end
+end
+
 -- Turn a controlled squad's standing order into movement (called by SquadController)
 function CommandService.applyOrder(squad: any)
 	squad.rushing = squad.order == "Rush"
@@ -468,6 +573,8 @@ function CommandService.applyOrder(squad: any)
 		doAttack(squad)
 	elseif order == "Rush" then
 		doRush(squad)
+	elseif order == "FireAt" then
+		doFireAt(squad)
 	end
 end
 

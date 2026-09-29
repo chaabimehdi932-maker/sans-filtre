@@ -16,6 +16,7 @@ local Modules = ReplicatedStorage:WaitForChild("Modules")
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
 
 local ClientActions = require(script.Parent:WaitForChild("ClientActions"))
+local AimTargets = require(script.Parent:WaitForChild("AimTargets"))
 local ClientState = require(script.Parent:WaitForChild("ClientState"))
 local SquadRenderer = require(script.Parent:WaitForChild("SquadRenderer"))
 local ActionPrompt = require(script.Parent:WaitForChild("UI"):WaitForChild("ActionPrompt"))
@@ -110,6 +111,7 @@ RunService.RenderStepped:Connect(function(dt)
 	prompt.Visible = rush.aiming and ClientState.phaseName() == "Battle"
 	if not prompt.Visible or not squad then
 		rush.target = nil
+		rush.targetId = nil
 		hideUnused()
 		return
 	end
@@ -126,10 +128,22 @@ RunService.RenderStepped:Connect(function(dt)
 	local from = SquadRenderer.getPosition(squad.id) or Vector3.new(squad.x, squad.y, squad.z)
 	local target = aimPoint(from)
 	rush.target = target
+	rush.targetId = nil
 	if not target then
 		hideUnused()
 		return
 	end
+	-- the cursor is on an enemy squad: the rush locks onto it (red path)
+	local enemy = AimTargets.enemyAt(target)
+	if enemy then
+		rush.targetId = enemy.id
+		local position = AimTargets.position(enemy)
+		local offset = Vector3.new(position.X - from.X, 0, position.Z - from.Z)
+		if offset.Magnitude > 5 then
+			target = from + offset
+		end
+	end
+	local locked = enemy ~= nil
 
 	pulse += dt
 	local direction = Vector3.new(target.X - from.X, 0, target.Z - from.Z)
@@ -143,7 +157,7 @@ RunService.RenderStepped:Connect(function(dt)
 		local p = from + direction * distance
 		local y = groundAt(p)
 		local stripe = piece()
-		stripe.Color = Color3.fromRGB(235, 245, 255)
+		stripe.Color = if locked then Color3.fromRGB(255, 120, 100) else Color3.fromRGB(235, 245, 255)
 		stripe.Size = Vector3.new(width, 0.15, 1.2)
 		stripe.CFrame = CFrame.lookAt(Vector3.new(p.X, y + 0.25, p.Z), Vector3.new(p.X, y + 0.25, p.Z) + direction)
 		-- fade in from the squad, stronger towards the goal
@@ -155,7 +169,7 @@ RunService.RenderStepped:Connect(function(dt)
 		local mid = from + direction * (length / 2) + right * side * (width / 2 + 0.4)
 		local y = groundAt(mid)
 		local rail = piece()
-		rail.Color = Color3.fromRGB(140, 205, 255)
+		rail.Color = if locked then Color3.fromRGB(255, 70, 60) else Color3.fromRGB(140, 205, 255)
 		rail.Size = Vector3.new(0.35, 0.15, length)
 		rail.Transparency = 0.35
 		rail.CFrame =

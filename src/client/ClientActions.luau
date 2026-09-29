@@ -26,7 +26,8 @@ ClientActions.Changed = changed.Event -- (what, value?)
 ClientActions.blocking = false
 
 local hold = { active = false, formation = "Line" }
-local rush = { aiming = false, target = nil :: Vector3? }
+local rush = { aiming = false, target = nil :: Vector3?, targetId = nil :: number? }
+local fire = { aiming = false, target = nil :: Vector3?, targetId = nil :: number? }
 
 local readyAt: { [string]: number } = {}
 local durations: { [string]: number } = {}
@@ -100,6 +101,10 @@ function ClientActions.attack()
 	end
 	if ClientActions.rushState().aiming then
 		ClientActions.confirmRush() -- left click confirms the rush instead of swinging
+		return
+	end
+	if fire.aiming then
+		ClientActions.confirmFireAt() -- left click picks the target
 		return
 	end
 	if ClientActions.blocking or not ready("Attack") then
@@ -280,6 +285,7 @@ function ClientActions.beginRush()
 		return
 	end
 	ClientActions.cancelHold()
+	ClientActions.cancelFireAt()
 	rush.aiming = true
 	changed:Fire("Rush", true)
 end
@@ -300,11 +306,50 @@ function ClientActions.confirmRush()
 	startCooldown("Rush", GameConfig.Orders.RushCooldown)
 	local target = rush.target
 	if target then
-		orderRemote:FireServer("Rush", { x = target.X, z = target.Z })
+		-- aimed at an enemy squad: the squads charge it wherever it goes
+		orderRemote:FireServer("Rush", { x = target.X, z = target.Z, targetId = rush.targetId })
 	else
 		orderRemote:FireServer("Rush")
 	end
 	changed:Fire("Order", "Rush")
+end
+
+---------------------------------------------------------------------------
+-- Fire-at aiming: T, then left click an enemy squad (shooters focus it, guns shell it) or a
+-- spot on the ground (guns bombard it, shooters take the enemy nearest to it).
+-- Right click / Backspace cancels.
+---------------------------------------------------------------------------
+
+function ClientActions.fireState(): any
+	return fire
+end
+
+function ClientActions.beginFireAt()
+	ClientActions.cancelHold()
+	ClientActions.cancelRush()
+	fire.aiming = true
+	changed:Fire("FireAt", true)
+end
+
+function ClientActions.cancelFireAt()
+	if fire.aiming then
+		fire.aiming = false
+		changed:Fire("FireAt", false)
+	end
+end
+
+function ClientActions.confirmFireAt()
+	if not fire.aiming then
+		return
+	end
+	fire.aiming = false
+	changed:Fire("FireAt", false)
+	local target = fire.target
+	if not target then
+		return
+	end
+	orderRemote:FireServer("FireAt", { x = target.X, z = target.Z, targetId = fire.targetId })
+	changed:Fire("Order", "FireAt")
 end
 
 function ClientActions.order(order: string)
@@ -323,9 +368,17 @@ function ClientActions.order(order: string)
 			ClientActions.beginRush()
 		end
 		return
+	elseif order == "FireAt" then
+		if fire.aiming then
+			ClientActions.cancelFireAt() -- T again cancels, left click confirms
+		else
+			ClientActions.beginFireAt()
+		end
+		return
 	end
 	ClientActions.cancelHold()
 	ClientActions.cancelRush()
+	ClientActions.cancelFireAt()
 	orderRemote:FireServer(order)
 	changed:Fire("Order", order)
 end

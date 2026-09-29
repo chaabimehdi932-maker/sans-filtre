@@ -14,6 +14,7 @@ local Icons = {
 	OrderFollow = "", -- 🏃
 	OrderAttack = "", -- ⚔️
 	OrderRush = "", -- ⚡
+	OrderFire = "", -- 🎯
 
 	-- combat hotbar (bottom)
 	Attack = "", -- ⚔️

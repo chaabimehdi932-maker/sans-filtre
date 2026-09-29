@@ -209,6 +209,39 @@ function BattlePlan.update(team: string, squads: { any }, enemies: { any }, dt: 
 		or defending
 		or lag > Plan.LagTolerance
 	plan.halted = halt
+
+	-- Assault: stop trading volleys and go in (GameConfig.AI.Plan)
+	local ourStrength, theirStrength, theirMorale = 0, 0, 0
+	for _, squad in squads do
+		ourStrength += squad.health
+	end
+	for _, enemy in enemies do
+		theirStrength += enemy.health
+		theirMorale += enemy.morale / math.max(1, enemy.maxMorale)
+	end
+	theirMorale = if #enemies > 0 then theirMorale / #enemies else 1
+	local ratio = ourStrength / math.max(1, theirStrength)
+	local inContact = nearestEnemy <= shortestRange * 1.3
+	if halt and inContact then
+		plan.standoff = (plan.standoff or 0) + dt
+	elseif not inContact then
+		plan.standoff = 0
+	end
+	if plan.assault then
+		if ratio < Plan.AbortRatio then
+			plan.assault = false -- losing badly: back into the line
+			plan.standoff = 0
+		end
+	elseif
+		inContact
+		and (
+			(plan.standoff or 0) >= Plan.AssaultAfter
+			or ratio >= Plan.AssaultRatio
+			or theirMorale < Plan.AssaultEnemyMorale
+		)
+	then
+		plan.assault = true
+	end
 	if not halt and target then
 		local step = slowest * Plan.AdvanceSpeedMult * dt
 		plan.center += forward * math.min(step, MathUtil.flatDistance(target, plan.center))
