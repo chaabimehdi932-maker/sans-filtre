@@ -8,7 +8,7 @@ const G = {
   teams: [], ai: [null, null], grid: null,
   time: 0, frame: 0, speed: 1, paused: false, mode: 'boot', playerTeam: 0, over: false,
   cam: { x: W / 2, y: H / 2, zoom: 0.4, vx: 0, vy: 0 }, viewW: 800, viewH: 600, dpr: 1,
-  sel: new Set(), groups: {}, night: 0, markers: [], pings: [],
+  sel: new Set(), groups: {}, night: 0, markers: [], pings: [], me: null, inspect: null,
   mouse: { x: 0, y: 0, wx: 0, wy: 0, in: false }, drag: null, hover: null, aim: null,
   settings: { diff: 'veteran', tod: 'day', seed: 0 },
   seen(u) { return G.playerTeam < 0 || u.team === G.playerTeam || u.vis[G.playerTeam]; },
@@ -44,8 +44,10 @@ function newGame(o) {
     G.teams.push({ id: t, supply: START_SUPPLY, income: 0, tickets: START_TICKETS, queues: [[], []], rally: { x: h.x + dir * 430, y: h.y }, hq, stats: { built: 0, lost: 0, kills: 0, spent: 0 }, radars: 0, held: 0, lastHitT: -99 });
   }
   NAV.cache.clear();
-  G.ai = [o.mode === 'play' ? null : new AICommander(0, o.blueDiff || 'elite'), new AICommander(1, o.mode === 'play' ? o.diff : o.redDiff || 'elite')];
-  if (o.mode === 'play') G.ai[1].p = DIFFS[o.diff];
+  // both armies are run by AI generals; in a real battle you are one squad on the blue side
+  G.ai = [new AICommander(0, o.mode === 'play' ? 'veteran' : o.blueDiff || 'elite'), new AICommander(1, o.mode === 'play' ? o.diff : o.redDiff || 'elite')];
+  G.me = o.mode === 'play' ? newMe() : null;
+  G.inspect = null;
   // opening forces
   G.quiet = true;
   for (let t = 0; t < 2; t++) for (const id of ['rifle', 'rifle', 'mg', 'scout']) deploy(t, PRODUCT_BY_ID[id]);
@@ -57,7 +59,6 @@ function newGame(o) {
   if (G.playerTeam === 0) { c.x = MAP.hq[0].x + 560; c.y = MAP.hq[0].y; c.zoom = 0.95; }
   else { c.x = W / 2; c.y = H / 2; c.zoom = fitZoom(); }
   minimapBase = null;
-  buildProductionCards();
   $('feed').innerHTML = '';
   G.fogA = new Float32Array(GW * GH).fill(1);
   G.director = { t: 0, x: c.x, y: c.y };
@@ -78,6 +79,7 @@ function step(dt) {
   visT -= dt;
   if (visT <= 0) { visT = 0.2; updateVision(); }
   for (let i = 0; i < G.units.length; i++) { const u = G.units[i]; if (!u.dead) updateUnit(u, dt); }
+  if (G.me) updateMe(dt);
   updateProjectiles(dt); updateDrones(dt); updateMissiles(dt); updateStrikes(dt); updateMines(dt);
   updatePoints(dt); economyTick(dt); updateProduction(dt);
   for (const ai of G.ai) if (ai) ai.update(dt);
@@ -110,8 +112,8 @@ function frame(ts) {
   lastTs = ts;
   if (G.mode !== 'boot') {
     if (!G.paused) {
-      const steps = G.speed;
-      for (let i = 0; i < steps; i++) step(dtReal);
+      const steps = Math.max(1, Math.floor(G.speed)), sdt = dtReal * Math.min(1, G.speed);
+      for (let i = 0; i < steps; i++) step(sdt);
     }
     updateCamera(dtReal);
     render(dtReal);
@@ -129,16 +131,26 @@ function updateCamera(dt) {
   const c = G.cam;
   const sp = 900 / c.zoom * dt;
   let mx = 0, my = 0;
-  if (keys.KeyW || keys.ArrowUp) my -= 1;
-  if (keys.KeyS && !G.sel.size || keys.ArrowDown) my += 1;
-  if (keys.KeyA && (G.mode !== 'play' || !G.sel.size) || keys.ArrowLeft) mx -= 1;
-  if (keys.KeyD || keys.ArrowRight) mx += 1;
-  if (G.mode === 'play' && G.mouse.in && !G.drag && !G.mouse.overHud && document.hasFocus()) {
+  const play = G.mode === 'play';
+  if (keys.ArrowUp || (!play && keys.KeyW)) my -= 1;
+  if (keys.ArrowDown || (!play && keys.KeyS)) my += 1;
+  if (keys.ArrowLeft || (!play && keys.KeyA)) mx -= 1;
+  if (keys.ArrowRight || (!play && keys.KeyD)) mx += 1;
+  if (play && G.mouse.in && !G.drag && !G.mouse.overHud && document.hasFocus() && !(G.me && G.me.drone)) {
     const m = 6;
     if (G.mouse.x < m) mx -= 1; if (G.mouse.x > G.viewW - m) mx += 1;
     if (G.mouse.y < m) my -= 1; if (G.mouse.y > G.viewH - m) my += 1;
   }
+  if ((mx || my) && G.me) G.me.follow = false;
   c.x += mx * sp; c.y += my * sp;
+  // follow your squad (or the drone you are flying)
+  if (G.me && !G.over) {
+    const me = G.me;
+    let tgt = null;
+    if (me.drone && !me.drone.dead) tgt = { x: me.drone.x, y: me.drone.y };
+    else if (me.alive && me.follow) tgt = myCenter();
+    if (tgt) { const k = 1 - Math.pow(me.drone ? 0.02 : 0.08, dt); c.x = lerp(c.x, tgt.x, k); c.y = lerp(c.y, tgt.y, k); }
+  }
   // menu / spectator director camera follows the action
   if ((G.mode === 'menu' || (G.mode === 'spectate' && G.autoCam)) && !G.over) {
     const d = G.director; d.t -= dt;
@@ -151,6 +163,8 @@ function updateCamera(dt) {
   const hw = G.viewW / 2 / c.zoom, hh = G.viewH / 2 / c.zoom;
   c.x = W < hw * 2 ? W / 2 : clamp(c.x, hw - 100, W - hw + 100);
   c.y = H < hh * 2 ? H / 2 : clamp(c.y, hh - 100, H - hh + 160);
+  // the cursor's world position moves with the camera even when the mouse doesn't
+  const w = screenToWorld(G.mouse.x, G.mouse.y); G.mouse.wx = w.x; G.mouse.wy = w.y;
 }
 function hotSpot() {
   let best = null, bs = 0;
@@ -230,6 +244,11 @@ function render(dt) {
   drawTexts(ctx);
   // screen space
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (G.me && G.me.alive) {
+    const m = G.me.mission, tg = m && missionTarget(m);
+    if (tg) edgeArrow(tg.x, tg.y, '#f7d54a', m.p ? m.p.letter : '!');
+    if (!G.me.follow) { const c = myCenter(); edgeArrow(c.x, c.y, '#9be7ff', 'YOU'); }
+  }
   if (FX.flash > 0.01) { ctx.fillStyle = `rgba(255,244,220,${FX.flash * 0.6})`; ctx.fillRect(0, 0, G.viewW, G.viewH); }
   if (G.drag && G.drag.box) {
     const d = G.drag; const x = Math.min(d.sx, d.ex), y = Math.min(d.sy, d.ey), w = Math.abs(d.ex - d.sx), h = Math.abs(d.ey - d.sy);
@@ -245,6 +264,21 @@ function render(dt) {
   ctx.fillStyle = G.vig.g; ctx.fillRect(0, 0, G.viewW, G.viewH);
 }
 
+// arrow on the screen edge pointing at something off screen
+function edgeArrow(x, y, color, label) {
+  const s = worldToScreen(x, y), W2 = G.viewW, H2 = G.viewH, pad = 40;
+  if (s.x > pad && s.y > 80 && s.x < W2 - pad && s.y < H2 - 190) return;
+  const cx = W2 / 2, cy = H2 / 2, a = Math.atan2(s.y - cy, s.x - cx);
+  const k = Math.min((W2 / 2 - pad) / Math.abs(Math.cos(a) || 1e-6), (H2 / 2 - 110) / Math.abs(Math.sin(a) || 1e-6));
+  const px = cx + Math.cos(a) * k, py = cy + Math.sin(a) * k;
+  ctx.save(); ctx.translate(px, py); ctx.rotate(a);
+  ctx.fillStyle = color; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-6, -11); ctx.lineTo(-2, 0); ctx.lineTo(-6, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  ctx.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif'; ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(label, px - Math.cos(a) * 22 + 1, py - Math.sin(a) * 22 + 5);
+  ctx.fillStyle = color; ctx.fillText(label, px - Math.cos(a) * 22, py - Math.sin(a) * 22 + 4);
+}
 function drawWaterShimmer(view) {
   const t = G.time;
   ctx.strokeStyle = 'rgba(190,225,255,0.18)'; ctx.lineWidth = 2;
@@ -532,15 +566,75 @@ function drawWarnings(view) {
     }
   }
 }
+// range rings, queued shots, the squad marker and the mission waypoint
+function drawSquadAids(view, z) {
+  const iz = 1 / z, me = G.me, c = myCenter();
+  const t = G.time;
+  // gun ranges for squads that fire by hand
+  if (hasManualFire(me.prod)) {
+    const u = me.units[0];
+    for (const w of u.weapons) {
+      if (!MANUAL_KINDS[w.def.kind]) continue;
+      ctx.strokeStyle = 'rgba(247,213,74,0.22)'; ctx.lineWidth = 1.5 * iz; ctx.setLineDash([10 * iz, 8 * iz]);
+      ctx.beginPath(); ctx.arc(u.x, u.y, w.def.range, 0, TAU); ctx.stroke();
+      if (w.def.min) { ctx.strokeStyle = 'rgba(255,90,60,0.22)'; ctx.beginPath(); ctx.arc(u.x, u.y, w.def.min, 0, TAU); ctx.stroke(); }
+      ctx.setLineDash([]);
+      break;
+    }
+    // aim preview under the cursor
+    if (!G.aim && !(me.drone) && G.mouse.in && !G.mouse.overHud) {
+      const m = G.mouse, w = u.weapons.find((w) => MANUAL_KINDS[w.def.kind]);
+      const d = dist(u.x, u.y, m.wx, m.wy);
+      const ok = d <= w.def.range && (!w.def.min || d >= w.def.min);
+      const ready = w.cd <= 0 && w.salvo <= 0;
+      const rr = w.def.kind === 'mrocket' ? d * w.def.scatter + w.def.splash : w.def.kind === 'arty' ? d * w.def.scatter + w.def.splash : (w.def.splash || 20);
+      ctx.strokeStyle = ok ? (ready ? 'rgba(255,210,90,0.9)' : 'rgba(255,255,255,0.45)') : 'rgba(255,80,60,0.6)';
+      ctx.lineWidth = 1.5 * iz;
+      ctx.beginPath(); ctx.arc(m.wx, m.wy, rr, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(m.wx - 10 * iz, m.wy); ctx.lineTo(m.wx + 10 * iz, m.wy); ctx.moveTo(m.wx, m.wy - 10 * iz); ctx.lineTo(m.wx, m.wy + 10 * iz); ctx.stroke();
+    }
+  }
+  // queued shots
+  for (const u of me.units) for (const w of u.weapons) {
+    if (!w.manual) continue;
+    const p = w.manual;
+    ctx.strokeStyle = `rgba(255,200,80,${0.5 + 0.4 * Math.sin(t * 10)})`; ctx.lineWidth = 2 * iz;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 12 * iz, 0, TAU); ctx.stroke();
+    ctx.setLineDash([4 * iz, 6 * iz]); ctx.beginPath(); ctx.moveTo(u.x, u.y); ctx.lineTo(p.x, p.y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // squad marker
+  const top = Math.min(...me.units.map((u) => u.y)) - 26 - 6 * iz;
+  ctx.fillStyle = '#f7d54a'; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5 * iz;
+  const s = 7 * iz, by = top + Math.sin(t * 4) * 3 * iz;
+  ctx.beginPath(); ctx.moveTo(c.x - s, by - s); ctx.lineTo(c.x + s, by - s); ctx.lineTo(c.x, by + s * 0.4); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // mission waypoint
+  const m = me.mission;
+  if (m) {
+    const tg = missionTarget(m);
+    if (tg) {
+      const pr = 0.5 + 0.5 * Math.sin(t * 3);
+      ctx.strokeStyle = `rgba(247,213,74,${0.5 + pr * 0.4})`; ctx.lineWidth = 3 * iz;
+      const r = (tg.r && !tg.def ? tg.r + 30 : 40) + pr * 6;
+      ctx.beginPath(); ctx.arc(tg.x, tg.y, r, 0, TAU); ctx.stroke();
+      for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + t * 0.6; ctx.beginPath(); ctx.moveTo(tg.x + Math.cos(a) * (r + 6), tg.y + Math.sin(a) * (r + 6)); ctx.lineTo(tg.x + Math.cos(a) * (r + 22 * iz), tg.y + Math.sin(a) * (r + 22 * iz)); ctx.stroke(); }
+    }
+  }
+}
 function drawOverlays(view, z) {
   const iz = 1 / z;
   const pt = G.playerTeam;
-  // selection rings
+  // your squad
   ctx.lineWidth = 1.6 * iz;
+  if (G.inspect) {
+    ctx.strokeStyle = 'rgba(160,220,255,0.8)'; ctx.setLineDash([3 * iz, 3 * iz]);
+    for (const u of G.inspect.units) if (!u.dead) { const r = u.cls === 'veh' ? u.def.len * 0.62 : u.r + 5; ctx.beginPath(); ctx.arc(u.x, u.y, r, 0, TAU); ctx.stroke(); }
+    ctx.setLineDash([]);
+  }
+  if (G.me && G.me.alive) drawSquadAids(view, z);
   for (const u of G.sel) {
     if (u.dead) continue;
     const r = (u.cls === 'veh' ? u.def.len * 0.62 : u.cls === 'bld' ? u.r + 12 : u.r + 4);
-    ctx.strokeStyle = 'rgba(170,255,140,0.95)';
+    ctx.strokeStyle = 'rgba(247,213,74,0.95)';
     ctx.beginPath(); ctx.arc(u.x, u.y, r, 0, TAU); ctx.stroke();
     if (u.order && u.path && u.path.length && z > 0.3 && G.sel.size <= 6) {
       ctx.strokeStyle = u.order.type === 'amove' ? 'rgba(255,140,90,0.35)' : 'rgba(170,255,140,0.3)'; ctx.setLineDash([4 * iz, 6 * iz]);
@@ -573,15 +667,6 @@ function drawOverlays(view, z) {
   if (G.hover && G.hover.team !== pt && pt >= 0) {
     const u = G.hover; const r = (u.cls === 'veh' ? u.def.len * 0.62 : u.r + 5);
     ctx.strokeStyle = 'rgba(255,80,60,0.9)'; ctx.lineWidth = 1.6 * iz; ctx.beginPath(); ctx.arc(u.x, u.y, r, 0, TAU); ctx.stroke();
-  }
-  // rally flag
-  if (pt >= 0) {
-    const T = G.teams[pt]; const hqSel = G.sel.has(T.hq);
-    if (hqSel) {
-      const r = T.rally;
-      ctx.strokeStyle = 'rgba(170,255,140,0.5)'; ctx.setLineDash([6 * iz, 6 * iz]); ctx.lineWidth = 1.5 * iz; ctx.beginPath(); ctx.moveTo(T.hq.x, T.hq.y); ctx.lineTo(r.x, r.y); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = '#ddd'; ctx.fillRect(r.x - 1, r.y - 30, 2, 30); ctx.fillStyle = '#8eff6a'; ctx.fillRect(r.x + 1, r.y - 30, 16, 10);
-    }
   }
   // order markers
   for (const m of G.markers) {
@@ -669,529 +754,17 @@ function underAttack(u) {
   const s = worldToScreen(u.x, u.y);
   if (s.x > 0 && s.y > 0 && s.x < G.viewW && s.y < G.viewH) return;
   lastAttackNote = G.time;
-  notify(u.cls === 'bld' ? `${u.def.name} under attack!` : 'Our forces are under attack', 'warn', u.x, u.y);
+  notify('Your squad is under fire!', 'warn', u.x, u.y);
   Sound.play('alert', 0.35);
 }
 let lossNoteT = -99;
 function lossFeed(u) {
   if (G.time - lossNoteT < 3) return;
   lossNoteT = G.time;
-  notify(`${u.def.name} lost`, 'bad', u.x, u.y);
+  notify(u.cls === 'inf' ? `${u.def.name} down` : `${u.def.name} destroyed`, 'bad', u.x, u.y);
 }
 function onDeployed(made, prod) {
   if (G.quiet) return;
   notify(`${prod.name} ready`, 'info', made[0].x, made[0].y);
 }
 
-// ---------------------------------------------------------------------
-// input
-// ---------------------------------------------------------------------
-function unitAt(wx, wy, preferTeam) {
-  let best = null, bd = 1e9;
-  for (const u of G.grid.query(wx, wy, 34)) {
-    if (u.dead || u.cls === 'air' || !G.seen(u)) continue;
-    const r = u.cls === 'veh' ? u.def.len * 0.55 : u.cls === 'bld' ? u.r : u.r + 6;
-    const d = dist(wx, wy, u.x, u.y);
-    if (d > r) continue;
-    const s = d - (u.team === preferTeam ? 20 : 0);
-    if (s < bd) { bd = s; best = u; }
-  }
-  return best;
-}
-function selectable(u) { return u.team === G.playerTeam && !u.dead; }
-
-function setupInput() {
-  const cv = canvas;
-  cv.addEventListener('contextmenu', (e) => e.preventDefault());
-  cv.addEventListener('mousemove', (e) => {
-    const r = cv.getBoundingClientRect();
-    const m = G.mouse; m.x = e.clientX - r.left; m.y = e.clientY - r.top; m.in = true; m.overHud = false;
-    const w = screenToWorld(m.x, m.y); m.wx = w.x; m.wy = w.y;
-    if (G.drag) {
-      if (G.drag.pan) { G.cam.x -= e.movementX / G.cam.zoom; G.cam.y -= e.movementY / G.cam.zoom; }
-      else { G.drag.ex = m.x; G.drag.ey = m.y; if (Math.abs(G.drag.ex - G.drag.sx) + Math.abs(G.drag.ey - G.drag.sy) > 6) G.drag.box = true; }
-    }
-    if (G.mode !== 'boot' && G.grid) G.hover = unitAt(m.wx, m.wy, G.playerTeam);
-    cv.style.cursor = G.aim ? 'crosshair' : G.amove ? 'crosshair' : G.hover && G.hover.team !== G.playerTeam && G.sel.size ? 'crosshair' : 'default';
-  });
-  cv.addEventListener('mouseleave', () => { G.mouse.in = false; });
-  cv.addEventListener('mousedown', (e) => {
-    Sound.init();
-    if (G.mode !== 'play' && G.mode !== 'spectate') return;
-    const m = G.mouse; m.shift = e.shiftKey;
-    if (e.button === 1) { G.drag = { pan: true }; e.preventDefault(); return; }
-    if (e.button === 0) {
-      if (G.mode === 'spectate') { G.drag = { pan: true }; G.autoCam = false; syncSpectate(); return; }
-      if (G.aim) { castAim(m.wx, m.wy); return; }
-      if (G.amove) { commandAt(m.wx, m.wy, true); G.amove = false; return; }
-      G.drag = { sx: m.x, sy: m.y, ex: m.x, ey: m.y, box: false, shift: e.shiftKey };
-    }
-    if (e.button === 2) {
-      if (G.aim) { G.aim = null; return; }
-      if (G.amove) { G.amove = false; return; }
-      commandAt(m.wx, m.wy, e.ctrlKey);
-    }
-  });
-  window.addEventListener('mouseup', (e) => {
-    if (!G.drag) return;
-    const d = G.drag; G.drag = null;
-    if (d.pan || e.button !== 0) return;
-    if (d.box) boxSelect(d, d.shift);
-    else clickSelect(G.mouse.wx, G.mouse.wy, d.shift, e.detail >= 2);
-  });
-  cv.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    if (G.mode === 'boot') return;
-    const before = screenToWorld(G.mouse.x, G.mouse.y);
-    G.cam.zoom = clamp(G.cam.zoom * Math.pow(1.0015, -e.deltaY), fitZoom() * 0.98, 2.4);
-    const after = screenToWorld(G.mouse.x, G.mouse.y);
-    G.cam.x += before.x - after.x; G.cam.y += before.y - after.y;
-  }, { passive: false });
-
-  window.addEventListener('keydown', (e) => {
-    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
-    keys[e.code] = true;
-    if (G.mode === 'menu' || G.mode === 'boot') return;
-    const sel = [...G.sel];
-    if (e.code === 'Escape') { if (G.aim || G.amove) { G.aim = null; G.amove = false; } else togglePause(); return; }
-    if (e.code === 'KeyP') { togglePause(); return; }
-    if (e.code === 'KeyM') { toggleSound(); return; }
-    if (e.code === 'F1') { e.preventDefault(); showHelp(true); return; }
-    if (G.mode !== 'play') { if (e.code === 'Space') { G.autoCam = !G.autoCam; syncSpectate(); } return; }
-    if (/^Digit[0-9]$/.test(e.code)) {
-      const n = e.code.slice(5);
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); G.groups[n] = sel.slice(); notify(`Group ${n} set (${sel.length})`, 'info'); }
-      else if (G.groups[n]) {
-        const g = G.groups[n].filter((u) => !u.dead);
-        const again = G.lastGroup === n && performance.now() - G.lastGroupT < 400;
-        G.sel = new Set(g); G.lastGroup = n; G.lastGroupT = performance.now();
-        if (again && g.length) centerOn(g);
-      }
-      return;
-    }
-    if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); G.sel = new Set(G.units.filter((u) => u.team === G.playerTeam && u.cls !== 'bld')); return; }
-    if (!sel.length) return;
-    if (e.code === 'KeyA') { G.amove = true; return; }
-    if (e.code === 'KeyS') { issueStop(sel); return; }
-    if (e.code === 'KeyH') { issueHold(sel); return; }
-    if (e.code === 'KeyQ') { startAim(); return; }
-    if (e.code === 'KeyE') { toggleAuto(); return; }
-    if (e.code === 'Space') { centerOn(sel); return; }
-    if (e.code === 'Delete') { return; }
-  });
-  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
-  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
-
-  // minimap
-  const mm = $('minimap');
-  const mmPos = (e) => { const r = mm.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H }; };
-  let mmDrag = false;
-  mm.addEventListener('contextmenu', (e) => e.preventDefault());
-  mm.addEventListener('mousedown', (e) => {
-    Sound.init();
-    const p = mmPos(e);
-    if (e.button === 2 && G.mode === 'play') { commandAt(p.x, p.y, e.ctrlKey); return; }
-    mmDrag = true; G.cam.x = p.x; G.cam.y = p.y; G.autoCam = false; syncSpectate();
-  });
-  window.addEventListener('mousemove', (e) => { if (mmDrag) { const p = mmPos(e); G.cam.x = p.x; G.cam.y = p.y; } });
-  window.addEventListener('mouseup', () => { mmDrag = false; });
-
-  setupTouch(cv);
-}
-
-function setupTouch(cv) {
-  let t0 = null, pinch = null, moved = false, longT = null, boxMode = false;
-  cv.addEventListener('touchstart', (e) => {
-    Sound.init(); e.preventDefault();
-    if (e.touches.length === 2) {
-      clearTimeout(longT);
-      const [a, b] = e.touches; pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: G.cam.zoom, cx: (a.clientX + b.clientX) / 2, cy: (a.clientY + b.clientY) / 2 };
-      t0 = null; return;
-    }
-    const t = e.touches[0]; const r = cv.getBoundingClientRect();
-    t0 = { x: t.clientX - r.left, y: t.clientY - r.top, lx: t.clientX, ly: t.clientY }; moved = false; boxMode = false;
-    G.mouse.x = t0.x; G.mouse.y = t0.y; const w = screenToWorld(t0.x, t0.y); G.mouse.wx = w.x; G.mouse.wy = w.y;
-    clearTimeout(longT);
-    if (G.mode === 'play') longT = setTimeout(() => { boxMode = true; G.drag = { sx: t0.x, sy: t0.y, ex: t0.x, ey: t0.y, box: true }; }, 380);
-  }, { passive: false });
-  cv.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if (pinch && e.touches.length === 2) {
-      const [a, b] = e.touches; const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-      const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
-      G.cam.zoom = clamp(pinch.z * d / pinch.d, fitZoom() * 0.98, 2.4);
-      G.cam.x -= (cx - pinch.cx) / G.cam.zoom; G.cam.y -= (cy - pinch.cy) / G.cam.zoom; pinch.cx = cx; pinch.cy = cy;
-      return;
-    }
-    if (!t0) return;
-    const t = e.touches[0]; const r = cv.getBoundingClientRect();
-    const x = t.clientX - r.left, y = t.clientY - r.top;
-    if (boxMode) { G.drag.ex = x; G.drag.ey = y; return; }
-    if (Math.abs(x - t0.x) + Math.abs(y - t0.y) > 10) { moved = true; clearTimeout(longT); G.autoCam = false; }
-    if (moved) { G.cam.x -= (t.clientX - t0.lx) / G.cam.zoom; G.cam.y -= (t.clientY - t0.ly) / G.cam.zoom; t0.lx = t.clientX; t0.ly = t.clientY; }
-  }, { passive: false });
-  cv.addEventListener('touchend', (e) => {
-    e.preventDefault(); clearTimeout(longT);
-    if (pinch) { if (e.touches.length < 2) pinch = null; return; }
-    if (!t0) return;
-    if (boxMode && G.drag) { boxSelect(G.drag, false); G.drag = null; t0 = null; return; }
-    if (!moved && G.mode === 'play') {
-      const { wx, wy } = G.mouse;
-      if (G.aim) { castAim(wx, wy); t0 = null; return; }
-      const u = unitAt(wx, wy, G.playerTeam);
-      if (u && u.team === G.playerTeam) { G.sel = new Set([u]); Sound.play('ui', 0.3); }
-      else if (G.sel.size) commandAt(wx, wy, false);
-    }
-    t0 = null;
-  }, { passive: false });
-}
-
-function clickSelect(wx, wy, add, dbl) {
-  const u = unitAt(wx, wy, G.playerTeam);
-  if (!u) { if (!add) G.sel.clear(); return; }
-  if (!selectable(u)) { if (!add) G.sel = new Set([u]); return; }
-  if (dbl && u.cls !== 'bld') {
-    const v = G.view;
-    G.sel = new Set(G.units.filter((o) => o.team === G.playerTeam && o.type === u.type && o.x > v.x0 && o.x < v.x1 && o.y > v.y0 && o.y < v.y1));
-    return;
-  }
-  if (add) { if (G.sel.has(u)) G.sel.delete(u); else { for (const o of G.sel) if (!selectable(o)) G.sel.delete(o); G.sel.add(u); } }
-  else G.sel = new Set([u]);
-  Sound.play('ui', 0.3);
-}
-function boxSelect(d, add) {
-  const a = screenToWorld(Math.min(d.sx, d.ex), Math.min(d.sy, d.ey)), b = screenToWorld(Math.max(d.sx, d.ex), Math.max(d.sy, d.ey));
-  let list = G.units.filter((u) => u.team === G.playerTeam && u.cls !== 'bld' && u.x > a.x && u.x < b.x && u.y > a.y && u.y < b.y);
-  if (!add) G.sel.clear();
-  for (const o of G.sel) if (!selectable(o) || o.cls === 'bld') G.sel.delete(o);
-  for (const u of list) G.sel.add(u);
-  if (list.length) Sound.play('ui', 0.3);
-}
-function commandAt(wx, wy, amove) {
-  const sel = [...G.sel].filter((u) => u.team === G.playerTeam && !u.dead);
-  if (!sel.length) return;
-  const T = G.teams[G.playerTeam];
-  if (sel.length === 1 && sel[0] === T.hq) { T.rally = { x: wx, y: wy }; G.markers.push({ x: wx, y: wy, t: 0, color: 'rgba(170,255,140,A)' }); return; }
-  const movers = sel.filter((u) => u.cls !== 'bld');
-  if (!movers.length) return;
-  const target = unitAt(wx, wy, 1 - G.playerTeam);
-  if (target && target.team !== G.playerTeam) {
-    issueAttack(movers, target);
-    G.markers.push({ x: target.x, y: target.y, t: 0, color: 'rgba(255,90,60,A)' });
-  } else {
-    issueMove(movers, wx, wy, amove);
-    G.markers.push({ x: wx, y: wy, t: 0, color: amove ? 'rgba(255,150,80,A)' : 'rgba(170,255,140,A)' });
-  }
-  Sound.play('ui', 0.25);
-}
-function centerOn(units) { let x = 0, y = 0; for (const u of units) { x += u.x; y += u.y; } G.cam.x = x / units.length; G.cam.y = y / units.length; }
-
-const AB_ORDER = ['missile', 'barrage', 'drone', 'mine'];
-function startAim(ab) {
-  const sel = [...G.sel].filter((u) => !u.dead && u.def.ability && u.team === G.playerTeam);
-  if (!sel.length) return;
-  if (!ab) ab = AB_ORDER.find((a) => sel.some((u) => u.def.ability === a));
-  G.aim = { ab };
-}
-function castAim(wx, wy) {
-  const ab = G.aim.ab; const A = ABILITIES[ab];
-  const casters = [...G.sel].filter((u) => !u.dead && u.def.ability === ab && u.team === G.playerTeam);
-  if (!casters.length) { G.aim = null; return; }
-  // the closest unit that is ready
-  casters.sort((a, b) => (a.abilityCd > 0) - (b.abilityCd > 0) || dist(a.x, a.y, wx, wy) - dist(b.x, b.y, wx, wy));
-  const u = casters[0];
-  if (ab === 'drone') {
-    const t = unitAt(wx, wy, 1 - G.playerTeam);
-    if (!t || t.team === G.playerTeam) { notify('Click an enemy to send the drone', 'info'); Sound.play('error', 0.4); return; }
-    if (u.drone) { notify('That operator already has a drone up', 'info'); Sound.play('error', 0.4); return; }
-    u.order = { type: 'ability', target: t, x: t.x, y: t.y };
-  } else {
-    if ((ab === 'barrage' || ab === 'missile') && !cellVisible(G.playerTeam, wx, wy)) { notify('Spot the target first: artillery needs eyes on it', 'info'); Sound.play('error', 0.4); return; }
-    u.order = { type: 'ability', x: wx, y: wy };
-  }
-  u.path = null; u.repathT = 0;
-  if (u.abilityCd > 0) notify(`${u.def.name}: ready in ${Math.ceil(u.abilityCd)} s`, 'info');
-  G.markers.push({ x: wx, y: wy, t: 0, color: 'rgba(120,200,255,A)' });
-  Sound.play('ui', 0.3);
-  if (!G.mouse.shift) G.aim = null;
-}
-function toggleAuto() {
-  const sel = [...G.sel].filter((u) => u.def.ability);
-  if (!sel.length) return;
-  const v = !sel.every((u) => u.auto);
-  for (const u of sel) u.auto = v;
-  notify(`Auto-cast ${v ? 'on' : 'off'}`, 'info');
-  selKey = '';
-}
-function togglePause() {
-  if (G.over || G.mode === 'menu') return;
-  G.paused = !G.paused;
-  $('pause').hidden = !G.paused;
-}
-function toggleSound() {
-  Sound.init(); Sound.setMuted(!Sound.muted);
-  $('btnSound').textContent = Sound.muted ? 'Sound off' : 'Sound on';
-  $('btnSound').setAttribute('aria-pressed', String(!Sound.muted));
-  try { localStorage.setItem('dotwar.muted', Sound.muted ? '1' : '0'); } catch (e) {}
-}
-function setSpeed(s) { G.speed = s; for (const b of document.querySelectorAll('[data-speed]')) b.classList.toggle('on', +b.dataset.speed === s); }
-
-// ---------------------------------------------------------------------
-// HUD
-// ---------------------------------------------------------------------
-let prodTab = 0;
-const cardEls = {};
-function buildProductionCards() {
-  const box = $('cards'); box.innerHTML = '';
-  for (const p of PRODUCTS) {
-    const el = document.createElement('button');
-    el.className = 'card'; el.dataset.line = p.line; el.type = 'button';
-    el.setAttribute('aria-label', `${p.name}, ${p.cost} supply`);
-    el.append(productIcon(p, 46, 0));
-    const cost = document.createElement('span'); cost.className = 'cost'; cost.textContent = p.cost; el.append(cost);
-    const q = document.createElement('span'); q.className = 'qn'; el.append(q);
-    const bar = document.createElement('span'); bar.className = 'prog'; el.append(bar);
-    if (p.n > 1) { const n = document.createElement('span'); n.className = 'cnt'; n.textContent = '×' + p.n; el.append(n); }
-    el.addEventListener('click', () => { Sound.init(); const err = queueProduct(G.playerTeam, p); if (err) { notify(err, 'info'); Sound.play('error', 0.4); } else Sound.play('ui', 0.3); updateHudNow(); });
-    el.addEventListener('contextmenu', (e) => { e.preventDefault(); if (cancelProduct(G.playerTeam, p)) { Sound.play('ui', 0.3); updateHudNow(); } });
-    el.addEventListener('mouseenter', () => showTip(p, el));
-    el.addEventListener('mouseleave', hideTip);
-    el.addEventListener('focus', () => showTip(p, el));
-    el.addEventListener('blur', hideTip);
-    box.append(el);
-    cardEls[p.id] = { el, q, bar };
-  }
-  setTab(prodTab);
-}
-function setTab(t) {
-  prodTab = t;
-  for (const b of document.querySelectorAll('[data-tab]')) { b.classList.toggle('on', +b.dataset.tab === t); b.setAttribute('aria-selected', String(+b.dataset.tab === t)); }
-  for (const p of PRODUCTS) cardEls[p.id] && (cardEls[p.id].el.hidden = p.line !== t);
-}
-function statLine(d) {
-  const parts = [`${d.hp} HP`];
-  if (d.weapons.length) { const w = WEAPONS[d.weapons[0]]; parts.push(`${w.airRange && w.airRange > w.range ? w.range + '/' + w.airRange : w.range} m range`); }
-  if (d.ability) parts.push(`${ABILITIES[d.ability].range} m ${ABILITIES[d.ability].name.toLowerCase()}`);
-  parts.push(`speed ${d.speed}`);
-  return parts.join(' · ');
-}
-function showTip(p, el) {
-  const d = UNITS[p.unit];
-  const tip = $('tip');
-  tip.innerHTML = `<div class="tip-h"><b>${p.name}</b><span>${p.cost} supply · ${p.time} s · ${d.pop * p.n} pop</span></div><p>${p.desc}</p><div class="tip-s">${statLine(d)}</div><div class="tip-vs"><span class="good">Strong vs ${p.good}</span><span class="bad">Weak vs ${p.bad}</span></div><div class="tip-k">Click to train · right-click to cancel</div>`;
-  tip.hidden = false;
-  const r = el.getBoundingClientRect(), tr = tip.getBoundingClientRect();
-  let x = r.left + r.width / 2 - tr.width / 2; x = clamp(x, 8, window.innerWidth - tr.width - 8);
-  tip.style.left = x + 'px'; tip.style.top = Math.max(8, r.top - tr.height - 10) + 'px';
-}
-function hideTip() { $('tip').hidden = true; }
-
-let selKey = '';
-function updateHudNow() { hudT = 0; }
-function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
-function updateHud() {
-  if (!G.teams.length) return;
-  const spect = G.playerTeam < 0;
-  const me = G.teams[spect ? 0 : G.playerTeam];
-  const T0 = G.teams[0], T1 = G.teams[1];
-  $('supply').textContent = Math.floor(me.supply);
-  $('income').textContent = `+${me.income.toFixed(0)}/s`;
-  $('pop').textContent = `${popUsed(spect ? 0 : G.playerTeam)}/${POP_CAP}`;
-  $('tk0').textContent = Math.ceil(T0.tickets); $('tk1').textContent = Math.ceil(T1.tickets);
-  $('tb0').style.transform = `scaleX(${T0.tickets / START_TICKETS})`; $('tb1').style.transform = `scaleX(${T1.tickets / START_TICKETS})`;
-  $('clock').textContent = fmtTime(G.time);
-  const pts = $('pts');
-  if (pts.children.length !== G.points.length) { pts.innerHTML = ''; for (const p of G.points) { const s = document.createElement('span'); s.textContent = p.letter; pts.append(s); } }
-  G.points.forEach((p, i) => { const s = pts.children[i]; s.className = 'pt ' + (p.owner === 0 ? 'b' : p.owner === 1 ? 'r' : 'n') + (p.contested ? ' c' : ''); });
-  // bleed indicator
-  const diff = T0.held - T1.held;
-  $('bleed0').textContent = diff < 0 && G.time > 60 ? `−${bleedRate(diff).toFixed(1)}/s` : '';
-  $('bleed1').textContent = diff > 0 && G.time > 60 ? `−${bleedRate(diff).toFixed(1)}/s` : '';
-  if (spect) {
-    $('spectInfo').textContent = `Blue ${Math.floor(T0.supply)} supply · ${popUsed(0)} pop   |   Red ${Math.floor(T1.supply)} supply · ${popUsed(1)} pop`;
-    return;
-  }
-  // production cards
-  const pop = popUsed(G.playerTeam);
-  for (const p of PRODUCTS) {
-    const c = cardEls[p.id]; if (!c) continue;
-    const q = me.queues[p.line];
-    const n = q.filter((it) => it.p === p).length;
-    c.q.textContent = n ? n : '';
-    const head = q[0] && q[0].p === p ? q[0] : null;
-    c.bar.style.transform = `scaleX(${head ? head.t / p.time : 0})`;
-    c.el.classList.toggle('poor', me.supply < p.cost || pop + UNITS[p.unit].pop * p.n > POP_CAP);
-  }
-  for (let l = 0; l < 2; l++) { const q = me.queues[l]; $('qline' + l).textContent = q.length ? `${q.length} queued` : ''; }
-  updateSelPanel();
-}
-function updateSelPanel() {
-  const sel = [...G.sel].filter((u) => !u.dead);
-  const key = sel.map((u) => u.id).join(',') + '|' + Math.floor(G.time * 2);
-  if (key === selKey) return; selKey = key;
-  const box = $('sel');
-  if (!sel.length) {
-    box.innerHTML = `<div class="sel-empty"><b>No units selected</b><span>Drag to select · right-click to move or attack · A attack-move · Q ability · F1 controls</span></div>`;
-    return;
-  }
-  if (sel.length === 1) {
-    const u = sel[0]; const d = u.def;
-    const own = u.team === G.playerTeam;
-    const ab = d.ability ? ABILITIES[d.ability] : null;
-    let html = `<div class="sel-one"><div class="sel-ic" data-u="${u.type}"></div><div class="sel-body"><div class="sel-name">${d.name}${u.rank ? ' <span class="vet">' + '★'.repeat(u.rank) + '</span>' : ''} <span class="team-${u.team}">${own ? '' : 'enemy'}</span></div>`;
-    html += `<div class="hpbar"><i style="transform:scaleX(${u.hp / u.maxHp})"></i></div><div class="sel-stats">${Math.ceil(u.hp)} / ${u.maxHp} HP · ${u.kills} kills${u.sup > 50 ? ' · <b class="warn">pinned</b>' : ''}${isConcealed(u) && own ? ' · hidden' : ''}</div>`;
-    if (d.weapons.length) html += `<div class="sel-stats">${d.weapons.map((w) => w).map((w) => `${wpnName(w)} ${WEAPONS[w].range} m`).join(' · ')}</div>`;
-    if (own && ab) html += `<div class="sel-ab"><button type="button" class="abbtn" data-act="ab">${ab.name} <kbd>Q</kbd>${u.abilityCd > 0 ? ` <span class="cd">${Math.ceil(u.abilityCd)} s</span>` : ' <span class="ok">ready</span>'}</button><button type="button" class="autobtn ${u.auto ? 'on' : ''}" data-act="auto">Auto ${u.auto ? 'on' : 'off'} <kbd>E</kbd></button></div>`;
-    if (own && u.type === 'hq') html += `<div class="sel-stats">Right-click the map to set where new units gather.</div>`;
-    html += `</div></div>`;
-    box.innerHTML = html;
-  } else {
-    const groups = new Map();
-    for (const u of sel) { const g = groups.get(u.type) || { n: 0, hp: 0, max: 0 }; g.n++; g.hp += u.hp; g.max += u.maxHp; groups.set(u.type, g); }
-    let html = `<div class="sel-multi">`;
-    for (const [type, g] of groups) html += `<button type="button" class="grp" data-type="${type}" title="${UNITS[type].name}"><span class="sel-ic" data-u="${type}"></span><b>${g.n}</b><i style="transform:scaleX(${g.hp / g.max})"></i></button>`;
-    html += `</div>`;
-    const abs = [...new Set(sel.filter((u) => u.def.ability).map((u) => u.def.ability))];
-    html += `<div class="sel-ab">${abs.map((a) => { const ready = sel.filter((u) => u.def.ability === a && u.abilityCd <= 0).length; return `<button type="button" class="abbtn" data-act="ab" data-ab="${a}">${ABILITIES[a].name} <span class="${ready ? 'ok' : 'cd'}">${ready} ready</span></button>`; }).join('')}`;
-    html += `<button type="button" class="cmd" data-act="stop">Stop <kbd>S</kbd></button><button type="button" class="cmd" data-act="hold">Hold <kbd>H</kbd></button><button type="button" class="cmd" data-act="amove">Attack-move <kbd>A</kbd></button></div>`;
-    box.innerHTML = html;
-  }
-  for (const el of box.querySelectorAll('.sel-ic')) { const t = el.dataset.u; const p = PRODUCT_BY_ID[UNITS[t].product]; if (p) el.append(iconCache(p)); else el.textContent = t === 'hq' ? 'HQ' : '▣'; }
-}
-const ICONS = {};
-function iconCache(p) { const k = p.id; if (!ICONS[k]) ICONS[k] = productIcon(p, 34, 0); const c = ICONS[k].cloneNode(); c.getContext('2d').drawImage(ICONS[k], 0, 0); return c; }
-function wpnName(w) { return { rifle: 'Rifle', carbine: 'Carbine', pistol: 'Pistol', smg: 'SMG', mg: 'MG', sniper: 'Rifle', atrocket: 'AT rocket', satchel: 'Satchel', grenade: 'Grenade', cannonL: '90 mm', cannonH: '125 mm', coax: 'Coax MG', aa: '35 mm AA', howitzer: '155 mm', mlrs: '122 mm rockets', tcannon: 'Cannon', tmg: 'MG' }[w] || w; }
-
-function setupHud() {
-  for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { setTab(+b.dataset.tab); Sound.play('ui', 0.2); });
-  for (const b of document.querySelectorAll('[data-speed]')) b.addEventListener('click', () => setSpeed(+b.dataset.speed));
-  $('btnPause').addEventListener('click', togglePause);
-  $('btnSound').addEventListener('click', toggleSound);
-  $('btnHelp').addEventListener('click', () => showHelp(true));
-  $('resume').addEventListener('click', togglePause);
-  $('quit').addEventListener('click', () => { G.paused = false; $('pause').hidden = true; toMenu(); });
-  $('sel').addEventListener('click', (e) => {
-    const b = e.target.closest('button'); if (!b) return;
-    const sel = [...G.sel];
-    const a = b.dataset.act;
-    if (a === 'ab') startAim(b.dataset.ab);
-    else if (a === 'auto') toggleAuto();
-    else if (a === 'stop') issueStop(sel);
-    else if (a === 'hold') issueHold(sel);
-    else if (a === 'amove') G.amove = true;
-    else if (b.dataset.type) G.sel = new Set(sel.filter((u) => u.type === b.dataset.type));
-    selKey = '';
-  });
-  for (const el of document.querySelectorAll('.hud-panel')) {
-    el.addEventListener('mouseenter', () => { G.mouse.overHud = true; });
-    el.addEventListener('mouseleave', () => { G.mouse.overHud = false; });
-  }
-}
-
-// ---------------------------------------------------------------------
-// menus & flow
-// ---------------------------------------------------------------------
-function showHelp(v) { $('help').hidden = !v; if (v && G.mode === 'play' && !G.paused) { G.paused = true; G.helpPaused = true; } if (!v && G.helpPaused) { G.paused = false; G.helpPaused = false; } }
-function setMode(m) {
-  document.body.dataset.mode = m;
-}
-function loading(text, fn) {
-  const l = $('loading'); l.hidden = false; $('loadingText').textContent = text;
-  setTimeout(() => { try { fn(); } finally { l.hidden = true; } }, 40);
-}
-function startGame() {
-  Sound.init();
-  $('menu').hidden = true; $('end').hidden = true;
-  loading('Generating battlefield…', () => {
-    newGame({ mode: 'play', seed: G.settings.seed, diff: G.settings.diff, tod: G.settings.tod });
-    setMode('play');
-    notify(`Capture points to earn supply and drain enemy tickets. Destroy their HQ to win.`, 'info');
-  });
-}
-function startSpectate() {
-  Sound.init();
-  $('menu').hidden = true; $('end').hidden = true;
-  loading('Generating battlefield…', () => {
-    newGame({ mode: 'spectate', seed: G.settings.seed, tod: G.settings.tod, blueDiff: 'elite', redDiff: 'elite' });
-    G.autoCam = true; syncSpectate();
-    setMode('spectate');
-  });
-}
-function syncSpectate() { const b = $('btnCam'); if (b) { b.textContent = G.autoCam ? 'Auto camera on' : 'Auto camera off'; b.classList.toggle('on', !!G.autoCam); } }
-function toMenu() {
-  $('end').hidden = true;
-  loading('Loading…', () => {
-    newGame({ mode: 'menu', seed: (Math.random() * 1e9) | 0, tod: G.settings.tod, blueDiff: 'elite', redDiff: 'elite' });
-    G.speed = 1; setMode('menu'); $('menu').hidden = false;
-  });
-}
-function endGame(winner, why) {
-  if (G.over) return;
-  G.over = true;
-  if (G.mode === 'menu') { setTimeout(toMenu, 4000); return; }
-  const T = G.teams;
-  const won = G.playerTeam < 0 ? null : winner === G.playerTeam;
-  setTimeout(() => {
-    const e = $('end');
-    $('endTitle').textContent = won === null ? `${TEAM[winner].name} wins` : won ? 'Victory' : 'Defeat';
-    $('endTitle').className = won === false ? 'lose' : 'win';
-    $('endWhy').textContent = why === 'hq' ? (won === false ? 'Your headquarters was destroyed.' : 'The enemy headquarters is rubble.') : (won === false ? 'Your army ran out of tickets.' : 'The enemy army ran out of tickets.');
-    const row = (k, a, b) => `<tr><th scope="row">${k}</th><td>${a}</td><td>${b}</td></tr>`;
-    $('endStats').innerHTML = `<thead><tr><th></th><th class="team-0">Blue</th><th class="team-1">Red</th></tr></thead><tbody>` +
-      row('Units trained', T[0].stats.built, T[1].stats.built) + row('Units lost', T[0].stats.lost, T[1].stats.lost) + row('Kills', T[0].stats.kills, T[1].stats.kills) +
-      row('Supply spent', T[0].stats.spent, T[1].stats.spent) + row('Points held', T[0].held, T[1].held) + row('Tickets left', Math.ceil(T[0].tickets), Math.ceil(T[1].tickets)) + `</tbody>`;
-    $('endTime').textContent = `Battle length ${fmtTime(G.time)} · ${DIFFS[G.settings.diff].name} AI`;
-    e.hidden = false;
-  }, 2500);
-}
-
-function setupMenu() {
-  const chips = (name, key) => {
-    for (const b of document.querySelectorAll(`[data-${name}]`)) {
-      b.addEventListener('click', () => {
-        G.settings[key] = b.dataset[name];
-        for (const o of document.querySelectorAll(`[data-${name}]`)) { o.classList.toggle('on', o === b); o.setAttribute('aria-checked', String(o === b)); }
-        try { localStorage.setItem('dotwar.' + key, b.dataset[name]); } catch (e) {}
-        Sound.init(); Sound.play('ui', 0.3);
-        if (key === 'tod' && G.mode === 'menu') G.night = { day: 0, dusk: 0.4, night: 0.72 }[G.settings.tod];
-      });
-      if (G.settings[key] === b.dataset[name]) { b.classList.add('on'); b.setAttribute('aria-checked', 'true'); }
-    }
-  };
-  chips('diff', 'diff'); chips('tod', 'tod');
-  $('btnPlay').addEventListener('click', startGame);
-  $('btnWatch').addEventListener('click', startSpectate);
-  $('btnHow').addEventListener('click', () => showHelp(true));
-  $('helpClose').addEventListener('click', () => showHelp(false));
-  $('again').addEventListener('click', () => { G.settings.seed = (Math.random() * 1e9) | 0; startGame(); });
-  $('toMenu').addEventListener('click', toMenu);
-  $('btnCam').addEventListener('click', () => { G.autoCam = !G.autoCam; syncSpectate(); });
-  $('btnExit').addEventListener('click', toMenu);
-  // roster in the help panel
-  const roster = $('roster');
-  for (const p of PRODUCTS) {
-    const li = document.createElement('li');
-    li.append(productIcon(p, 40, 0));
-    const d = document.createElement('div');
-    d.innerHTML = `<b>${p.name}</b> <span class="muted">${p.cost} · ${p.n > 1 ? '×' + p.n : 'single'}</span><br>${p.desc}`;
-    li.append(d); roster.append(li);
-  }
-}
-
-function boot() {
-  try { const m = localStorage.getItem('dotwar.muted'); if (m === '1') Sound.muted = true; const d = localStorage.getItem('dotwar.diff'); if (d && DIFFS[d]) G.settings.diff = d; const t = localStorage.getItem('dotwar.tod'); if (t) G.settings.tod = t; } catch (e) {}
-  $('btnSound').textContent = Sound.muted ? 'Sound off' : 'Sound on';
-  G.settings.seed = (Math.random() * 1e9) | 0;
-  try { G.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
-  makeFxSprites();
-  navInit();
-  setupCanvas();
-  setupInput();
-  setupHud();
-  setupMenu();
-  newGame({ mode: 'menu', seed: G.settings.seed + 1, tod: G.settings.tod, blueDiff: 'elite', redDiff: 'elite' });
-  setMode('menu');
-  $('loading').hidden = true;
-  requestAnimationFrame((t) => { lastTs = t; requestAnimationFrame(frame); });
-}
-window.addEventListener('load', boot);

@@ -534,7 +534,7 @@ class AICommander {
       for (const i of G.impacts) if (i.team === this.enemy && now - i.t < 2.5) threats.push({ x: i.x, y: i.y, r: 95 });
     }
     for (const u of G.units) {
-      if (u.team !== this.team || u.dead || u.def.speed === 0) continue;
+      if (u.team !== this.team || u.dead || u.def.speed === 0 || u.player) continue;
       // dodge
       if (threats.length && !(u.override && u.override.dodge)) {
         for (const t of threats) {
@@ -582,6 +582,32 @@ class AICommander {
     }
     // forget old impacts
     while (G.impacts.length && now - G.impacts[0].t > 20) G.impacts.shift();
+  }
+  // the player takes a squad: forget it
+  release(units) {
+    const set = new Set(units);
+    for (const u of units) {
+      if (u.squad) { u.squad.units.delete(u); u.squad = null; }
+      this.reserve.delete(u); this.battery.delete(u);
+      u.override = null; u.focus = null;
+    }
+    this.recon = this.recon.filter((r) => !set.has(r.u));
+    for (const g of this.garrisons) g.units = g.units.filter((u) => !set.has(u));
+  }
+  // the player hands a squad back: put it straight to work
+  adopt(units) {
+    const line = [];
+    for (const u of units) {
+      if (u.dead) continue;
+      if (u.def.role === 'arty') this.battery.add(u);
+      else if (u.type === 'scout' || u.type === 'sniper') this.recon.push({ u, post: null, t: 0 });
+      else line.push(u);
+    }
+    if (!line.length) return;
+    const s = { id: this.sqId++, units: new Set(line), state: 'idle', obj: null, initPower: 0, t: 0, orderT: -99 };
+    for (const u of line) u.squad = s;
+    this.squadInfo(s); s.initPower = s.power;
+    this.squads.push(s);
   }
   findHelper(u, pred, r) {
     let best = null, bd = r * r;

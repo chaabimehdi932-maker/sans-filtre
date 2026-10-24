@@ -69,7 +69,6 @@ body[data-mode="menu"] .hud { display: none; }
 .spect { display: none; }
 body[data-mode="spectate"] .spect { display: flex; position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 78px); gap: 6px; align-items: center; padding: 4px 6px 4px 12px; border-radius: 6px; white-space: nowrap; }
 .spect span { color: var(--muted); font-size: 13px; }
-body[data-mode="spectate"] .res, body[data-mode="spectate"] #prod, body[data-mode="spectate"] #sel { display: none; }
 
 #feed { position: absolute; left: max(10px, env(safe-area-inset-left, 0px)); top: calc(env(safe-area-inset-top, 0px) + 66px); display: grid; gap: 4px; justify-items: start; max-width: 340px; }
 .note { pointer-events: auto; border: 0; border-left: 3px solid var(--muted); background: var(--panel); padding: 5px 10px; border-radius: 0 4px 4px 0; text-align: left; font-weight: 600; font-size: 14px; animation: slide .25s ease-out; transition: opacity .5s; }
@@ -80,51 +79,14 @@ body[data-mode="spectate"] .res, body[data-mode="spectate"] #prod, body[data-mod
 #bottom { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 0 max(10px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); pointer-events: none; }
 #mini { padding: 4px; border-radius: 6px; }
 #minimap { display: block; width: 236px; height: 144px; border-radius: 3px; cursor: pointer; }
-#sel { min-height: 98px; border-radius: 6px; padding: 10px 12px; align-self: end; max-width: 560px; justify-self: center; width: 100%; }
-.sel-empty { display: grid; gap: 4px; color: var(--muted); }
-.sel-empty b { color: var(--text); font-size: 16px; }
-.sel-one { display: flex; gap: 12px; align-items: flex-start; }
-.sel-ic { width: 38px; height: 38px; display: grid; place-items: center; background: rgba(255,255,255,0.05); border-radius: 4px; flex: none; font-weight: 700; color: var(--muted); }
-.sel-one .sel-ic { width: 52px; height: 52px; }
-.sel-body { display: grid; gap: 4px; min-width: 0; flex: 1; }
-.sel-name { font: 700 18px var(--ui); }
-.sel-name .vet { color: var(--gold); }
 .team-0 { color: var(--blue); } .team-1 { color: var(--red); }
-.hpbar { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; max-width: 280px; }
-.hpbar i { display: block; height: 100%; background: var(--good); transform-origin: left; }
-.sel-stats { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
-.sel-stats .warn { color: var(--gold); }
-.sel-multi { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
-.grp { position: relative; display: flex; align-items: center; gap: 4px; padding: 2px 8px 6px 2px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 4px; }
-.grp b { font-size: 15px; font-variant-numeric: tabular-nums; }
-.grp i { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 2px; background: var(--good); transform-origin: left; }
-.sel-ab { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
 .abbtn, .autobtn, .cmd { border: 1px solid var(--line); background: rgba(255,255,255,0.05); border-radius: 4px; padding: 3px 9px; font-weight: 600; }
 .abbtn { border-color: rgba(120,200,255,0.5); }
 .abbtn:hover, .autobtn:hover, .cmd:hover { background: rgba(255,255,255,0.12); }
 .autobtn.on { color: var(--good); }
 .ok { color: var(--good); } .cd { color: var(--gold); }
 
-#prod { border-radius: 6px; padding: 6px; }
-.tabs { display: flex; gap: 4px; margin-bottom: 6px; align-items: baseline; }
-.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 2px 6px; color: var(--muted); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 13px; }
-.tabs button.on { color: var(--text); border-color: var(--gold); }
-.tabs .q { margin-left: auto; color: var(--muted); font-size: 12px; }
-#cards { display: grid; grid-template-columns: repeat(6, 58px); gap: 4px; }
-.card { position: relative; width: 58px; height: 58px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: linear-gradient(180deg, rgba(40,110,40,0.45), rgba(20,60,24,0.55)); display: grid; place-items: center; overflow: hidden; }
-.card:hover { border-color: var(--gold); }
-.card canvas { pointer-events: none; }
-.card .cost { position: absolute; left: 3px; bottom: 1px; font: 700 12px var(--ui); color: var(--gold); text-shadow: 0 1px 2px #000; font-variant-numeric: tabular-nums; }
-.card .cnt { position: absolute; right: 3px; top: 1px; font: 600 11px var(--ui); color: var(--text); text-shadow: 0 1px 2px #000; }
-.card .qn { position: absolute; right: 3px; bottom: 1px; font: 700 14px var(--ui); color: #fff; text-shadow: 0 1px 2px #000; }
-.card .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--good); transform-origin: left; transform: scaleX(0); }
-.card.poor { filter: grayscale(0.8) brightness(0.6); }
 
-#tip { position: fixed; z-index: 30; max-width: 300px; padding: 10px 12px; border-radius: 6px; background: var(--panel-solid); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0,0,0,0.5); pointer-events: none; display: grid; gap: 5px; }
-#tip p { margin: 0; color: #cfd8ca; }
-.tip-h { display: grid; gap: 1px; }
-.tip-h b { font-size: 18px; }
-.tip-h span, .tip-s, .tip-k { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .tip-vs { display: grid; gap: 1px; font-size: 13px; }
 .tip-vs .good { color: var(--good); } .tip-vs .bad { color: var(--bad); }
 
@@ -182,34 +144,93 @@ h1.logo .r { color: var(--red); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 #loading { background: rgba(5,9,7,0.75); font: 400 26px var(--display); color: var(--muted); }
 
-@media (max-width: 1100px) {
+/* ---------- your squad ---------- */
+.res b small { color: var(--muted); font-size: 12px; font-weight: 600; margin-left: 2px; }
+.armies { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#mission { position: absolute; left: max(10px, env(safe-area-inset-left, 0px)); top: calc(env(safe-area-inset-top, 0px) + 66px); width: 300px; border-radius: 6px; padding: 8px 12px 10px; border-left: 3px solid var(--gold); display: grid; gap: 4px; }
+#mission .k { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); font-weight: 700; }
+#mText { font: 700 17px/1.2 var(--ui); }
+#mission .bar { height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+#mBar { display: block; height: 100%; background: var(--gold); transform-origin: left; transform: scaleX(0); transition: transform .3s; }
+#mInfo { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+body[data-mode="play"] #feed { top: calc(env(safe-area-inset-top, 0px) + 168px); }
+#mid { display: grid; gap: 6px; align-self: end; justify-self: center; width: min(700px, 100%); }
+#inspect { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 6px; justify-self: center; }
+#inspect canvas { flex: none; }
+#squad { border-radius: 6px; padding: 10px 12px; display: grid; gap: 7px; }
+.sq-top { display: flex; align-items: center; gap: 10px; }
+.sq-ic { width: 52px; height: 52px; display: grid; place-items: center; background: rgba(40,110,40,0.4); border-radius: 5px; flex: none; }
+.sq-title { display: grid; flex: 1; min-width: 0; }
+.sq-title b { font: 700 20px/1.1 var(--ui); }
+.sq-title span { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.sq-title .vet { color: var(--gold); }
+.sq-mem { display: flex; gap: 4px; }
+.sq-mem i { flex: 1; height: 7px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+.sq-mem i b { display: block; height: 100%; background: var(--good); transform-origin: left; }
+.sq-mem i.low b { background: var(--bad); }
+.sq-mem i.gone { background: rgba(255,90,70,0.15); outline: 1px dashed rgba(255,90,70,0.4); }
+.sq-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wpn { display: grid; gap: 2px; min-width: 150px; flex: 1; font-size: 14px; color: #cfd8ca; }
+.wpn i { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+.wpn i b { display: block; height: 100%; background: var(--muted); transform-origin: left; }
+.wpn i.ready b { background: var(--gold); }
+.sq-status { font-size: 14px; color: #cfd8ca; min-height: 18px; }
+.sq-status .warn { color: var(--gold); }
+.sq-hint { font-size: 13px; color: var(--muted); }
+.sq-dead { display: grid; gap: 6px; justify-items: start; }
+.sq-dead b { font-size: 18px; }
+.sq-dead span { color: var(--muted); }
+body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-mode="spectate"] .res { display: none; }
+
+/* ---------- squad picker ---------- */
+#picker { background: rgba(5,9,7,0.55); }
+#picker .sheet { width: min(1060px, 100%); display: grid; gap: 14px; }
+#picker h2 { margin: 0; font: 400 36px var(--display); }
+#pkSub { margin: 0; color: #cfd8ca; font-size: 16px; max-width: 70ch; }
+.pk-cols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; }
+#picker h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
+.pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 5px; margin-bottom: 12px; }
+.pk { display: flex; align-items: center; gap: 8px; text-align: left; padding: 4px 8px 4px 4px; border: 1px solid var(--line); border-radius: 5px; background: rgba(255,255,255,0.03); }
+.pk canvas { flex: none; background: rgba(40,110,40,0.35); border-radius: 4px; }
+.pk span { display: grid; min-width: 0; }
+.pk b { font-size: 15px; line-height: 1.1; }
+.pk small { color: var(--muted); font-size: 12px; line-height: 1.15; }
+.pk:hover { background: rgba(255,255,255,0.08); }
+.pk.on { border-color: var(--gold); background: rgba(247,213,74,0.12); }
+#pkInfo { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: rgba(255,255,255,0.03); margin-bottom: 12px; }
+#pkInfo b { font-size: 20px; }
+#pkInfo p { margin: 0; color: #cfd8ca; }
+#pkInfo .tip-vs { font-size: 14px; }
+#pkSpawnNote { font-size: 13px; color: var(--muted); margin: 4px 0 12px; }
+#pkField { display: grid; gap: 4px; max-height: 260px; overflow: auto; }
+.fld { display: flex; align-items: center; gap: 8px; text-align: left; padding: 3px 8px 3px 3px; border: 1px solid var(--line); border-radius: 5px; background: rgba(255,255,255,0.03); }
+.fld:hover { border-color: var(--blue); }
+.fld small { color: var(--muted); display: block; }
+#pkGo:disabled { opacity: 0.55; cursor: default; }
+.tip-vs { display: grid; gap: 1px; font-size: 13px; }
+.tip-vs .good { color: var(--good); } .tip-vs .bad { color: var(--bad); }
+#endMe { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 16px; color: #cfd8ca; }
+#endMe b { color: var(--gold); width: 100%; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+@media (max-width: 900px) {
   .war { min-width: 0; }
   .tickets { grid-template-columns: auto 80px 18px 80px auto; }
-  #sel { display: none; }
-  #bottom { grid-template-columns: auto 1fr; }
-  #prod { justify-self: end; }
+  .pk-cols { grid-template-columns: 1fr; }
+  #bottom { grid-template-columns: 1fr; }
+  #mini { display: none; }
 }
 @media (max-width: 760px) {
   #top { grid-template-columns: 1fr auto; }
   .war { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
   .res { gap: 10px; padding: 4px 8px; }
   .res b { font-size: 18px; }
-  .ctl #clock, .ctl [data-speed="3"] { display: none; }
-  #minimap { width: 150px; height: 92px; }
-  #cards { grid-template-columns: repeat(4, 50px); }
-  .card { width: 50px; height: 50px; }
-  #feed { top: calc(env(safe-area-inset-top, 0px) + 150px); max-width: 80vw; }
+  .ctl #clock, .ctl [data-speed="2"], .ctl [data-speed="3"], .ctl #btnHelp { display: none; }
+  #mission { top: calc(env(safe-area-inset-top, 0px) + 160px); width: min(300px, 70vw); }
+  body[data-mode="play"] #feed { top: calc(env(safe-area-inset-top, 0px) + 268px); max-width: 80vw; }
   .note { font-size: 13px; }
+  .sq-hint, .wpn { display: none; }
   #menu { background: linear-gradient(180deg, rgba(8,14,10,0.9), rgba(8,14,10,0.7)); place-items: center; }
   .lede { font-size: 16px; }
-}
-@media (max-width: 480px) {
-  #bottom { grid-template-columns: 1fr; }
-  #mini { display: none; }
-  #prod { justify-self: stretch; }
-  #cards { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .card { width: auto; aspect-ratio: 1; height: auto; }
-  .card canvas { width: 80% !important; height: auto !important; }
 }
 </style>
 </head>
@@ -219,9 +240,11 @@ h1.logo .r { color: var(--red); }
 
   <div class="hud">
     <div id="top">
-      <div class="res hud-panel">
-        <div><span class="k">Supply</span><b id="supply">0</b><small id="income">+0/s</small></div>
-        <div><span class="k">Army</span><b id="pop">0/200</b></div>
+      <div class="res hud-panel" aria-label="Your score">
+        <div><span class="k">Score</span><b id="score">0</b></div>
+        <div><span class="k">Kills</span><b id="kills">0</b></div>
+        <div><span class="k">Captures</span><b id="caps">0</b></div>
+        <div><span class="k">Missions</span><b id="miss">0</b></div>
       </div>
       <div class="war hud-panel" aria-label="Tickets and capture points">
         <div class="tickets">
@@ -234,6 +257,7 @@ h1.logo .r { color: var(--red); }
         <div class="tickets" style="grid-template-columns:auto auto auto">
           <b class="t0" id="tk0">1000</b><div id="pts"></div><b class="t1" id="tk1">1000</b>
         </div>
+        <div class="armies"><span id="armies">0 vs 0</span> units in the field</div>
       </div>
       <div class="ctl hud-panel">
         <span id="clock">0:00</span>
@@ -246,35 +270,48 @@ h1.logo .r { color: var(--red); }
       </div>
     </div>
     <div class="spect hud-panel"><span id="spectInfo"></span><button type="button" id="btnCam">Auto camera on</button><button type="button" id="btnExit">Main menu</button></div>
+    <div id="mission" class="hud-panel" hidden><span class="k">Orders</span><span id="mText"></span><div class="bar"><i id="mBar"></i></div><span id="mInfo"></span></div>
     <div id="feed" aria-live="polite"></div>
 
     <div id="bottom">
       <div id="mini" class="hud-panel"><canvas id="minimap" aria-label="Minimap"></canvas></div>
-      <div id="sel" class="hud-panel"></div>
-      <div id="prod" class="hud-panel">
-        <div class="tabs" role="tablist">
-          <button type="button" role="tab" data-tab="0" class="on">Barracks</button>
-          <button type="button" role="tab" data-tab="1">Motor pool</button>
-          <span class="q"><span id="qline0"></span> <span id="qline1"></span></span>
-        </div>
-        <div id="cards"></div>
+      <div id="mid">
+        <div id="inspect" class="hud-panel" hidden></div>
+        <div id="squad" class="hud-panel"></div>
       </div>
     </div>
   </div>
-  <div id="tip" hidden></div>
+
+  <div id="picker" class="overlay" hidden>
+    <div class="sheet">
+      <div><h2 id="pkTitle">Pick your squad</h2><p id="pkSub"></p></div>
+      <div class="pk-cols">
+        <div>
+          <h3>Infantry</h3><div class="pk-grid" id="pkInf"></div>
+          <h3>Vehicles</h3><div class="pk-grid" id="pkVeh"></div>
+        </div>
+        <div>
+          <div id="pkInfo"></div>
+          <h3>Deploy at</h3><div class="chips" id="pkSpawn"></div><p id="pkSpawnNote"></p>
+          <div class="row" style="justify-content:flex-start"><button type="button" class="btn primary" id="pkGo">Deploy</button><button type="button" class="btn" id="pkBack">Back to the fight</button></div>
+          <h3 style="margin-top:16px">Or take over a squad in the field</h3><div id="pkField"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="menu" class="overlay">
     <div class="menu-inner">
-      <div class="eyebrow">Real-time tactics · 20 units · 9 capture points</div>
+      <div class="eyebrow">One squad · two AI armies · 20 unit types</div>
       <h1 class="logo">D<span class="dot" aria-hidden="true"></span>T <span class="r">WAR</span></h1>
-      <p class="lede">Lead the blue army against an AI general. Take the bridges, spot for your guns, fly drones into their tanks and break the red line.</p>
+      <p class="lede">Two AI generals fight a full-scale war. You lead one blue squad of your choice: shell the red line as a howitzer crew, fly kamikaze drones, snipe officers or take the bridges with a rifle squad.</p>
       <div class="opt">
         <span class="lbl" id="lblDiff">Enemy general</span>
         <div class="chips" role="radiogroup" aria-labelledby="lblDiff">
-          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="recruit">Recruit<small>Slow, forgiving</small></button>
-          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="veteran">Veteran<small>Dodges, focuses fire</small></button>
-          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="elite">Elite<small>Pincers and kites</small></button>
-          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="general">General<small>+35% supply</small></button>
+          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="recruit">Recruit<small>Watches one fight at a time</small></button>
+          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="veteran">Veteran<small>Fair fight</small></button>
+          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="elite">Elite<small>Faster, pincers, kites</small></button>
+          <button type="button" class="chip" role="radio" aria-checked="false" data-diff="general">General<small>No limits, +35% supply</small></button>
         </div>
       </div>
       <div class="opt">
@@ -286,7 +323,7 @@ h1.logo .r { color: var(--red); }
         </div>
       </div>
       <div class="menu-btns">
-        <button type="button" class="btn primary" id="btnPlay">Start battle</button>
+        <button type="button" class="btn primary" id="btnPlay">Join the war</button>
         <button type="button" class="btn" id="btnWatch">Watch AI vs AI</button>
         <button type="button" class="btn" id="btnHow">How to play</button>
       </div>
@@ -301,30 +338,34 @@ h1.logo .r { color: var(--red); }
         <div>
           <h3>Controls</h3>
           <table>
-            <tr><td>Select</td><td>Left-click, drag a box, double-click for all of a type</td></tr>
-            <tr><td>Move / attack</td><td>Right-click ground / enemy</td></tr>
+            <tr><td>Move</td><td>Right-click the ground (right-click a capture point to spread out on it)</td></tr>
+            <tr><td>Attack</td><td>Right-click or left-click an enemy</td></tr>
+            <tr><td>Fire at a spot</td><td>Left-click the ground: artillery, MLRS, tanks, AT rockets, grenades</td></tr>
+            <tr><td>Ability</td><td>Q: drone, barrage, missile, mine</td></tr>
+            <tr><td>Fly a drone</td><td>Q to launch, steer with the mouse, left-click to detonate</td></tr>
             <tr><td>Attack-move</td><td>A then click, or Ctrl + right-click</td></tr>
-            <tr><td>Ability</td><td>Q then click (barrage, missile, drone, mine)</td></tr>
-            <tr><td>Auto-cast</td><td>E toggles it for the selection</td></tr>
+            <tr><td>Auto-fire</td><td>E lets your squad pick its own targets</td></tr>
             <tr><td>Stop / hold</td><td>S / H</td></tr>
-            <tr><td>Groups</td><td>Ctrl + 1–9 to save, 1–9 to recall, twice to jump</td></tr>
-            <tr><td>Camera</td><td>Arrows, WASD, screen edges, middle-drag, wheel, minimap</td></tr>
-            <tr><td>Rally point</td><td>Select your HQ, right-click the map</td></tr>
+            <tr><td>Change squad</td><td>Tab, or left-click an allied squad then T to take over</td></tr>
+            <tr><td>Camera</td><td>Follows your squad. Drag, arrows or screen edges to look around, Space to snap back</td></tr>
             <tr><td>Pause / sound</td><td>P or Esc / M</td></tr>
-            <tr><td>Touch</td><td>Tap to select or move, drag to pan, pinch to zoom, hold then drag to box-select</td></tr>
+            <tr><td>Touch</td><td>Tap the ground to move, tap an enemy to attack, hold to fire at a spot, pinch to zoom</td></tr>
           </table>
         </div>
         <div>
           <h3>How the war works</h3>
           <ul class="rules">
-            <li>Each of the 9 points pays +4 supply/s on top of your base +14/s.</li>
+            <li>Both armies are run by AI generals. You lead one squad; the allied general runs everyone else.</li>
+            <li>Command sends you orders that fit your squad. Finish them for bonus points.</li>
+            <li>Lost soldiers come back while your squad rests near the HQ, a point you hold or a supply truck.</li>
+            <li>When your squad is wiped out, pick a new one: any unit type, deployed at the HQ or (for infantry) on a point you hold.</li>
             <li>After the first minute, whoever holds fewer points bleeds tickets every second (0.7 per point behind, up to 4). Losing units costs tickets too. Hit 0 and you lose.</li>
             <li>Destroying the enemy HQ wins outright. It is guarded by two bunker turrets.</li>
             <li>Infantry in forests take less damage and stay hidden until enemies get close. Scouts and snipers also hide while standing still. Radar trucks see through it.</li>
             <li>Tanks take 1.5× damage from behind. Flank them.</li>
             <li>Machine guns and explosions pin infantry: pinned troops crawl and miss.</li>
             <li>Artillery, barrages and missiles need someone to see the target.</li>
-            <li>Units heal slowly next to your HQ, faster near medics and supply trucks.</li>
+            <li>Units heal slowly next to the HQ, faster near medics and supply trucks.</li>
             <li>Kills promote units to veteran: more damage and accuracy.</li>
           </ul>
         </div>
@@ -347,6 +388,7 @@ h1.logo .r { color: var(--red); }
     <div class="sheet">
       <h2 id="endTitle">Victory</h2>
       <p id="endWhy"></p>
+      <div id="endMe"></div>
       <table id="endStats"></table>
       <div id="endTime"></div>
       <div class="row"><button type="button" class="btn primary" id="again">New battle</button><button type="button" class="btn" id="toMenu">Main menu</button></div>
@@ -363,6 +405,8 @@ h1.logo .r { color: var(--red); }
 <script src="js/draw.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/ai.js"></script>
+<script src="js/squad.js"></script>
 <script src="js/game.js"></script>
+<script src="js/ui.js"></script>
 </body>
 </html>

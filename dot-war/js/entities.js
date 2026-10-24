@@ -21,7 +21,7 @@ class Unit {
     this.xp = 0; this.rank = 0; this.kills = 0;
     this.vis = [team === 0, team === 1];
     this.abilityCd = d.ability === 'missile' ? 20 : 0;
-    this.auto = !(d.ability === 'missile' && team === G.playerTeam); // your missiles wait for your order
+    this.auto = true;
     this.drone = null; this.squad = null; this.override = null; this.focus = null;
     this.dead = false; this.hitFlash = 0; this.recoil = 0; this.anim = rand(0, 10);
     this.trackAcc = 0; this.lastHit = -99; this.moving = false; this.speedNow = 0;
@@ -311,6 +311,8 @@ function updateWeapons(u, dt) {
       if (w.salvoT <= 0 && w.aim) { w.salvoT = wd.salvoGap; w.salvo--; fireMRocket(u, w); }
       continue;
     }
+    if (w.manual) { manualFire(u, w, wi, dt); continue; }
+    if (u.player && wd.arty && !u.autoArty) { if (wi === 0 && wd.turret) u.tang = rotTo(u.tang, u.ang, (d.tturn || 2) * dt); continue; }
     w.retarget -= dt;
     if (w.retarget <= 0 || (w.target && (w.target.dead || !w.target.vis[u.team]))) {
       w.retarget = wd.arty ? rand(0.8, 1.2) : rand(0.3, 0.45);
@@ -344,6 +346,27 @@ function updateWeapons(u, dt) {
   }
 }
 
+// fire a queued shot at a spot on the ground (your squad's left-click)
+const MANUAL_KINDS = { arty: 1, mrocket: 1, shell: 1, rocket: 1, grenade: 1 };
+function manualFire(u, w, wi, dt) {
+  const m = w.manual, wd = w.def, d = u.def;
+  if (G.time - m.t > 8) { w.manual = null; return; }
+  const want = Math.atan2(m.y - u.y, m.x - u.x);
+  let aligned = true;
+  if (wd.turret) { u.tang = rotTo(u.tang, want, (d.tturn || 3) * dt); aligned = Math.abs(angDiff(u.tang, want)) < 0.1; }
+  else if (u.cls === 'inf') { u.ang = rotTo(u.ang, want, 10 * dt); aligned = Math.abs(angDiff(u.ang, want)) < 0.3; }
+  else { if (!u.moving) u.ang = rotTo(u.ang, want, d.turn * 0.8 * dt); aligned = Math.abs(angDiff(u.ang, want)) < 0.2; }
+  if (!aligned || w.cd > 0) return;
+  if (wd.deploy && (u.moving || u.stillT < wd.deploy)) return;
+  if (!wd.moveFire && u.moving && !wd.deploy) return;
+  const dd = dist(u.x, u.y, m.x, m.y);
+  let tx = m.x, ty = m.y;
+  // firing blind at ground nobody can see is far less accurate
+  if (!cellVisible(u.team, m.x, m.y)) { const a = rand(0, TAU), r = rand(0, dd * 0.05); tx += Math.cos(a) * r; ty += Math.sin(a) * r; }
+  w.cd = wd.cd * rand(0.95, 1.05);
+  w.manual = null;
+  fireWeapon(u, w, { x: tx, y: ty, fake: true, moving: false }, dd);
+}
 function muzzlePos(u, w) {
   const d = u.def; const wd = w.def;
   if (u.cls === 'inf') {
@@ -403,7 +426,7 @@ function fireWeapon(u, w, t, dd) {
       const sc = (1 - wd.acc) * dd * 0.25 * (u.moving ? 1.6 : 1) / (1 + u.rank * 0.2);
       const lead = t.moving ? dd / wd.speed : 0;
       const tx = t.x + (t.speedNow || 0) * Math.cos(t.ang) * lead * 0.8 + rand(-sc, sc), ty = t.y + (t.speedNow || 0) * Math.sin(t.ang) * lead * 0.8 + rand(-sc, sc);
-      G.projs.push({ kind: 'shell', team: u.team, src: u, x: m.x, y: m.y, sx: m.x, sy: m.y, tx, ty, target: t, speed: wd.speed, dmg: wd.dmg, splash: wd.splash, vs: wd.vs, sup: wd.sup, t: 0, T: dist(m.x, m.y, tx, ty) / wd.speed });
+      G.projs.push({ kind: 'shell', team: u.team, src: u, x: m.x, y: m.y, sx: m.x, sy: m.y, tx, ty, target: t.fake ? null : t, speed: wd.speed, dmg: wd.dmg, splash: wd.splash, vs: wd.vs, sup: wd.sup, t: 0, T: dist(m.x, m.y, tx, ty) / wd.speed });
       muzzle(m.x, m.y, m.a, 1.8);
       for (let i = 0; i < 4; i++) smoke(m.x + Math.cos(m.a) * 6, m.y + Math.sin(m.a) * 6, 0.45, false, rand(0.8, 1.5));
       u.recoil = 1;
@@ -411,7 +434,7 @@ function fireWeapon(u, w, t, dd) {
       break;
     }
     case 'rocket': {
-      G.projs.push({ kind: 'rocket', team: u.team, src: u, x: m.x, y: m.y, ang: m.a, target: t, speed: wd.speed, dmg: wd.dmg, splash: wd.splash, vs: wd.vs, sup: wd.sup, t: 0, life: 2.2, acc: wd.acc * (u.aura ? 1.1 : 1), wob: rand(0, TAU) });
+      G.projs.push({ kind: 'rocket', team: u.team, src: u, x: m.x, y: m.y, ang: m.a, target: t.fake ? null : t, tx: t.x, ty: t.y, speed: wd.speed, dmg: wd.dmg, splash: wd.splash, vs: wd.vs, sup: wd.sup, t: 0, life: 2.2, acc: wd.acc * (u.aura ? 1.1 : 1), wob: rand(0, TAU) });
       // backblast
       const ba = m.a + Math.PI;
       for (let i = 0; i < 6; i++) part({ kind: 'smoke', x: u.x + Math.cos(ba) * 14, y: u.y + Math.sin(ba) * 14, vx: Math.cos(ba + rand(-0.4, 0.4)) * rand(60, 140), vy: Math.sin(ba + rand(-0.4, 0.4)) * rand(60, 140), life: rand(0.8, 1.6), s0: 6, s1: 22, a0: 0.5, drag: 0.9 });
@@ -422,7 +445,7 @@ function fireWeapon(u, w, t, dd) {
       const sc = (1 - wd.acc) * dd * 0.35 + (wd.scatter || 0);
       const tx = t.x + rand(-sc, sc), ty = t.y + rand(-sc, sc);
       const T = 0.55 + dd / 340;
-      G.projs.push({ kind: 'lob', team: u.team, src: u, x: m.x, y: m.y, sx: m.x, sy: m.y, tx, ty, target: wd.kind === 'throw' ? t : null, t: 0, T, h: 30 + dd * 0.18, dmg: wd.dmg, splash: wd.splash, vs: wd.vs, sup: wd.sup, satchel: wd.kind === 'throw', spin: rand(0, TAU) });
+      G.projs.push({ kind: 'lob', team: u.team, src: u, x: m.x, y: m.y, sx: m.x, sy: m.y, tx, ty, target: wd.kind === 'throw' && !t.fake ? t : null, t: 0, T, h: 30 + dd * 0.18, dmg: wd.dmg, splash: wd.splash, vs: wd.vs, sup: wd.sup, satchel: wd.kind === 'throw', spin: rand(0, TAU) });
       break;
     }
     case 'arty': {
@@ -466,7 +489,7 @@ function fireMRocket(u, w) {
 function counterBattery(u) {
   const enemy = G.teams[1 - u.team];
   if (enemy.radars > 0) {
-    if (u.spotT <= 0 && u.team !== G.playerTeam && G.playerTeam === 1 - u.team) notify(`Enemy ${u.def.name.toLowerCase()} spotted by radar`, 'warn', u.x, u.y);
+    if (u.spotT <= 0 && G.me && G.me.alive && G.playerTeam === 1 - u.team && UNITS[G.me.prod.unit].role === 'arty') notify(`Enemy ${u.def.name.toLowerCase()} spotted by radar`, 'warn', u.x, u.y);
     u.spotT = 8;
   }
 }
@@ -487,13 +510,14 @@ function damage(t, amount, src, sup, fromX, fromY) {
     if (sup) t.sup = Math.min(100, t.sup + sup * (t.aura ? 0.5 : 1));
   }
   if (t.isDrone || t.isMissile) { t.hp -= amount; if (t.hp <= 0) t.kill(src); return; }
+  if (src && src.player && G.me && src.team !== t.team) playerDamage(t, amount);
   t.hp -= amount;
   t.hitFlash = 0.1;
   t.lastHit = G.time;
   if (src && src.team !== t.team) {
     t.lastAttacker = src;
     G.teams[t.team].lastHitT = G.time;
-    if (t.team === G.playerTeam) underAttack(t);
+    if (t.player) underAttack(t);
   }
   if (t.hp <= 0) killUnit(t, src);
 }
@@ -527,11 +551,12 @@ function killUnit(u, src) {
     if (nr > src.rank) { src.rank = nr; if (G.seen(src)) floatText(src.x, src.y - 20, nr === 2 ? 'VETERAN ★★' : 'VETERAN ★', '#f7d54a'); src.hp = Math.min(src.maxHp, src.hp + src.maxHp * 0.25); }
   }
   if (src) G.teams[1 - u.team].stats.kills++;
+  if (src && src.player && G.me && src.team !== u.team) playerKill(u);
   if (u.drone && !u.drone.dead) u.drone.lost = true;
   if (u.cls === 'inf') {
     decalBody(u);
     for (let i = 0; i < 3; i++) dust(u.x, u.y, 0.6, 0.8);
-    if (u.team === G.playerTeam && u.type !== 'rifleman' && u.type !== 'grenadier') G.lossFeed(u);
+    if (u.player) G.lossFeed(u);
   } else if (u.cls === 'veh') {
     explode(u.x, u.y, 5);
     sparks(u.x, u.y, 30, 400);
@@ -539,7 +564,7 @@ function killUnit(u, src) {
     u.wreck = true;
     G.wrecks.push({ x: u.x, y: u.y, ang: u.ang, type: u.type, team: u.team, t: 0, life: 22, tang: u.tang });
     emitter(u.x, u.y, 22, 1.1);
-    if (u.team === G.playerTeam) G.lossFeed(u);
+    if (u.player) G.lossFeed(u);
   } else if (u.cls === 'bld') {
     explode(u.x, u.y, u.type === 'hq' ? 10 : 6);
     for (let i = 0; i < (u.type === 'hq' ? 8 : 2); i++) setTimeout(() => explode(u.x + rand(-80, 80), u.y + rand(-70, 70), rand(3, 6)), i * 260);
@@ -572,8 +597,8 @@ function updateProjectiles(dt) {
       }
     } else if (p.kind === 'rocket') {
       const t = p.target;
-      if (t && !t.dead) {
-        const want = Math.atan2(t.y - p.y, t.x - p.x);
+      if ((t && !t.dead) || (!t && p.tx != null)) {
+        const want = t ? Math.atan2(t.y - p.y, t.x - p.x) : Math.atan2(p.ty - p.y, p.tx - p.x);
         p.ang = rotTo(p.ang, want + Math.sin(p.t * 9 + p.wob) * 0.08, 2.4 * dt);
       }
       p.x += Math.cos(p.ang) * p.speed * dt; p.y += Math.sin(p.ang) * p.speed * dt;
@@ -587,6 +612,10 @@ function updateProjectiles(dt) {
         splash(p.x, p.y, { team: p.team, dmg: p.dmg * 0.25, splash: p.splash, vs: p.vs, sup: p.sup, src: p.src, direct: hit ? t : null });
         explode(p.x, p.y, 1.8);
         if (hit && t.cls !== 'inf') sparks(p.x, p.y, 20, 350);
+      } else if (!t && p.tx != null && dist(p.x, p.y, p.tx, p.ty) < 14) {
+        done = true;
+        splash(p.x, p.y, { team: p.team, dmg: p.dmg * 0.45, splash: p.splash * 1.4, vs: p.vs, sup: p.sup, src: p.src });
+        explode(p.x, p.y, 1.8);
       } else if (p.t > p.life || blockedAt(p.x, p.y) && terrAt(p.x, p.y) !== T_WATER) { done = true; explode(p.x, p.y, 1.4); }
       else if (p.t > p.life * 0.98) done = true;
     } else if (p.kind === 'lob') {
@@ -643,15 +672,16 @@ class Drone {
     sparks(this.x, this.y - this.z * 0.5, 14, 200); part({ kind: 'flash', add: true, x: this.x, y: this.y - this.z * 0.5, life: 0.1, s0: 18, s1: 30 });
     smoke(this.x, this.y, 0.5, true, 1.5);
     Sound.at('small', this.x, this.y, 0.3);
-    if (src && this.team === G.playerTeam) {} // silent
   }
 }
 function launchDrone(op, target) {
-  const d = new Drone(op, target);
+  const d = new Drone(op, target || { x: G.mouse.wx, y: G.mouse.wy });
+  if (!target) d.target = null;
+  if (op.player) { d.manual = true; d.speed = 230; if (G.me) G.me.drone = d; }
   op.drone = d; op.abilityCd = ABILITIES.drone.cd;
   G.drones.push(d);
   Sound.at('drone', op.x, op.y, 0.8);
-  if (target.team === G.playerTeam && G.playerTeam >= 0) notify('Enemy drone inbound', 'warn', target.x, target.y);
+  if (target && target.player) notify('Enemy drone inbound!', 'warn', target.x, target.y);
 }
 function updateDrones(dt) {
   for (let i = G.drones.length - 1; i >= 0; i--) {
@@ -672,11 +702,12 @@ function updateDrones(dt) {
       if (j.team === d.team || j.dead) continue;
       if (dist2(j.x, j.y, d.x, d.y) < j.def.jam * j.def.jam) {
         d.jammed = 0.01; ring(j.x, j.y, 10, j.def.jam, 0.6, '120,255,190', 2); Sound.at('jam', d.x, d.y, 0.5);
-        if (d.team === G.playerTeam) notify('Drone jammed', 'info', d.x, d.y);
+        if (d.op.player) notify('Your drone was jammed', 'bad', d.x, d.y);
         break;
       }
     }
     if (d.jammed) continue;
+    if (d.manual) { pilotDrone(d, dt); continue; }
     let t = d.target;
     if (!t || t.dead) {
       // pick the nearest visible enemy around the old target
@@ -688,13 +719,28 @@ function updateDrones(dt) {
     const want = Math.atan2(t.y - d.y, t.x - d.x);
     d.ang = rotTo(d.ang, want + Math.sin(d.t * 7) * 0.12, 4 * dt);
     d.x += Math.cos(d.ang) * d.speed * dt; d.y += Math.sin(d.ang) * d.speed * dt;
-    if (dist(d.x, d.y, t.x, t.y) < (t.r || 8) + 6) {
-      d.dead = true;
-      damage(t, 290 * (t.cls === 'inf' ? 0.6 : 1), d.op.dead ? null : d.op, 30, d.x - Math.cos(d.ang) * 40, d.y - Math.sin(d.ang) * 40);
-      splash(d.x, d.y, { team: d.team, dmg: 80, splash: 50, vs: { inf: 1, veh: 0.4, bld: 0.4 }, sup: 30, src: d.op, direct: t });
-      explode(d.x, d.y, 2.2);
-    }
+    if (dist(d.x, d.y, t.x, t.y) < (t.r || 8) + 6) droneHit(d, t);
   }
+}
+function droneHit(d, t) {
+  d.dead = true;
+  const src = d.op.dead ? null : d.op;
+  if (t) damage(t, 290 * (t.cls === 'inf' ? 0.6 : 1), src, 30, d.x - Math.cos(d.ang) * 40, d.y - Math.sin(d.ang) * 40);
+  splash(d.x, d.y, { team: d.team, dmg: t ? 80 : 150, splash: t ? 50 : 60, vs: { inf: 1, veh: t ? 0.4 : 0.8, bld: 0.4 }, sup: 30, src, direct: t });
+  explode(d.x, d.y, 2.2);
+}
+// your FPV drone follows the cursor and blows up on contact (or on click)
+function pilotDrone(d, dt) {
+  const want = Math.atan2(G.mouse.wy - d.y, G.mouse.wx - d.x);
+  const far = dist(d.x, d.y, G.mouse.wx, G.mouse.wy);
+  d.ang = rotTo(d.ang, want, 5.5 * dt);
+  const sp = d.speed * clamp(far / 60, 0.25, 1);
+  d.x = clamp(d.x + Math.cos(d.ang) * sp * dt, 10, W - 10); d.y = clamp(d.y + Math.sin(d.ang) * sp * dt, 10, H - 10);
+  for (const e of G.grid.query(d.x, d.y, 14)) {
+    if (e.team === d.team || e.dead || e.cls === 'air') continue;
+    droneHit(d, e); return;
+  }
+  if (d.t > 16) { notify('Drone battery dead', 'info', d.x, d.y); d.kill(null); explode(d.x, d.y, 0.6, { silent: true }); }
 }
 
 // ---------------------------------------------------------------------
@@ -721,7 +767,8 @@ class Missile {
     light(zx, zy, 400, 0.5, 1);
     Sound.at('boom', zx, zy, 1);
     const w = G.warnings.find((x) => x.missile === this); if (w) w.done = true;
-    notify(this.team === G.playerTeam ? 'Our missile was shot down' : 'Enemy missile intercepted!', this.team === G.playerTeam ? 'bad' : 'good', this.tx, this.ty);
+    if (this.src.player) notify('Your missile was shot down', 'bad', this.tx, this.ty);
+    else if (this.team !== G.playerTeam && G.playerTeam >= 0) notify('Enemy missile intercepted!', 'good', this.tx, this.ty);
   }
 }
 function launchMissile(src, tx, ty) {
@@ -735,7 +782,8 @@ function launchMissile(src, tx, ty) {
   for (let i = 0; i < 20; i++) part({ kind: 'white', x: src.x + rand(-20, 20), y: src.y + rand(-20, 20), vx: rand(-90, 90), vy: rand(-90, 90), life: rand(2, 4), s0: 20, s1: 70, a0: 0.6, drag: 0.96 });
   shake(src.x, src.y, 6);
   if (G.playerTeam >= 0) {
-    if (src.team === G.playerTeam) notify('Missile away', 'good', tx, ty);
+    if (src.player) notify('Missile away', 'good', tx, ty);
+    else if (src.team === G.playerTeam) {}
     else { notify('INCOMING MISSILE — clear the red zone!', 'bad', tx, ty); Sound.play('alert', 0.8); }
   }
 }
@@ -785,7 +833,7 @@ function callBarrage(op, x, y) {
   G.strikes.push({ team: op.team, x, y, r: A.radius, t: -A.delay, n: A.shells, acc: 0, src: op });
   G.warnings.push({ x, y, r: A.radius, t: 0, T: A.delay + 2.4, team: op.team, kind: 'barrage' });
   Sound.at('jam', op.x, op.y, 0.4);
-  if (G.playerTeam >= 0 && op.team !== G.playerTeam) notify('Enemy artillery barrage incoming', 'bad', x, y);
+  if (G.me && G.me.alive && op.team !== G.playerTeam && G.me.units.some((u) => dist(u.x, u.y, x, y) < 450)) { notify('Barrage incoming on your squad — move!', 'bad', x, y); Sound.play('alert', 0.5); }
 }
 function updateStrikes(dt) {
   for (let i = G.strikes.length - 1; i >= 0; i--) {
@@ -821,7 +869,7 @@ function updateMines(dt) {
       if (e.team === m.team || e.dead || e.cls !== 'veh') continue;
       damage(e, 420, null, 0, e.x, e.y);
       explode(m.x, m.y, 3.4);
-      if (e.team === G.playerTeam) notify('Vehicle hit a mine!', 'bad', m.x, m.y);
+      if (e.player) notify('You hit a mine!', 'bad', m.x, m.y);
       m.dead = true; break;
     }
     if (m.dead) G.mines.splice(i, 1);
@@ -901,7 +949,7 @@ function abilityTick(u, dt) {
 }
 function castAbility(u, x, y, target) {
   const ab = u.def.ability;
-  if (ab === 'drone') { if (!u.drone && target) launchDrone(u, target); }
+  if (ab === 'drone') { if (!u.drone && (target || u.player)) launchDrone(u, u.player ? null : target); }
   else if (ab === 'barrage') callBarrage(u, x, y);
   else if (ab === 'missile') launchMissile(u, x, y);
   else if (ab === 'mine') layMine(u, x, y);
@@ -1059,7 +1107,7 @@ function setOwner(p, team) {
     p.flash = 1;
     ring(p.x, p.y, 20, p.r + 40, 0.9, team === 0 ? TEAM[0].rgb : TEAM[1].rgb, 5);
     if (G.playerTeam >= 0) {
-      if (team === G.playerTeam) { notify(`Point ${p.letter} captured`, 'good', p.x, p.y); Sound.play('capture', 0.7); }
+      if (team === G.playerTeam) { notify(`Point ${p.letter} captured`, 'good', p.x, p.y); Sound.play('capture', 0.7); if (G.me) playerCapture(p); }
       else notify(`Point ${p.letter} lost to the enemy`, 'bad', p.x, p.y);
     }
   } else if (prev >= 0 && G.playerTeam >= 0 && prev === G.playerTeam) notify(`Point ${p.letter} is being taken`, 'warn', p.x, p.y);
@@ -1144,9 +1192,10 @@ function deploy(t, prod) {
     made.push(u);
   }
   T.stats.built += prod.n;
+  const g = { id: NEXT_ID++, prod, units: made, team: t };
+  for (const u of made) u.group = g;
   const r = T.rally;
   issueMove(made, r.x + rand(-40, 40), r.y + rand(-40, 40), true);
   if (G.ai[t]) G.ai[t].onDeploy(made, prod);
-  if (t === G.playerTeam) { Sound.play('build', 0.5); G.onDeployed(made, prod); }
   return made;
 }
