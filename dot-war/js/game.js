@@ -5,7 +5,7 @@
 
 const G = {
   units: [], drones: [], missiles: [], projs: [], mines: [], strikes: [], warnings: [], wrecks: [], impacts: [], points: [], jammers: [],
-  teams: [], ai: [null, null], grid: null,
+  teams: [], ai: [null, null], grid: null, bases: [[], []],
   time: 0, frame: 0, speed: 1, paused: false, mode: 'boot', playerTeam: 0, over: false,
   cam: { x: W / 2, y: H / 2, zoom: 0.4, vx: 0, vy: 0 }, viewW: 800, viewH: 600, dpr: 1,
   sel: new Set(), groups: {}, night: 0, markers: [], pings: [], me: null,
@@ -32,7 +32,6 @@ function newGame(o) {
   generateMap(o.seed);
   G.grid = new SpatialGrid(128);
   initVision();
-  G.points = MAP.points.map((p) => ({ ...p, r: 140, prog: 0, owner: -1, flash: 0, contested: false, str: [0, 0], ai: [{ enemy: 0, own: 0 }, { enemy: 0, own: 0 }] }));
   G.teams = [];
   for (let t = 0; t < 2; t++) {
     const h = MAP.hq[t];
@@ -40,20 +39,23 @@ function newGame(o) {
     hq.ang = t ? Math.PI : 0;
     markRect(h.x - 100, h.y - 100, h.x + 100, h.y + 100, (i, x, y) => { if (Math.abs(x - h.x) < 85 && Math.abs(y - h.y) < 70) MAP.block[i] = 1; });
     for (const tp of MAP.turrets[t]) { const tu = spawnUnit('turret', t, tp.x, tp.y); tu.tang = hq.ang; MAP.block[cellOf(tp.x, tp.y)] = 1; }
+    Object.assign(hq.stock, LOGI.hqStart);
     const dir = t === 0 ? 1 : -1;
-    G.teams.push({ id: t, supply: START_SUPPLY, income: 0, tickets: START_TICKETS, queues: [[], []], rally: { x: h.x + dir * 430, y: h.y }, hq, stats: { built: 0, lost: 0, kills: 0, spent: 0 }, radars: 0, held: 0, lastHitT: -99 });
+    G.teams.push({ id: t, queues: [[], []], rally: { x: h.x + dir * 430, y: h.y }, hq, stats: { built: 0, lost: 0, kills: 0, spent: 0 }, radars: 0, held: 0, winT: 0, lastHitT: -99 });
   }
   NAV.cache.clear();
-  // jeeps waiting at your HQ
-  if (o.mode === 'play') for (let k = 0; k < 3; k++) spawnJeep(MAP.hq[0].x + 110 + k * 55, MAP.hq[0].y + 150, 0);
-  // both armies are run by AI generals; in a real battle you are one squad on the blue side
+  // jeeps and a cargo truck waiting at your HQ
+  if (o.mode === 'play') { for (let k = 0; k < 2; k++) spawnJeep(MAP.hq[0].x + 110 + k * 55, MAP.hq[0].y + 150, 0); spawnDepotTruck(); }
+  // both armies are run by AI generals; in a real battle you are one soldier on the blue side
   G.ai = [new AICommander(0, o.mode === 'play' ? 'veteran' : o.blueDiff || 'elite'), new AICommander(1, o.mode === 'play' ? o.diff : o.redDiff || 'elite')];
   G.me = o.mode === 'play' ? newMe() : null;
-  // opening forces
   G.quiet = true;
-  for (let t = 0; t < 2; t++) for (const id of ['rifle', 'rifle', 'mg', 'scout']) deploy(t, PRODUCT_BY_ID[id]);
+  initTowns();
+  // opening forces
+  for (let t = 0; t < 2; t++) for (const id of ['rifle', 'rifle', 'mg', 'scout', 'sup']) deploy(t, PRODUCT_BY_ID[id]);
   G.quiet = false;
-  for (const u of G.units) if (u.cls !== 'bld') { const dir = u.team ? -1 : 1; u.x += dir * rand(60, 240); u.y += rand(-140, 140); }
+  G.bases = [[], []]; logiAcc = 1; logisticsTick(0);
+  for (const u of G.units) if (u.cls !== 'bld' && !u.empty) { const dir = u.team ? -1 : 1; u.x += dir * rand(60, 240); u.y += rand(-140, 140); }
   updateVision();
   // camera
   const c = G.cam;
@@ -78,11 +80,11 @@ function step(dt) {
   for (const d of G.drones) if (!d.dead) G.grid.insert(d);
   for (const m of G.missiles) if (!m.dead) G.grid.insert(m);
   visT -= dt;
-  if (visT <= 0) { visT = 0.2; updateVision(); }
+  if (visT <= 0) { visT = 0.2; updateVision(); updateCover(); }
   for (let i = 0; i < G.units.length; i++) { const u = G.units[i]; if (!u.dead) updateUnit(u, dt); }
   if (G.me) updateMe(dt);
   updateProjectiles(dt); updateDrones(dt); updateMissiles(dt); updateStrikes(dt); updateMines(dt);
-  updatePoints(dt); economyTick(dt); updateProduction(dt);
+  updateTowns(dt); logisticsTick(dt); updateProduction(dt);
   for (const ai of G.ai) if (ai) ai.update(dt);
   // field hospital: slow repairs next to your own HQ
   for (const T of G.teams) {
@@ -99,9 +101,6 @@ function step(dt) {
   updateFx(dt);
   // wind drifts slowly
   FX.wind.x = 10 * Math.cos(G.time * 0.03); FX.wind.y = -5 + 4 * Math.sin(G.time * 0.05);
-  if (!G.over && G.mode !== 'boot') {
-    for (let t = 0; t < 2; t++) if (G.teams[t].tickets <= 0) { endGame(1 - t, 'tickets'); break; }
-  }
 }
 
 // ---------------------------------------------------------------------
@@ -147,10 +146,12 @@ function updateCamera(dt) {
     if (me.drone && !me.drone.dead) { tgt = { x: me.drone.x, y: me.drone.y }; zt = 1.15 * me.zoomMul; }
     else if (me.alive) {
       const a = avatar(), m = G.mouse;
-      const lx = m.in ? clamp((m.x - G.viewW / 2) / c.zoom * 0.35, -240, 240) : 0, ly = m.in ? clamp((m.y - G.viewH / 2) / c.zoom * 0.35, -170, 170) : 0;
+      // lean toward where you aim; further while aiming, much further through binoculars
+      const k = me.look ? 0.9 : me.aiming ? 0.55 : 0.35, cap = me.look ? 2.2 : me.aiming ? 1.5 : 1;
+      const lx = m.in ? clamp((m.x - G.viewW / 2) / c.zoom * k, -240 * cap, 240 * cap) : 0, ly = m.in ? clamp((m.y - G.viewH / 2) / c.zoom * k, -170 * cap, 170 * cap) : 0;
       tgt = { x: a.x + lx, y: a.y + ly };
       const v = me.vehicle, far = v && (v.type === 'missile' || (v.weapons[0] && v.weapons[0].def.arty));
-      zt = (v ? (far ? 0.7 : 1.0) : 1.35) * me.zoomMul;
+      zt = (v ? (far ? 0.7 : 1.0) : me.look ? 0.8 : 1.35) * me.zoomMul;
     }
     if (tgt) { const k = 1 - Math.pow(me.drone ? 0.02 : 0.03, dt); c.x = lerp(c.x, tgt.x, k); c.y = lerp(c.y, tgt.y, k); }
     if (zt) c.zoom = lerp(c.zoom, zt, 1 - Math.pow(0.25, dt));
@@ -215,7 +216,7 @@ function render(dt) {
   const view = { x0: c.x - G.viewW / 2 / z, y0: c.y - G.viewH / 2 / z, x1: c.x + G.viewW / 2 / z, y1: c.y + G.viewH / 2 / z };
   G.view = view;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#16301a'; ctx.fillRect(0, 0, G.viewW, G.viewH);
+  ctx.fillStyle = '#23261a'; ctx.fillRect(0, 0, G.viewW, G.viewH);
   ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * (G.viewW / 2 - c.x * z + shx), dpr * (G.viewH / 2 - c.y * z + shy));
 
   // ground
@@ -227,9 +228,10 @@ function render(dt) {
   }
   drawWaterShimmer(view);
   drawBridges(view);
-  drawPointsGround(view);
+  drawTownsGround(view);
   drawMines(view);
   drawWrecks(view);
+  drawGroundStructs(view, z);
   drawUnits(view, z);
   drawLowProjectiles(view);
   drawParticles(ctx, view, 0);
@@ -285,7 +287,7 @@ function edgeArrow(x, y, color, label) {
 }
 function drawWaterShimmer(view) {
   const t = G.time;
-  ctx.strokeStyle = 'rgba(190,225,255,0.18)'; ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(190,205,195,0.12)'; ctx.lineWidth = 2;
   ctx.beginPath();
   const y0 = Math.max(0, view.y0 - 40), y1 = Math.min(H, view.y1 + 40);
   for (let y = Math.floor(y0 / 60) * 60; y < y1; y += 60) {
@@ -313,31 +315,30 @@ function drawBridges(view) {
   }
 }
 function teamRGB(t) { return t === 0 ? TEAM[0].rgb : t === 1 ? TEAM[1].rgb : '230,230,220'; }
-function drawPointsGround(view) {
+function drawTownsGround(view) {
   for (const p of G.points) {
-    if (p.x + 200 < view.x0 || p.x - 200 > view.x1 || p.y + 200 < view.y0 || p.y - 200 > view.y1) continue;
+    if (p.x + 260 < view.x0 || p.x - 260 > view.x1 || p.y + 260 < view.y0 || p.y - 260 > view.y1) continue;
     const rgb = teamRGB(p.owner);
-    ctx.fillStyle = `rgba(${rgb},0.07)`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
-    ctx.setLineDash([14, 10]); ctx.lineDashOffset = -G.time * 8;
-    ctx.strokeStyle = `rgba(${rgb},0.55)`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.stroke();
+    ctx.setLineDash([18, 14]); ctx.lineDashOffset = -G.time * 6;
+    ctx.strokeStyle = `rgba(${rgb},${p.owner >= 0 ? 0.4 : 0.28})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.stroke();
     ctx.setLineDash([]);
-    // capture progress
-    if (Math.abs(p.prog) > 0.5 && Math.abs(p.prog) < 99.5 || p.contested) {
-      const t = p.prog > 0 ? 0 : 1;
-      ctx.strokeStyle = `rgba(${teamRGB(t)},0.95)`; ctx.lineWidth = 7;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 8, -Math.PI / 2, -Math.PI / 2 + TAU * Math.abs(p.prog) / 100); ctx.stroke();
-      if (p.contested) { ctx.strokeStyle = `rgba(255,220,90,${0.5 + 0.5 * Math.sin(G.time * 8)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 16, 0, TAU); ctx.stroke(); }
+    if (p.contested || p.sabotage) { ctx.strokeStyle = `rgba(255,220,90,${0.45 + 0.45 * Math.sin(G.time * 8)})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 8, 0, TAU); ctx.stroke(); }
+    if (p.flash > 0) { ctx.fillStyle = `rgba(${rgb},${p.flash * 0.15})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill(); }
+    // an empty plot where a new hall can go
+    if (!p.hall) {
+      ctx.strokeStyle = 'rgba(240,235,215,0.55)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+      ctx.strokeRect(p.hx - 34, p.hy - 28, 66, 56); ctx.setLineDash([]);
     }
-    if (p.flash > 0) p.flash = Math.max(0, p.flash - 0.02);
-    // flag
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(p.x + 5, p.y + 4, 9, 5, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#d8d8d0'; ctx.fillRect(p.x - 1.5, p.y - 46, 3, 46);
-    ctx.fillStyle = p.owner === 0 ? TEAM[0].main : p.owner === 1 ? TEAM[1].main : '#f2f2ea';
-    ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(p.x + 1.5, p.y - 46);
-    for (let k = 0; k <= 6; k++) ctx.lineTo(p.x + 1.5 + k * 5, p.y - 46 + Math.sin(G.time * 5 + k) * 2 * k / 6);
-    for (let k = 6; k >= 0; k--) ctx.lineTo(p.x + 1.5 + k * 5, p.y - 30 + Math.sin(G.time * 5 + k) * 2 * k / 6);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+}
+// trenches, sandbags, wire and tank traps lie under the soldiers standing in them
+function drawGroundStructs(view, z) {
+  for (const u of G.units) {
+    if ((!u.def.line && u.type !== 'trap') || u.dead) continue;
+    if (u.x < view.x0 - 90 || u.x > view.x1 + 90 || u.y < view.y0 - 90 || u.y > view.y1 + 90 || !G.seen(u)) continue;
+    ctx.save(); ctx.translate(u.x, u.y); ctx.rotate(u.ang);
+    drawStruct(ctx, u, TEAM[u.team], G.time);
+    ctx.restore();
   }
 }
 function drawMines(view) {
@@ -378,9 +379,11 @@ function drawUnits(view, z) {
     const tc = TEAM[u.team];
     ctx.save(); ctx.translate(u.x, u.y);
     if (u.cls === 'bld') {
+      if (u.def.line || u.type === 'trap') { ctx.restore(); continue; } // drawn in the ground pass
       if (u.type === 'hq') { ctx.rotate(u.team ? Math.PI : 0); drawHQ(ctx, tc, t + u.team, u.hp / u.maxHp); }
-      else drawTurretBld(ctx, tc, u.tang, u.recoil);
-      if (u.hp < u.maxHp * 0.5 && G.frame % 6 === 0) smoke(u.x + rand(-20, 20), u.y + rand(-20, 20), 0.8, true, 2);
+      else if (u.type === 'turret') drawTurretBld(ctx, tc, u.tang, u.recoil);
+      else { ctx.rotate(u.ang); drawStruct(ctx, u, tc, t + u.id); }
+      if (u.built && u.hp < u.maxHp * 0.5 && G.frame % 6 === 0) smoke(u.x + rand(-20, 20), u.y + rand(-20, 20), 0.8, true, 2);
       ctx.restore();
       continue;
     }
@@ -394,7 +397,10 @@ function drawUnits(view, z) {
     } else if (u.cls === 'inf') {
       const bob = u.moving ? 1 + Math.sin(u.anim * 15) * 0.05 : 1;
       if (bob !== 1) ctx.scale(bob, bob);
-      drawInfantry(ctx, u.type, tc, u.r, u.anim, u);
+      const tool = u.avatar && G.me ? (G.me.tool === 'gun' ? null : G.me.tool) : u.working ? 'hammer' : null;
+      if (tool) drawTool(ctx, tool, u.r, u.avatar ? (G.me.working ? t : 0) : t + u.id);
+      else drawInfantry(ctx, u.type, tc, u.r, u.anim, u);
+      if (tool) { ctx.fillStyle = tc.main; ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, u.r, 0, TAU); ctx.fill(); ctx.stroke(); }
       if (u.sup > 50) { ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.arc(0, 0, u.r, 0, TAU); ctx.fill(); }
     } else {
       drawVehicle(ctx, u.type, tc, u.def.len, u.def.wid, angDiff(u.ang, u.tang), u.recoil, u.anim, u);
@@ -513,7 +519,7 @@ function drawFog(view) {
     for (let i = 0; i < A.length; i++) {
       const target = S[i] === visGen ? 0 : E[i] ? 0.5 : 0.86;
       A[i] += (target - A[i]) * 0.12;
-      const o = i * 4; d[o] = 9; d[o + 1] = 16; d[o + 2] = 13; d[o + 3] = A[i] * 255;
+      const o = i * 4; d[o] = 14; d[o + 1] = 15; d[o + 2] = 10; d[o + 3] = A[i] * 255;
     }
     fogCtx.putImageData(fogImg, 0, 0);
     if (fogBlurCtx) { fogBlurCtx.clearRect(0, 0, fogBlur.width, fogBlur.height); fogBlurCtx.drawImage(fogCv, 0, 0, fogBlur.width, fogBlur.height); }
@@ -521,7 +527,7 @@ function drawFog(view) {
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(fogBlurCtx ? fogBlur : fogCv, 0, 0, W, H);
   // outside the map
-  ctx.fillStyle = 'rgba(9,16,13,0.92)';
+  ctx.fillStyle = 'rgba(14,15,10,0.92)';
   if (view.x0 < 0) ctx.fillRect(view.x0 - 10, view.y0 - 10, -view.x0 + 10, view.y1 - view.y0 + 20);
   if (view.x1 > W) ctx.fillRect(W, view.y0 - 10, view.x1 - W + 10, view.y1 - view.y0 + 20);
   if (view.y0 < 0) ctx.fillRect(Math.max(0, view.x0), view.y0 - 10, Math.min(W, view.x1) - Math.max(0, view.x0), -view.y0 + 10);
@@ -545,7 +551,7 @@ function drawNight(view) {
     else if (u.cls === 'veh') { L(u.x, u.y, 95, 0.7); L(u.x + Math.cos(u.ang) * 90, u.y + Math.sin(u.ang) * 90, 95, 0.8); }
     else L(u.x, u.y, u.type === 'hq' ? 340 : 120, 0.9);
   }
-  for (const p of G.points) L(p.x, p.y, 120, 0.5);
+  for (const p of G.points) if (p.hall) L(p.x, p.y, 160, 0.6);
   for (const m of G.missiles) L(m.x, m.y - m.z * 0.55, 160, 1);
   lg.globalAlpha = 1;
   ctx.save(); ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0);
@@ -588,6 +594,28 @@ function drawAvatarAids(view, z) {
       ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(label, v.x + 1 * iz, v.y - v.def.len * 0.7 - 6 * iz + 1 * iz);
       ctx.fillStyle = '#f7d54a'; ctx.fillText(label, v.x, v.y - v.def.len * 0.7 - 6 * iz);
     }
+  }
+  // the structure you're about to place
+  const gs = !me.vehicle && ghostState();
+  if (gs) {
+    ctx.save(); ctx.translate(gs.x, gs.y);
+    ctx.rotate(gs.st.len ? gs.ang : gs.st.id === 'bunker' ? gs.ang - Math.PI / 2 : 0);
+    ctx.globalAlpha = 0.55;
+    drawStruct(ctx, { type: gs.st.id, built: true, ang: 0, tang: 0, recoil: 0, r: UNITS[gs.st.id].r, stock: null }, gs.err ? { main: '#ff5040', dark: '#a02010' } : TEAM[0], t);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = gs.err ? 'rgba(255,80,60,0.9)' : 'rgba(247,213,74,0.95)'; ctx.lineWidth = 2 * iz; ctx.setLineDash([6 * iz, 5 * iz]);
+    if (gs.st.len) ctx.strokeRect(-gs.st.len / 2 - 6, -20, gs.st.len + 12, 40); else { ctx.beginPath(); ctx.arc(0, 0, UNITS[gs.st.id].r + 8, 0, TAU); ctx.stroke(); }
+    ctx.setLineDash([]);
+    if (gs.st.len) { ctx.fillStyle = 'rgba(255,90,60,0.8)'; ctx.beginPath(); ctx.moveTo(0, -28); ctx.lineTo(-6, -20); ctx.lineTo(6, -20); ctx.closePath(); ctx.fill(); } // the side that faces the enemy
+    ctx.restore();
+    ctx.font = `700 ${Math.round(13 * iz)}px "Barlow Condensed", "Arial Narrow", sans-serif`; ctx.textAlign = 'center';
+    const lbl = gs.err || `${gs.st.name} · ${gs.st.cost} bmats from ${gs.pay.label} · click to place, R to turn`;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(lbl, gs.x + iz, gs.y + 44 * iz + iz);
+    ctx.fillStyle = gs.err ? '#ffb0a6' : '#f7d54a'; ctx.fillText(lbl, gs.x, gs.y + 44 * iz);
+  }
+  if (me.look) {
+    ctx.strokeStyle = 'rgba(255,230,160,0.6)'; ctx.lineWidth = 2 * iz;
+    ctx.beginPath(); ctx.arc(me.look.x, me.look.y, 200, 0, TAU); ctx.stroke();
   }
   // artillery ranges when you drive a gun truck
   const v = me.vehicle;
@@ -636,10 +664,11 @@ function drawCrosshair() {
   if (!me.alive || !m.in || m.overHud || G.mode !== 'play') return;
   const s = me.soldier, gun = s && s.gun;
   let gap = 6, col = '#f2f2ea';
-  if (!me.vehicle && gun) {
-    gap = 5 + gun.def.spread * 160 * (s.moving ? 1.8 : 1);
+  if (!me.vehicle && gun && me.tool === 'gun') {
+    gap = 3 + mySpread() * 150;
     if (gun.reloadT > 0) col = 'rgba(255,255,255,0.4)';
-  }
+    else if (me.aiming && me.aimT > 0.95) col = '#f7d54a';
+  } else if (!me.vehicle) { gap = 4; col = me.tool === 'hammer' ? '#f7d54a' : '#ffe6a0'; }
   ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 3.5;
   const cross = () => { ctx.beginPath(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(m.x + dx * gap, m.y + dy * gap); ctx.lineTo(m.x + dx * (gap + 7), m.y + dy * (gap + 7)); } ctx.stroke(); };
   cross(); ctx.strokeStyle = col; ctx.lineWidth = 1.6; cross();
@@ -676,13 +705,14 @@ function drawOverlays(view, z) {
   if (z > 0.38) {
     for (const u of G.units) {
       if (u.x < view.x0 - 60 || u.x > view.x1 + 60 || u.y < view.y0 - 60 || u.y > view.y1 + 60 || !G.seen(u) || u.inside) continue;
-      const show = G.sel.has(u) || u === G.hover || (u.hp < u.maxHp && (u.cls !== 'inf' || z > 1.15)) || u.cls === 'bld';
-      if (!show) continue;
-      const w = u.cls === 'inf' ? 18 : u.cls === 'bld' ? (u.type === 'hq' ? 150 : 50) : u.def.len * 0.9;
-      const y = u.y - (u.cls === 'inf' ? u.r + 7 : u.cls === 'bld' ? u.r + 16 : u.def.wid * 0.5 + 10);
-      const k = u.hp / u.maxHp;
+      const st = u.def.struct;
+      const show = G.sel.has(u) || u === G.hover || (u.hp < u.maxHp && (u.cls !== 'inf' || z > 1.15)) || (u.cls === 'bld' && !st) || !u.built;
+      if (!show || (st && u.built && z < 0.7)) continue;
+      const w = u.cls === 'inf' ? 18 : u.cls === 'bld' ? (u.type === 'hq' ? 150 : st ? 34 : 56) : u.def.len * 0.9;
+      const y = u.y - (u.cls === 'inf' ? u.r + 7 : u.def.line ? 26 : u.cls === 'bld' ? u.r + 16 : u.def.wid * 0.5 + 10);
+      const k = u.built ? u.hp / u.maxHp : u.bp / u.bpNeed;
       ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(u.x - w / 2 - 1, y - 1, w + 2, u.cls === 'bld' ? 6 : 4);
-      ctx.fillStyle = k > 0.6 ? '#7be35a' : k > 0.3 ? '#f2c53d' : '#ef4b3a';
+      ctx.fillStyle = !u.built ? '#f7d54a' : k > 0.6 ? '#7be35a' : k > 0.3 ? '#f2c53d' : '#ef4b3a';
       ctx.fillRect(u.x - w / 2, y, w * k, u.cls === 'bld' ? 4 : 2);
       if (u.rank) { ctx.fillStyle = '#f7d54a'; for (let i = 0; i < u.rank; i++) { ctx.beginPath(); const cx = u.x + w / 2 + 4 + i * 5, cy = y + 1; ctx.moveTo(cx - 2, cy - 2); ctx.lineTo(cx, cy); ctx.lineTo(cx + 2, cy - 2); ctx.lineTo(cx + 2, cy); ctx.lineTo(cx, cy + 2); ctx.lineTo(cx - 2, cy); ctx.closePath(); ctx.fill(); } }
       if (u.def.ability && u.team === pt && (G.sel.has(u)) && u.abilityCd > 0) {
@@ -714,15 +744,21 @@ function drawOverlays(view, z) {
     if (A.radius) { ctx.fillStyle = 'rgba(255,90,60,0.15)'; ctx.strokeStyle = 'rgba(255,120,80,0.9)'; ctx.beginPath(); ctx.arc(m.wx, m.wy, A.radius, 0, TAU); ctx.fill(); ctx.stroke(); }
     else { ctx.strokeStyle = 'rgba(120,200,255,0.9)'; ctx.beginPath(); ctx.arc(m.wx, m.wy, 14 * iz, 0, TAU); ctx.moveTo(m.wx - 20 * iz, m.wy); ctx.lineTo(m.wx + 20 * iz, m.wy); ctx.moveTo(m.wx, m.wy - 20 * iz); ctx.lineTo(m.wx, m.wy + 20 * iz); ctx.stroke(); }
   }
-  // point letters (always readable)
+  // town names (always readable)
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const fs = clamp(18 * iz, 18, 60);
+  const fs = clamp(17 * iz, 17, 56);
   ctx.font = `700 ${fs}px "Saira Stencil One", Impact, sans-serif`;
   for (const p of G.points) {
-    const y = p.y + p.r + fs * 0.9;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillText(p.letter, p.x + 2 * iz, y + 2 * iz);
+    const y = p.y + p.r + fs * 0.8;
+    const label = z < 0.3 ? p.letter : p.name.toUpperCase();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillText(label, p.x + 2 * iz, y + 2 * iz);
     ctx.fillStyle = p.owner === 0 ? TEAM[0].light : p.owner === 1 ? TEAM[1].light : '#f0efe6';
-    ctx.fillText(p.letter, p.x, y);
+    ctx.fillText(label, p.x, y);
+    if (!p.hall && z >= 0.3) {
+      ctx.font = `600 ${Math.round(fs * 0.62)}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      ctx.fillStyle = 'rgba(240,235,215,0.8)'; ctx.fillText('NO TOWN HALL', p.x, y + fs * 0.85);
+      ctx.font = `700 ${fs}px "Saira Stencil One", Impact, sans-serif`;
+    }
   }
   ctx.textBaseline = 'alphabetic';
 }
@@ -746,15 +782,18 @@ function drawMinimap() {
   g.drawImage(minimapBase, 0, 0);
   const sx = cv.width / W, sy = cv.height / H;
   if (G.playerTeam >= 0) { g.globalAlpha = 0.9; g.imageSmoothingEnabled = true; g.drawImage(fogBlurCtx ? fogBlur : fogCv, 0, 0, cv.width, cv.height); g.globalAlpha = 1; }
+  g.fillStyle = 'rgba(200,120,60,0.8)';
+  for (const f of MAP.scrap) { g.beginPath(); g.arc(f.x * sx, f.y * sy, 2.2 * dpr, 0, TAU); g.fill(); }
   for (const p of G.points) {
     g.fillStyle = p.owner === 0 ? TEAM[0].main : p.owner === 1 ? TEAM[1].main : '#e8e8e0';
     g.strokeStyle = '#000'; g.lineWidth = 1.5 * dpr;
-    g.beginPath(); g.arc(p.x * sx, p.y * sy, 5 * dpr, 0, TAU); g.fill(); g.stroke();
+    g.beginPath(); g.rect(p.x * sx - 5 * dpr, p.y * sy - 5 * dpr, 10 * dpr, 10 * dpr); g.fill(); g.stroke();
   }
   for (const u of G.units) {
     if (!G.seen(u) || u.inside) continue;
     g.fillStyle = u.avatar || (G.me && u === G.me.vehicle) ? '#f7d54a' : u.team === 0 ? '#5cbcff' : '#ff6455';
-    const s = (u.cls === 'inf' ? 1.6 : u.cls === 'bld' ? 5 : 3) * dpr;
+    if (u.def.line || u.type === 'trap') continue;
+    const s = (u.cls === 'inf' ? 1.6 : u.cls === 'bld' ? (u.def.struct ? 2.5 : 5) : 3) * dpr;
     g.fillRect(u.x * sx - s / 2, u.y * sy - s / 2, s, s);
   }
   for (const w of G.warnings) { g.strokeStyle = `rgba(255,60,40,${0.5 + 0.5 * Math.sin(G.time * 10)})`; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(w.x * sx, w.y * sy, Math.max(5 * dpr, w.r * sx), 0, TAU); g.stroke(); }

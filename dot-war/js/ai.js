@@ -3,30 +3,36 @@
 // AI commander
 //  - Intel: remembers every enemy it has seen (no map hacks), estimates
 //    local strength and the enemy's army composition
-//  - Economy: opening build order, then counter-builds against what it saw
-//  - Command: forms task forces, scores capture points, attacks with
-//    enough force, pincers from two sides, detaches garrisons, retreats
-//    from losing fights, runs an artillery battery behind the front,
-//    posts scouts and snipers on observation posts, lays mines
+//  - Economy: opening build order, then counter-builds against what it saw,
+//    paid from its stockpiles; infantry walks out of supplied towns near
+//    the front
+//  - Logistics: cargo trucks haul scrap home and supplies to the towns
+//  - Command: forms task forces, picks towns to take, wrecks enemy town
+//    halls and builds its own, pincers from two sides, detaches garrisons,
+//    retreats from losing fights, pulls squads back to rearm, runs an
+//    artillery battery, posts scouts and snipers, lays mines
+//  - Fortifies the towns it holds and builds forward bases
 //  - Micro: dodges incoming strikes, focuses fire, kites, pulls back
 //    wounded units to medics / supply trucks
 // =====================================================================
 
 const ROLE_RANK = { armor: 0, aa: 0.5, line: 1, at: 1, recon: 1.5, support: 2, arty: 4 };
 function formationRank(u) { if (u.type === 'supply' || u.type === 'radar') return 3; return ROLE_RANK[u.def.role] ?? 2; }
-const unitPower = (u) => (u.def.power || 50) * (u.hp / u.maxHp) * (u.type === 'hq' ? 0 : 1);
+// buildings count for what they shoot with: an HQ or a trench line is not an army
+const BLD_POWER = { hq: 0, townhall: 150, bunker: 120, turret: 200 };
+const unitPower = (u) => (u.cls === 'bld' ? BLD_POWER[u.type] ?? 15 : u.def.power || 50) * (u.hp / u.maxHp);
 
 class AICommander {
   constructor(team, diffKey) {
     this.team = team; this.enemy = 1 - team;
     this.p = DIFFS[diffKey] || DIFFS.veteran;
     this.mem = new Map();
-    this.squads = []; this.reserve = new Set(); this.battery = new Set(); this.recon = []; this.garrisons = [];
+    this.squads = []; this.reserve = new Set(); this.battery = new Set(); this.recon = []; this.garrisons = []; this.trucks = new Set(); this.crews = [];
     this.thinkT = rand(0.3, 0.8); this.microT = 0.2;
     this.sqId = 1; this.ops = [];
     this.hqPush = false;
     this.dir = team === 0 ? 1 : -1;
-    this.bo = [['rifle', 'rifle', 'scout', 'rifle', 'mg', 'at', 'rifle', 'medic', 'gren'], ['ltank', 'sup', 'aa']];
+    this.bo = [['rifle', 'rifle', 'eng', 'scout', 'rifle', 'mg', 'at', 'rifle', 'medic', 'gren'], ['sup', 'ltank', 'sup', 'aa']];
     this.boI = [0, 0];
     this.saving = null;
     this.lastArtyT = -99;
@@ -42,13 +48,14 @@ class AICommander {
       this.updateIntel(); this.economy(); this.organize(); this.strategy();
       for (const s of this.squads.slice()) this.runSquad(s);
       this.manageGarrisons(); this.manageBattery(); this.manageRecon();
+      this.manageLogistics(); this.manageFortify(); this.manageCrews();
     }
   }
 
   // ---------------------------------------------------------------- intel
   updateIntel() {
     const now = G.time;
-    for (const u of G.units) if (u.team === this.enemy && !u.dead && u.vis[this.team]) this.mem.set(u.id, { u, x: u.x, y: u.y, t: now });
+    for (const u of G.units) if (u.team === this.enemy && !u.dead && u.vis[this.team] && !u.def.line && u.type !== 'trap' && u.type !== 'tower') this.mem.set(u.id, { u, x: u.x, y: u.y, t: now });
     for (const [id, m] of this.mem) {
       if (m.u.dead || now - m.t > 55) { this.mem.delete(id); continue; }
       // we are looking at where it was and it's gone: forget the stale position
@@ -92,45 +99,42 @@ class AICommander {
 
   // ---------------------------------------------------------------- economy
   economy() {
-    const T = this.T;
-    // a share of income is ring-fenced for the motor pool so vehicles keep coming
-    const now = G.time, dt = now - (this.ecoT || now); this.ecoT = now;
-    const behind = this.totalPower(this.team) < (this.enemyEst || 0) * 0.8 || this.homeThreat > 200;
-    const frac = G.time < 100 ? 0.25 : G.time < 300 ? 0.45 : 0.55;
-    this.vehFund = Math.min(1100, (this.vehFund || 0) + T.income * frac * dt);
+    const T = this.T, hq = this.hq;
+    if (!hq || hq.dead) return;
+    // keep enough in the HQ stockpile for the trucks to carry forward and to claim towns
+    const short = (G.bases[this.team] || []).filter((b) => b !== hq && b.stock.supplies < 120).length;
     for (const line of [1, 0]) {
       if (T.queues[line].length >= 2) continue;
       const id = this.chooseProduct(line);
       if (!id) continue;
-      const prod = PRODUCT_BY_ID[id];
-      const opening = this.boI[line] < this.bo[line].length;
-      const spendable = line === 1 || opening || behind ? T.supply : T.supply - Math.min(this.vehFund, T.supply);
-      if (spendable < prod.cost) continue;
+      const prod = PRODUCT_BY_ID[id], c = prodCost(prod);
+      const base = spawnBaseFor(this.team, prod);
+      const reserve = line ? 50 : base === hq ? 50 + 30 * short : 40;
+      if (line ? base.stock.bmats - reserve < c.bmats : base.stock.supplies - reserve < c.supplies) continue;
       if (!queueProduct(this.team, prod)) {
-        if (line === 1) this.vehFund = Math.max(0, this.vehFund - prod.cost);
-        if (opening && this.bo[line][this.boI[line]] === id) this.boI[line]++;
+        if (this.boI[line] < this.bo[line].length && this.bo[line][this.boI[line]] === id) this.boI[line]++;
       }
     }
   }
   chooseProduct(line) {
-    const T = this.T;
+    const T = this.T, hq = this.hq;
     if (this.boI[line] < this.bo[line].length) return this.bo[line][this.boI[line]];
     // home under attack: cheap, fast infantry
     if (line === 0 && this.homeThreat > 200) return pick(['rifle', 'at', 'gren', 'mg']);
     const c = this.comp || { armor: 0, inf: 0, arty: 0, drones: 0, aa: 0, missile: 0, total: 1 };
     const eArmor = c.armor / c.total, eInf = c.inf / c.total, eArty = c.arty / c.total;
-    const w = { rifle: 11, mg: 6, medic: 3, officer: 2.5, scout: 2.5, sniper: 2.5, drone: 3.5, at: 6, eng: 3, radio: 3.5, jammer: 1, gren: 5, ltank: 9, htank: 10, radar: 2, aa: 2.5, how: 4.5, msl: 2.5, mlrs: 5, sup: 3 };
+    const w = { rifle: 11, mg: 6, medic: 3, officer: 2.5, scout: 2.5, sniper: 2.5, drone: 3.5, at: 6, eng: 4, radio: 3.5, jammer: 1, gren: 5, ltank: 9, htank: 9, land: 5, radar: 2, aa: 2.5, how: 4.5, msl: 2.5, mlrs: 5, sup: 4 };
     w.at += 22 * eArmor; w.drone += 12 * eArmor; w.htank += 6 * eArmor; w.eng += 4 * eArmor;
-    w.mg += 10 * eInf; w.gren += 8 * eInf; w.mlrs += 6 * eInf; w.how += 3 * eInf; w.aa += 3 * eInf;
+    w.mg += 10 * eInf; w.gren += 8 * eInf; w.mlrs += 6 * eInf; w.how += 3 * eInf; w.aa += 3 * eInf; w.land += 4 * eInf;
     w.jammer += 3 * c.drones; w.aa += 2.5 * c.drones + 4 * c.missile;
     if (eArty > 0.1) { w.radar += 4; w.drone += 4; w.ltank += 3; }
-    if (G.time < 240) { w.msl = 0; w.htank *= 0.5; w.how *= 0.5; w.mlrs *= 0.5; }
+    if (G.time < 240) { w.msl = 0; w.htank *= 0.5; w.how *= 0.5; w.mlrs *= 0.5; w.land *= 0.5; }
     else if (G.time > 380) w.msl = 6;
     // counts and caps
     const have = {}, value = {}; let total = 1;
     for (const u of G.units) if (u.team === this.team && !u.dead && u.def.product) { const id = u.def.product; have[id] = (have[id] || 0) + 1; value[id] = (value[id] || 0) + u.def.value; total += u.def.value; }
     for (const q of T.queues) for (const it of q) { const id = it.p.id; have[id] = (have[id] || 0) + it.p.n; value[id] = (value[id] || 0) + it.p.cost; total += it.p.cost; }
-    const caps = { radar: 2, sup: 3, msl: this.p === DIFFS.general ? 2 : 1, officer: 3, medic: 8, jammer: 3, radio: 3, aa: 3, sniper: 4, scout: 6, drone: 5, how: 4, mlrs: 3, ltank: 8 };
+    const caps = { radar: 2, sup: 5, msl: this.p === DIFFS.general ? 2 : 1, officer: 3, medic: 8, jammer: 3, radio: 3, aa: 3, sniper: 4, scout: 6, drone: 5, how: 4, mlrs: 3, ltank: 8, land: 3, eng: 8 };
     let sumW = 0; for (const k in w) sumW += w[k];
     let best = null, bn = -1e9;
     for (const p of PRODUCTS) {
@@ -141,20 +145,50 @@ class AICommander {
     }
     if (!best) return null;
     // saving up: wait if it will be affordable soon, otherwise take the best thing we can afford now
-    if (T.supply < best.cost && T.supply + T.income * (line ? 28 : 10) < best.cost) {
+    const have$ = (p) => { const k = prodCost(p); return line ? hq.stock.bmats - 50 - k.bmats : spawnBaseFor(this.team, p).stock.supplies - 50 - k.supplies; };
+    const rate = line ? 7 : 4;
+    if (have$(best) < 0 && have$(best) + rate * (line ? 28 : 10) < 0) {
       let alt = null, an = -1e9;
-      for (const p of PRODUCTS) { if (p.line !== line || p.cost > T.supply) continue; if (caps[p.id] != null && (have[p.id] || 0) + p.n > caps[p.id]) continue; const need = w[p.id] / sumW - (value[p.id] || 0) / total; if (need > an) { an = need; alt = p; } }
+      for (const p of PRODUCTS) { if (p.line !== line || have$(p) < 0) continue; if (caps[p.id] != null && (have[p.id] || 0) + p.n > caps[p.id]) continue; const need = w[p.id] / sumW - (value[p.id] || 0) / total; if (need > an) { an = need; alt = p; } }
       if (alt) return alt.id;
     }
     return best.id;
   }
+  // a supplied town near the front where new infantry can walk out
+  reinforceBase(cost) {
+    const hq = this.hq; if (!hq) return null;
+    const front = this.frontLine();
+    let best = null, bd = 1e18;
+    for (const b of G.bases[this.team]) {
+      if (b.dead || b === hq || b.stock.supplies < cost + 40) continue;
+      if (this.enemyPower(b.x, b.y, 500) > 60) continue;
+      const d = dist(b.x, b.y, front.x, front.y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best && bd < dist(hq.x, hq.y, front.x, front.y) - 400 ? best : null;
+  }
 
   onDeploy(units, prod) {
+    const fwd = [];
     for (const u of units) {
-      if (u.def.role === 'arty') this.battery.add(u);
+      if (u.type === 'supply') { this.trucks.add(u); u.job = null; }
+      else if (u.def.role === 'arty') this.battery.add(u);
       else if (u.type === 'scout' || u.type === 'sniper') this.recon.push({ u, post: null, t: 0 });
+      else if (dist(u.x, u.y, this.hq.x, this.hq.y) > 900) fwd.push(u);
       else this.reserve.add(u);
     }
+    if (fwd.length) this.joinNearestSquad(fwd);
+  }
+  // reinforcements that walk out of a forward town join the closest fight
+  joinNearestSquad(units) {
+    let best = null, bd = 1600;
+    for (const s of this.squads) { if (s.state === 'retreat' || s.state === 'resupply' || !s.n) continue; const d = dist(s.x, s.y, units[0].x, units[0].y); if (d < bd) { bd = d; best = s; } }
+    if (!best) { for (const u of units) this.reserve.add(u); return false; }
+    for (const u of units) { best.units.add(u); u.squad = best; }
+    issueMove(units, best.x, best.y, true);
+    this.squadInfo(best);
+    best.initPower = Math.max(best.initPower, best.power);
+    return true;
   }
 
   // ---------------------------------------------------------------- organisation
@@ -164,6 +198,9 @@ class AICommander {
     T.rally = { x: hq.x + this.dir * 480, y: hq.y };
     for (const u of this.reserve) if (u.dead) this.reserve.delete(u);
     for (const u of this.battery) if (u.dead) this.battery.delete(u);
+    // stragglers far from the rally point join the nearest squad
+    const far = [...this.reserve].filter((u) => dist(u.x, u.y, T.rally.x, T.rally.y) > 1100);
+    for (const u of far) { this.reserve.delete(u); if (!this.joinNearestSquad([u])) { this.reserve.add(u); if (!u.order) issueMove([u], T.rally.x, T.rally.y, true); } }
     this.recon = this.recon.filter((r) => !r.u.dead);
     this.homeThreat = this.enemyPower(hq.x, hq.y, 900);
     let rp = 0; for (const u of this.reserve) rp += unitPower(u);
@@ -231,7 +268,8 @@ class AICommander {
     const myPow = this.totalPower(this.team);
     let enemyEst = 0; for (const m of this.mem.values()) enemyEst += unitPower(m.u);
     this.enemyEst = enemyEst;
-    this.hqPush = !!ehq && !ehq.dead && (held >= 7 || (G.teams[this.enemy].tickets < 260 && myPow > enemyEst * 1.3) || (G.time > 900 && myPow > enemyEst * 2.2 && held >= 5));
+    // with 7 towns the clock is running: go for the HQ too. Short of that, take more towns
+    this.hqPush = !!ehq && !ehq.dead && (held >= LOGI.winTowns || (G.time > 900 && myPow > enemyEst * 2.5 && held >= 5));
 
     // objectives
     const objs = [];
@@ -240,8 +278,10 @@ class AICommander {
       const info = p.ai[this.team];
       const dHome = home ? dist(home.x, home.y, p.x, p.y) : 0;
       if (p.owner !== this.team) {
-        const v = 100 + (p.owner === -1 ? 55 : 35) + (p.letter === 'E' ? 25 : 0) - dHome / 55;
-        objs.push({ kind: 'attack', p, x: p.x, y: p.y, value: v, need: info.enemy * 1.3 + 70, got: 0 });
+        // a neutral town is cheap to take but needs bmats for a new hall
+        const canClaim = p.owner !== -1 || this.T.hq.stock.bmats > LOGI.hallCost + 20;
+        const v = 100 + (p.owner === -1 ? (canClaim ? 55 : -40) : 35) + (p.letter === 'E' ? 25 : 0) - dHome / 55;
+        objs.push({ kind: 'attack', p, x: p.x, y: p.y, value: v, need: info.enemy * 1.3 + (p.owner === -1 ? 70 : 140), got: 0 });
       } else if (info.enemy > 30) {
         objs.push({ kind: 'defend', p, x: p.x, y: p.y, value: 170 + info.enemy / 6, need: info.enemy * 1.15, got: 0 });
       }
@@ -312,7 +352,22 @@ class AICommander {
     });
     this.ops.push(op);
   }
-  holdIsSafe(s) { return s.obj && s.obj.p && s.obj.p.ai[this.team].enemy < 40 && G.time - (s.holdSince || 0) > 12; }
+  holdIsSafe(s) { return s.obj && s.obj.p && s.obj.p.owner === this.team && s.obj.p.ai[this.team].enemy < 40 && G.time - (s.holdSince || 0) > 12; }
+  squadAmmo(s) {
+    let a = 0, n = 0;
+    for (const u of s.units) if (u.maxAmmo < Infinity) { a += u.ammo / u.maxAmmo; n++; }
+    return n ? a / n : 1;
+  }
+  // start a town hall blueprint in an empty town, paid from the nearest stockpile that can afford it
+  claimTown(p) {
+    if (p.hall && !p.hall.dead) return p.hall.team === this.team;
+    const pay = nearestBase(this.team, p.x, p.y, 2600, (b) => b.stock.bmats >= LOGI.hallCost + 10) || (this.hq.stock.bmats >= LOGI.hallCost ? this.hq : null);
+    if (!pay) return false;
+    pay.stock.bmats -= LOGI.hallCost;
+    const h = placeHall(p, this.team, false);
+    p.bpOf = p.bpOf || [null, null]; p.bpOf[this.team] = h;
+    return true;
+  }
   detachGarrison(s) {
     const p = s.obj && s.obj.p; if (!p) return;
     if (this.garrisons.some((g) => g.p === p && g.units.some((u) => !u.dead))) return;
@@ -360,8 +415,20 @@ class AICommander {
         return;
       }
     }
+    // out of ammo: pull back to a supplied base to rearm
+    if (s.state !== 'retreat' && s.state !== 'resupply' && s.state !== 'stage' && this.squadAmmo(s) < 0.3) {
+      const b = nearestBase(this.team, s.x, s.y, 3500, (b) => b.stock.supplies >= s.n * 1.5);
+      if (b) { s.state = 'resupply'; s.resup = b; s.obj = null; issueMove(units, b.x + rand(-60, 60), b.y + rand(-60, 60), false); s.orderT = now; return; }
+    }
     const spacing = this.enemyArtyActive ? 1.8 : 1.25;
     switch (s.state) {
+      case 'resupply': {
+        const b = s.resup;
+        if (!b || b.dead) { s.state = 'idle'; break; }
+        if (this.squadAmmo(s) > 0.8 || now - s.orderT > 70) { s.state = 'idle'; break; }
+        if (dist(s.x, s.y, b.x, b.y) > 260 && now - s.orderT > 12) { issueMove(units, b.x + rand(-60, 60), b.y + rand(-60, 60), false); s.orderT = now - 6; }
+        break;
+      }
       case 'idle': {
         if (now - s.orderT > 15 && dist(s.x, s.y, this.T.rally.x, this.T.rally.y) > 400 && !s.obj) { issueMove(units, this.T.rally.x, this.T.rally.y, true); s.orderT = now; }
         break;
@@ -371,6 +438,10 @@ class AICommander {
         const o = s.obj; if (!o) { s.state = 'idle'; break; }
         if (s.state === 'attack' && o.p && o.p.owner === this.team && dist(s.x, s.y, o.p.x, o.p.y) < 260) {
           s.state = 'hold'; s.holdSince = now; this.positionAround(units, o.p, 200, false); s.orderT = now; break;
+        }
+        // an empty town: put up our own town hall
+        if (s.state === 'attack' && o.p && o.p.owner === -1 && dist(s.x, s.y, o.p.x, o.p.y) < 300 && (!o.p.hall || o.p.hall.team === this.team) && !this.nearestEnemy(o.p.x, o.p.y, 420)) {
+          if (this.claimTown(o.p)) { s.state = 'hold'; s.holdSince = now; this.positionAround(units, o.p, 160, false); s.orderT = now; break; }
         }
         if (s.state === 'hq') { const ehq = G.teams[this.enemy].hq; if (!ehq || ehq.dead) { s.state = 'idle'; s.obj = null; break; } }
         // engage the nearest known enemy cluster near our path
@@ -390,6 +461,7 @@ class AICommander {
       case 'hold': {
         const p = s.obj && s.obj.p; if (!p) { s.state = 'idle'; break; }
         if (p.owner !== this.team && p.owner !== -1) { s.state = 'attack'; s.orderT = -99; break; }
+        if (p.owner === -1 && (!p.hall || p.hall.dead)) this.claimTown(p);
         const fight = this.nearestEnemy(p.x, p.y, 560);
         if (fight) { if (now - s.orderT > 4) { issueMove(units, fight.x, fight.y, true, { spacing }); s.orderT = now; s.engaged = true; } this.focusFire(s); }
         else if (s.engaged || now - s.orderT > 30) { s.engaged = false; this.positionAround(units, p, 200, false); s.orderT = now; }
@@ -463,6 +535,7 @@ class AICommander {
     for (const u of this.battery) {
       if (u.dead) continue;
       k++;
+      if (this.rearm(u)) continue;
       const threat = this.enemyPower(u.x, u.y, 600);
       let tx, ty;
       if (u.type === 'missile') { tx = hq.x + this.dir * 380; ty = hq.y + (k % 2 ? -220 : 220); }
@@ -486,6 +559,7 @@ class AICommander {
     let i = 0;
     for (const r of this.recon) {
       const u = r.u;
+      if (this.rearm(u)) { r.post = null; continue; }
       const threat = this.enemyPower(u.x, u.y, 300);
       if (threat > 60 && u.hp < u.maxHp * 0.6) { r.post = null; if (!u.override) issueMove([u], this.T.rally.x, this.T.rally.y, false); continue; }
       if (r.post && G.time - r.t < 45) continue;
@@ -550,7 +624,7 @@ class AICommander {
         }
         if (u.override) continue;
       }
-      if (u.override) continue;
+      if (u.override || u.type === 'supply') continue;
       // wounded: go find a medic / supply truck / engineer
       if (u.cls === 'veh' && u.hp < u.maxHp * 0.35 && u.def.role !== 'arty') {
         const fix = this.findHelper(u, (o) => o.type === 'supply' || o.type === 'engineer', 1600);
@@ -582,14 +656,182 @@ class AICommander {
     }
     // forget old impacts
     while (G.impacts.length && now - G.impacts[0].t > 20) G.impacts.shift();
+    this.assignBuilders();
+  }
+  // idle soldiers near a blueprint walk over and hammer it up
+  assignBuilders() {
+    const bps = [];
+    for (const p of G.points) { const b = p.bpOf && p.bpOf[this.team]; if (b && !b.dead && !b.built) bps.push(b); }
+    for (const c of this.crews) if (c.bp && !c.bp.dead && !c.bp.built && !bps.includes(c.bp)) bps.push(c.bp);
+    for (const bp of bps) {
+      let n = 0;
+      for (const o of G.grid.query(bp.x, bp.y, 60)) if (o.team === this.team && o.working === bp) n++;
+      if (n >= 3) continue;
+      const cands = [];
+      for (const o of G.grid.query(bp.x, bp.y, 520)) {
+        if (o.team !== this.team || o.dead || o.cls !== 'inf' || o.player || o.working === bp || o.builder === bp) continue;
+        if (o.squad && o.squad.state !== 'hold') continue;
+        const w = o.weapons[0]; if (w && w.target && !w.target.dead) continue;
+        cands.push(o);
+      }
+      cands.sort((a, b) => (a.type === 'engineer' ? -400 : 0) + dist(a.x, a.y, bp.x, bp.y) - (b.type === 'engineer' ? -400 : 0) - dist(b.x, b.y, bp.x, bp.y));
+      for (const o of cands.slice(0, 3 - n)) {
+        o.builder = bp;
+        const side = (o.id % 2 ? 1 : -1) * 18;
+        issueMove([o], bp.x - Math.sin(bp.ang) * side + rand(-10, 10), bp.y + Math.cos(bp.ang) * side + rand(-10, 10), false);
+      }
+    }
+  }
+  // low on ammo and not in a squad: walk to the nearest base with supplies
+  rearm(u) {
+    if (!(u.maxAmmo < Infinity) || u.ammo > u.maxAmmo * 0.25) { u.rearming = null; return false; }
+    if (u.rearming && !u.rearming.dead && G.time - u.rearmT < 30) return true;
+    const b = nearestBase(this.team, u.x, u.y, 3500, (b) => b.stock.supplies >= 2);
+    if (!b) return false;
+    u.rearming = b; u.rearmT = G.time;
+    issueMove([u], b.x + rand(-80, 80), b.y + rand(-80, 80), false);
+    return true;
+  }
+
+  // ---------------------------------------------------------------- logistics
+  manageLogistics() {
+    const hq = this.hq; if (!hq || hq.dead) return;
+    for (const u of this.trucks) if (u.dead || u.player || u.empty) this.trucks.delete(u);
+    const needs = [];
+    for (const b of G.bases[this.team]) {
+      if (b === hq || b.dead) continue;
+      let inbound = 0;
+      for (const u of this.trucks) if (u.job && u.job.to === b) inbound += u.job.load || 120;
+      const needS = Math.max(0, 240 - b.stock.supplies), needB = Math.max(0, (b.type === 'fob' ? 120 : 200) - b.stock.bmats);
+      let need = needS + needB * 0.6 - inbound;
+      if (b.town && b.town.ai[this.team].enemy > 40) need *= 1.4;
+      needs.push({ b, need, needS, needB, danger: this.enemyPower(b.x, b.y, 500) });
+    }
+    needs.sort((a, b) => b.need - a.need);
+    for (const u of this.trucks) this.truckJob(u, needs);
+  }
+  scrapField(u) {
+    let best = null, bs = 1e18;
+    const ehq = G.teams[this.enemy].hq;
+    for (const f of MAP.scrap) {
+      const danger = this.enemyPower(f.x, f.y, 550);
+      if (danger > 40) continue;
+      if (ehq && dist(f.x, f.y, ehq.x, ehq.y) < dist(f.x, f.y, this.hq.x, this.hq.y) - 300) continue; // enemy side
+      let busy = 0; for (const o of this.trucks) if (o !== u && o.job && o.job.f === f) busy++;
+      if (busy >= 2) continue;
+      const home = nearestBase(this.team, f.x, f.y);
+      const sc = dist(u.x, u.y, f.x, f.y) + (home ? dist(f.x, f.y, home.x, home.y) : 0) + danger * 20 + busy * 400;
+      if (sc < bs) { bs = sc; best = f; }
+    }
+    return best;
+  }
+  truckJob(u, needs) {
+    const hq = this.hq, now = G.time, c = u.cargo;
+    let j = u.job;
+    // shot at: run home
+    if (u.hp < u.maxHp * 0.4 || (now - u.lastHit < 2 && this.enemyPower(u.x, u.y, 450) > 50)) {
+      if (!j || j.kind !== 'flee') { u.job = j = { kind: 'flee', t: now }; issueMove([u], hq.x + this.dir * 200, hq.y + rand(-150, 150), false); }
+      if (dist(u.x, u.y, hq.x, hq.y) < 420 || now - j.t > 60) u.job = null;
+      return;
+    }
+    if (j && j.kind === 'flee') { if (dist(u.x, u.y, hq.x, hq.y) < 420 || now - j.t > 60) u.job = j = null; else return; }
+    if (!j) {
+      const best = needs.find((n) => n.danger < 80);
+      if (best && best.need > 60 && (hq.stock.supplies > 80 || c.supplies > 60)) {
+        const sp = Math.min(u.def.cargoCap, best.needS + 40), bm = Math.min(u.def.cargoCap - sp, best.needB);
+        const load = sp + bm;
+        u.job = j = { kind: 'deliver', to: best.b, stage: c.supplies + c.bmats > 80 ? 'go' : 'load', t: now, load, sp, bm };
+        best.need -= load;
+      } else {
+        // the HQ already has more scrap than it can refine: wait for something to deliver
+        const f = hq.stock.scrap < 500 ? this.scrapField(u) : null;
+        if (!f) { if (dist(u.x, u.y, hq.x, hq.y) > 450 && !u.order) issueMove([u], hq.x + this.dir * 220, hq.y + rand(-120, 120), false); return; }
+        u.job = j = { kind: 'scrap', f, stage: 'go', t: now };
+      }
+      j.orderT = -99;
+    }
+    if (now - j.t > 260) { u.job = null; return; } // stuck: start over
+    const go = (x, y) => { if (now - j.orderT > 8 || (!u.order && dist(u.x, u.y, x, y) > 80)) { issueMove([u], x, y, false); j.orderT = now; } };
+    if (j.kind === 'deliver') {
+      if (j.to.dead || j.to.team !== this.team) { u.job = null; return; }
+      if (j.stage === 'load') {
+        if (dist(u.x, u.y, hq.x, hq.y) < 300) { if (!u.moving) { truckDock(u, hq, { supplies: j.sp, bmats: j.bm }); j.stage = 'go'; j.orderT = -99; } }
+        else go(hq.x + this.dir * 160, hq.y + 130);
+      } else if (dist(u.x, u.y, j.to.x, j.to.y) < 190) { if (!u.moving) { truckDock(u, j.to, false); u.job = null; } }
+      else go(j.to.x - this.dir * 100, j.to.y + 50);
+    } else {
+      if (j.stage === 'go') {
+        if (dist(u.x, u.y, j.f.x, j.f.y) < j.f.r * 0.7) { u.order = null; u.path = null; j.stage = 'gather'; j.gt = now; }
+        else go(j.f.x + rand(-25, 25), j.f.y + rand(-25, 25));
+      } else if (j.stage === 'gather') {
+        if (cargoTotal(c) >= u.def.cargoCap - 2 || this.enemyPower(u.x, u.y, 450) > 60 || now - j.gt > 40) {
+          const near = nearestBase(this.team, u.x, u.y, 1400, (b) => b.stock.bmats < 150);
+          j.stage = 'home'; j.home = near && dist(u.x, u.y, hq.x, hq.y) > 2400 ? near : hq; j.orderT = -99;
+        }
+      } else {
+        const b = j.home && !j.home.dead ? j.home : (j.home = hq);
+        if (dist(u.x, u.y, b.x, b.y) < 220) { if (!u.moving) { truckDock(u, b, false); u.job = null; } }
+        else go(b.x - this.dir * 110, b.y + 60);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- fortification
+  manageFortify() {
+    for (const p of G.points) {
+      if (p.owner !== this.team || !p.hall || !p.hall.built) continue;
+      const h = p.hall;
+      if (p.ai[this.team].enemy > 40) continue;
+      p.bpOf = p.bpOf || [null, null];
+      const cur = p.bpOf[this.team];
+      if (cur && !cur.dead && !cur.built) continue; // one blueprint at a time
+      for (const slot of fortPlan(p, this.team)) {
+        if (planSlotDone(slot, this.team)) continue;
+        const st = STRUCT_BY_ID[slot.type];
+        if (h.stock.bmats < st.cost + 25) break;
+        if (canPlace(slot.type, slot.x, slot.y, slot.ang)) continue;
+        h.stock.bmats -= st.cost;
+        p.bpOf[this.team] = placeStruct(slot.type, this.team, slot.x, slot.y, slot.ang, false);
+        break;
+      }
+    }
+  }
+  // forward bases: when the main fight is far from any of our stockpiles, a crew digs one in behind it
+  manageCrews() {
+    for (const c of this.crews.slice()) {
+      c.units = c.units.filter((u) => !u.dead);
+      if (!c.units.length || !c.bp || c.bp.dead || c.bp.built || G.time - c.t > 120) {
+        for (const u of c.units) { u.builder = null; this.reserve.add(u); }
+        this.crews.splice(this.crews.indexOf(c), 1);
+      }
+    }
+    if (this.crews.length || G.time - (this.fobT || 0) < 70 || G.time < 150) return;
+    const hq = this.hq;
+    if (hq.stock.bmats < STRUCT_BY_ID.fob.cost + 120) return;
+    const s = this.squads.filter((s) => (s.state === 'attack' || s.state === 'hold') && s.obj && s.obj.p).sort((a, b) => b.power - a.power)[0];
+    if (!s) return;
+    const o = s.obj.p;
+    const near = nearestBase(this.team, o.x, o.y);
+    if (near && dist(near.x, near.y, o.x, o.y) < 1500) return;
+    const a = Math.atan2(hq.y - o.y, hq.x - o.x);
+    let x = o.x + Math.cos(a) * 750, y = o.y + Math.sin(a) * 750;
+    const cell = nearestOpen(cellOf(x, y)); x = (cell % GW + 0.5) * CELL; y = (((cell / GW) | 0) + 0.5) * CELL;
+    if (canPlace('fob', x, y, 0) || this.enemyPower(x, y, 600) > 30) return;
+    const crew = [...s.units].filter((u) => u.cls === 'inf' && u.type !== 'officer').sort((a, b) => (a.type === 'engineer' ? 0 : 1) - (b.type === 'engineer' ? 0 : 1)).slice(0, 2);
+    if (crew.length < 2) return;
+    this.fobT = G.time;
+    hq.stock.bmats -= STRUCT_BY_ID.fob.cost;
+    const bp = placeStruct('fob', this.team, x, y, this.dir > 0 ? 0 : Math.PI, false);
+    for (const u of crew) { s.units.delete(u); u.squad = null; u.builder = bp; issueMove([u], x + rand(-30, 30), y + 40, false); }
+    this.crews.push({ bp, units: crew, t: G.time });
   }
   // the player takes a squad: forget it
   release(units) {
     const set = new Set(units);
     for (const u of units) {
       if (u.squad) { u.squad.units.delete(u); u.squad = null; }
-      this.reserve.delete(u); this.battery.delete(u);
-      u.override = null; u.focus = null;
+      this.reserve.delete(u); this.battery.delete(u); this.trucks.delete(u);
+      u.override = null; u.focus = null; u.job = null;
     }
     this.recon = this.recon.filter((r) => !set.has(r.u));
     for (const g of this.garrisons) g.units = g.units.filter((u) => !set.has(u));
@@ -599,6 +841,7 @@ class AICommander {
     const line = [];
     for (const u of units) {
       if (u.dead) continue;
+      if (u.type === 'supply') { this.trucks.add(u); u.job = null; continue; }
       if (u.def.role === 'arty') this.battery.add(u);
       else if (u.type === 'scout' || u.type === 'sniper') this.recon.push({ u, post: null, t: 0 });
       else line.push(u);

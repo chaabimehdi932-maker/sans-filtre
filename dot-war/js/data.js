@@ -8,11 +8,6 @@ const CELL = 40;                   // terrain / fog / nav cell
 const GW = W / CELL, GH = H / CELL;
 const GS = 0.5;                    // ground canvas scale (terrain + decals)
 const POP_CAP = 200;
-const START_TICKETS = 1000;
-const BLEED = 0.7;                 // tickets/s per point of difference
-const START_SUPPLY = 900;
-const BASE_INCOME = 14;            // supply per second
-const POINT_INCOME = 4;            // per held capture point
 
 const TEAM = [
   { id: 0, name: 'BLUE', main: '#33a8ff', dark: '#1b78c4', deep: '#0c3a63', light: '#a6dcff', rgb: '51,168,255' },
@@ -37,9 +32,12 @@ const WEAPONS = {
   coax:     { range: 300, dmg: 7, cd: 0.12, burst: 8, rest: 1.1, acc: 0.4, kind: 'bullet', tracer: 1, air: 0.3, sup: 7, vs: { inf: 1, veh: 0.03, bld: 0.03, air: 1 }, snd: 'mg', moveFire: true },
   aa:       { range: 400, airRange: 620, dmg: 16, cd: 0.075, burst: 12, rest: 0.8, acc: 0.5, air: 0.75, kind: 'bullet', tracer: 3, sup: 14, preferAir: true, intercept: true, vs: { inf: 1, veh: 0.18, bld: 0.12, air: 1.6 }, snd: 'aa', moveFire: true, turret: true },
   howitzer: { range: 1650, min: 320, dmg: 190, cd: 6.5, acc: 1, kind: 'arty', splash: 85, sup: 50, scatter: 0.05, deploy: 2, air: 0, vs: { inf: 1, veh: 0.8, bld: 1.1 }, snd: 'howitzer', arty: true },
-  mlrs:     { range: 1450, min: 380, dmg: 62, cd: 24, salvo: 12, salvoGap: 0.2, acc: 1, kind: 'mrocket', splash: 56, sup: 35, scatter: 0.085, deploy: 1.5, air: 0, vs: { inf: 1, veh: 0.7, bld: 0.8 }, snd: 'mlrs', turret: true, arty: true },
+  mlrs:     { range: 1450, min: 380, dmg: 62, cd: 24, salvo: 12, salvoGap: 0.2, acc: 1, kind: 'mrocket', splash: 56, sup: 35, scatter: 0.085, deploy: 1.5, air: 0, vs: { inf: 1, veh: 0.7, bld: 0.8 }, snd: 'mlrs', arty: true },
+  sponson:  { range: 380, dmg: 100, cd: 2.4, acc: 0.8, kind: 'shell', speed: 900, splash: 36, sup: 30, air: 0, vs: { inf: 0.85, veh: 0.9, bld: 1.1 }, snd: 'cannon', moveFire: true, turret: true },
+  armgun:   { range: 340, dmg: 22, cd: 0.45, acc: 0.55, kind: 'bullet', tracer: 1, air: 0.3, sup: 12, vs: { inf: 1, veh: 0.3, bld: 0.15, air: 1 }, snd: 'aa', moveFire: true, turret: true },
   tcannon:  { range: 470, dmg: 150, cd: 2.8, acc: 0.85, kind: 'shell', speed: 1200, splash: 34, sup: 25, air: 0, vs: { inf: 0.7, veh: 1, bld: 0.5 }, snd: 'cannon', turret: true },
   jeepmg:   { range: 330, dmg: 8, cd: 0.1, acc: 0.45, kind: 'bullet', tracer: 1, air: 0.35, sup: 8, vs: { inf: 1, veh: 0.05, bld: 0.03, air: 1 }, snd: 'mg', moveFire: true, turret: true },
+  hallmg:   { range: 380, dmg: 8, cd: 0.11, burst: 10, rest: 1.2, acc: 0.42, kind: 'bullet', tracer: 1, air: 0.3, sup: 9, vs: { inf: 1, veh: 0.04, bld: 0.03, air: 1 }, snd: 'mg' },
   tmg:      { range: 360, dmg: 8, cd: 0.1, burst: 10, rest: 0.9, acc: 0.45, kind: 'bullet', tracer: 1, air: 0.35, sup: 9, vs: { inf: 1, veh: 0.04, bld: 0.03, air: 1 }, snd: 'mg' },
 };
 
@@ -58,25 +56,38 @@ const UNITS = {
   jammer:    { name: 'EW Jammer', cls: 'inf', hp: 100, speed: 49, vision: 340, r: 9, weapons: ['carbine'], role: 'support', jam: 230 },
   grenadier: { name: 'Grenadier', cls: 'inf', hp: 105, speed: 49, vision: 320, r: 9, weapons: ['rifle', 'grenade'], role: 'line' },
 
-  lighttank: { name: 'Light Tank', cls: 'veh', hp: 950, speed: 92, vision: 410, len: 48, wid: 24, turn: 2.3, tturn: 3.2, weapons: ['cannonL', 'coax'], role: 'armor', pop: 4 },
-  heavytank: { name: 'Battle Tank', cls: 'veh', hp: 2100, speed: 60, vision: 430, len: 58, wid: 30, turn: 1.45, tturn: 1.7, weapons: ['cannonH', 'coax'], role: 'armor', pop: 6 },
-  radar:     { name: 'Radar Truck', cls: 'veh', hp: 520, speed: 88, vision: 950, len: 56, wid: 26, turn: 2.1, weapons: [], role: 'support', detect: 700, pop: 3, truck: true },
-  aa:        { name: 'AA Gun', cls: 'veh', hp: 760, speed: 78, vision: 540, len: 50, wid: 25, turn: 2.0, tturn: 4.5, weapons: ['aa'], role: 'aa', pop: 4 },
-  howitzer:  { name: 'Howitzer', cls: 'veh', hp: 600, speed: 70, vision: 360, len: 66, wid: 26, turn: 1.7, weapons: ['howitzer'], role: 'arty', pop: 5, truck: true },
-  missile:   { name: 'Missile Launcher', cls: 'veh', hp: 560, speed: 64, vision: 360, len: 68, wid: 28, turn: 1.5, weapons: [], role: 'arty', ability: 'missile', pop: 6, truck: true },
-  mlrs:      { name: 'MLRS', cls: 'veh', hp: 560, speed: 72, vision: 360, len: 58, wid: 26, turn: 1.8, tturn: 1.4, weapons: ['mlrs'], role: 'arty', pop: 5, truck: true },
-  supply:    { name: 'Supply Truck', cls: 'veh', hp: 650, speed: 98, vision: 340, len: 56, wid: 26, turn: 2.3, weapons: [], role: 'support', pop: 2, truck: true, repairAura: { range: 170, veh: 22, inf: 7 }, capture: 3 },
+  // vehicle keys are historical: radar = armoured car, aa = flak half-track, howitzer = SP gun,
+  // missile = V-2, mlrs = Katyusha, supply = cargo lorry
+  lighttank: { name: 'Light Tank', cls: 'veh', hp: 950, speed: 92, vision: 410, len: 48, wid: 26, turn: 2.3, tturn: 3.2, weapons: ['cannonL', 'coax'], role: 'armor', pop: 4 },
+  heavytank: { name: 'Heavy Tank', cls: 'veh', hp: 2100, speed: 58, vision: 430, len: 60, wid: 34, turn: 1.45, tturn: 1.7, weapons: ['cannonH', 'coax'], role: 'armor', pop: 6 },
+  radar:     { name: 'Armored Car', cls: 'veh', hp: 620, speed: 125, vision: 720, len: 46, wid: 24, turn: 2.4, tturn: 4, weapons: ['armgun'], role: 'support', detect: 500, pop: 3 },
+  aa:        { name: 'Flak Half-track', cls: 'veh', hp: 760, speed: 82, vision: 540, len: 52, wid: 24, turn: 2.0, tturn: 4.5, weapons: ['aa'], role: 'aa', pop: 4 },
+  howitzer:  { name: 'SP Gun', cls: 'veh', hp: 700, speed: 62, vision: 360, len: 58, wid: 28, turn: 1.6, weapons: ['howitzer'], role: 'arty', pop: 5 },
+  missile:   { name: 'V-2 Launcher', cls: 'veh', hp: 560, speed: 58, vision: 360, len: 76, wid: 26, turn: 1.5, weapons: [], role: 'arty', ability: 'missile', pop: 6, truck: true },
+  mlrs:      { name: 'Katyusha', cls: 'veh', hp: 520, speed: 80, vision: 360, len: 58, wid: 26, turn: 1.9, weapons: ['mlrs'], role: 'arty', pop: 5, truck: true },
+  supply:    { name: 'Cargo Truck', cls: 'veh', hp: 600, speed: 105, vision: 340, len: 56, wid: 26, turn: 2.3, weapons: [], role: 'logi', pop: 2, truck: true, repairAura: { range: 170, veh: 22, inf: 7 }, cargoCap: 240 },
+  landship:  { name: 'Landship', cls: 'veh', hp: 2600, speed: 34, vision: 380, len: 64, wid: 42, turn: 1.0, tturn: 2.2, weapons: ['sponson', 'coax'], role: 'armor', pop: 6 },
 
-  jeep:      { name: 'Jeep', cls: 'veh', hp: 380, speed: 165, vision: 380, len: 36, wid: 20, turn: 2.8, tturn: 6, weapons: ['jeepmg'], role: 'support', pop: 0, truck: true, value: 120 },
+  jeep:      { name: 'Jeep', cls: 'veh', hp: 380, speed: 160, vision: 380, len: 36, wid: 20, turn: 2.8, tturn: 6, weapons: ['jeepmg'], role: 'support', pop: 0, truck: true, value: 120 },
 
-  hq:        { name: 'Headquarters', cls: 'bld', hp: 9000, speed: 0, vision: 560, r: 92, weapons: [], role: 'bld' },
+  hq:        { name: 'Headquarters', cls: 'bld', hp: 9000, speed: 0, vision: 560, r: 92, weapons: [], role: 'bld', base: true },
   turret:    { name: 'Bunker Turret', cls: 'bld', hp: 1800, speed: 0, vision: 500, r: 26, weapons: ['tcannon', 'tmg'], role: 'bld' },
+  townhall:  { name: 'Town Hall', cls: 'bld', hp: 2400, speed: 0, vision: 520, r: 36, weapons: ['hallmg'], role: 'bld', base: true },
+  // things you build with a hammer (see STRUCTS). line: trench, sandbags and wire lie along the
+  // ground; you walk over them and direct fire can't target them, only explosions hurt them
+  trench:    { name: 'Trench', cls: 'bld', hp: 1600, speed: 0, vision: 0, r: 60, weapons: [], role: 'bld', struct: true, line: true },
+  sandbag:   { name: 'Sandbags', cls: 'bld', hp: 700, speed: 0, vision: 0, r: 30, weapons: [], role: 'bld', struct: true, line: true },
+  wire:      { name: 'Barbed Wire', cls: 'bld', hp: 300, speed: 0, vision: 0, r: 40, weapons: [], role: 'bld', struct: true, line: true },
+  trap:      { name: 'Tank Trap', cls: 'bld', hp: 1200, speed: 0, vision: 0, r: 12, weapons: [], role: 'bld', struct: true },
+  bunker:    { name: 'MG Bunker', cls: 'bld', hp: 2400, speed: 0, vision: 420, r: 20, weapons: ['tmg'], role: 'bld', struct: true },
+  tower:     { name: 'Watchtower', cls: 'bld', hp: 800, speed: 0, vision: 680, r: 14, weapons: [], role: 'bld', struct: true, detect: 260 },
+  fob:       { name: 'Forward Base', cls: 'bld', hp: 3000, speed: 0, vision: 420, r: 30, weapons: [], role: 'bld', struct: true, base: true },
 };
 
 const ABILITIES = {
   drone:   { name: 'FPV Drone', key: 'Q', cd: 11, range: 1100, target: 'unit', desc: 'Fly a kamikaze drone into a target.' },
   barrage: { name: 'Artillery Barrage', key: 'Q', cd: 32, range: 950, radius: 125, shells: 9, dmg: 72, splash: 56, delay: 2.6, target: 'ground', desc: '9 shells hit the area after 2.6 s.' },
-  missile: { name: 'Tactical Missile', key: 'Q', cd: 70, range: 4400, radius: 215, dmg: 1150, target: 'ground', desc: 'Huge warhead. AA guns can shoot it down.' },
+  missile: { name: 'V-2 Rocket', key: 'Q', cd: 70, range: 4400, radius: 215, dmg: 1150, target: 'ground', desc: 'Huge warhead. Flak can shoot it down.' },
   mine:    { name: 'Lay AT Mine', key: 'Q', cd: 16, range: 400, target: 'ground', desc: 'Hidden mine that wrecks enemy vehicles.' },
 };
 
@@ -95,14 +106,15 @@ const PRODUCTS = [
   { id: 'jammer', unit: 'jammer', n: 1, cost: 110, time: 5, line: 0, name: 'EW Jammer', desc: 'Jams enemy drones within 230 m. They spin out and crash.', good: 'Drones', bad: 'Everything else' },
   { id: 'gren', unit: 'grenadier', n: 4, cost: 140, time: 6, line: 0, name: 'Grenadiers', desc: 'Riflemen with grenades that blast infantry out of cover and forests.', good: 'Infantry in cover', bad: 'Tanks' },
 
-  { id: 'ltank', unit: 'lighttank', n: 1, cost: 380, time: 12, line: 1, name: 'Light Tank', desc: 'Fast, with a cannon and a coaxial machine gun. Good for flanks and raids.', good: 'Infantry, trucks', bad: 'AT teams, drones, battle tanks' },
-  { id: 'htank', unit: 'heavytank', n: 1, cost: 680, time: 18, line: 1, name: 'Battle Tank', desc: 'Thick armor and a 125 mm gun. Weaker from the sides and rear.', good: 'Everything up front', bad: 'Drones, mines, flanking AT' },
-  { id: 'radar', unit: 'radar', n: 1, cost: 300, time: 10, line: 1, name: 'Radar Truck', desc: 'Sees 950 m, reveals hidden units within 700 m, and exposes enemy artillery whenever it fires.', good: 'Vision, counter-battery', bad: 'Anything that reaches it' },
-  { id: 'aa', unit: 'aa', n: 1, cost: 340, time: 11, line: 1, name: 'AA Gun', desc: 'Twin autocannons that shoot down drones and tactical missiles. Shreds infantry too.', good: 'Drones, missiles, infantry', bad: 'Tanks, AT' },
-  { id: 'how', unit: 'howitzer', n: 1, cost: 480, time: 15, line: 1, name: 'Howitzer', desc: 'Truck-mounted 155 mm gun, 1650 m range. Needs a spotter to see the target.', good: 'Static targets, clusters', bad: 'Drones, raids' },
-  { id: 'msl', unit: 'missile', n: 1, cost: 900, time: 25, line: 1, name: 'Missile Launcher', desc: 'Tactical missile that can hit anywhere in sight. Q to aim (E for auto). Both sides see the warning.', good: 'Big groups, the enemy HQ', bad: 'AA guns, its 70 s reload' },
-  { id: 'mlrs', unit: 'mlrs', n: 1, cost: 600, time: 18, line: 1, name: 'MLRS', desc: 'Fires a 12-rocket salvo across a wide area, then reloads for 24 s.', good: 'Infantry, area denial', bad: 'Drones, raids' },
-  { id: 'sup', unit: 'supply', n: 1, cost: 220, time: 8, line: 1, name: 'Supply Truck', desc: 'Repairs vehicles and heals troops nearby. Earns +2 supply/s while parked on a point you hold.', good: 'Sustaining a push', bad: 'Everything' },
+  { id: 'ltank', unit: 'lighttank', n: 1, cost: 380, time: 12, line: 1, name: 'Light Tank', desc: 'A Stuart-style light tank: fast, with a 37 mm gun and a machine gun. Good for flanks and raids.', good: 'Infantry, trucks', bad: 'AT teams, heavy tanks' },
+  { id: 'htank', unit: 'heavytank', n: 1, cost: 680, time: 18, line: 1, name: 'Heavy Tank', desc: 'A Tiger-style heavy tank with a long 88 mm gun. Thick in front, weaker from the sides and rear.', good: 'Everything up front', bad: 'Mines, flanking AT, artillery' },
+  { id: 'land', unit: 'landship', n: 1, cost: 560, time: 18, line: 1, name: 'Landship', desc: 'A WW1 rhomboid tank. Crawls along, soaks up fire, and its side guns shoot both ways. Crushes barbed wire.', good: 'Trenches, wire, infantry', bad: 'Faster tanks, AT teams' },
+  { id: 'radar', unit: 'radar', n: 1, cost: 300, time: 10, line: 1, name: 'Armored Car', desc: 'Six wheels and a 20 mm gun. Fast scout that sees 720 m, reveals hidden units and exposes enemy artillery when it fires.', good: 'Scouting, infantry', bad: 'Tanks, AT' },
+  { id: 'aa', unit: 'aa', n: 1, cost: 340, time: 11, line: 1, name: 'Flak Half-track', desc: 'Quad 20 mm guns on a half-track. Shreds infantry and shoots down drones and V-2s.', good: 'Infantry, drones, V-2s', bad: 'Tanks, AT' },
+  { id: 'how', unit: 'howitzer', n: 1, cost: 480, time: 15, line: 1, name: 'SP Gun', desc: 'A Priest-style self-propelled 105 mm gun, 1650 m range. Needs a spotter to see the target.', good: 'Trenches, clusters', bad: 'Raids' },
+  { id: 'msl', unit: 'missile', n: 1, cost: 900, time: 25, line: 1, name: 'V-2 Launcher', desc: 'A V-2 rocket on its trailer. Hits anywhere your side can see; both sides see the warning.', good: 'Big groups, the enemy HQ', bad: 'Flak, its 70 s reload' },
+  { id: 'mlrs', unit: 'mlrs', n: 1, cost: 600, time: 18, line: 1, name: 'Katyusha', desc: 'Rocket rails on a lorry: a 12-rocket salvo over a wide area, then 24 s to reload.', good: 'Infantry, area denial', bad: 'Raids' },
+  { id: 'sup', unit: 'supply', n: 1, cost: 220, time: 8, line: 1, name: 'Cargo Truck', desc: 'Hauls scrap, building materials and supply crates. Resupplies and repairs troops around it.', good: 'Keeping the front supplied', bad: 'Everything' },
 ];
 const PRODUCT_BY_ID = {};
 for (const p of PRODUCTS) PRODUCT_BY_ID[p.id] = p;
@@ -117,10 +129,11 @@ for (const p of PRODUCTS) {
 UNITS.hq.value = 1600; UNITS.hq.pop = 0;
 UNITS.jeep.pop = 0;
 UNITS.turret.value = 400; UNITS.turret.pop = 0;
+UNITS.townhall.value = 900;
+for (const k of ['trench', 'sandbag', 'wire', 'trap', 'bunker', 'tower', 'fob']) UNITS[k].value = 60;
 for (const k in UNITS) {
   const u = UNITS[k];
   u.key = k;
-  u.tickets = u.cls === 'inf' ? 1 : u.cls === 'veh' ? 2 + u.pop : 0;
   // collision radius
   if (!u.r) u.r = Math.max(u.len, u.wid) * 0.42;
   // crude combat strength for the AI
@@ -150,23 +163,78 @@ const PLAYER_GUNS = {
   p_pistol:  { name: 'Pistol', kind: 'bullet', dmg: 24, cd: 0.2, mag: 12, reload: 1.4, spread: 0.04, range: 220, sup: 2, tracer: 0, auto: false, snd: 'pistol' },
   p_rocket:  { name: 'Rocket launcher', kind: 'rocket', dmg: 330, cd: 0.5, mag: 1, reload: 3.0, spread: 0.01, range: 430, splash: 30, speed: 520, vs: { inf: 0.6, veh: 1, bld: 0.9 }, auto: false, snd: 'rocket' },
 };
+// mags: spare magazines you carry. Everyone also has a hammer, binoculars and bandages.
 const CLASSES = [
-  { id: 'rifleman', name: 'Rifleman', unit: 'rifleman', hp: 160, gun: 'p_rifle', nades: 3, role: 'capture',
-    desc: 'Assault rifle and three grenades. Takes points and holds them.', hint: 'Hold left click to fire. Right click throws a grenade. Stand on points to capture them.' },
-  { id: 'mg', name: 'Machine Gunner', unit: 'mgunner', hp: 180, gun: 'p_mg', nades: 2, role: 'capture', speed: 0.9,
-    desc: 'A 100-round machine gun that pins infantry down. A bit slower on foot.', hint: 'Long bursts pin enemy infantry: pinned troops crawl and miss.' },
-  { id: 'sniper', name: 'Sniper', unit: 'sniper', hp: 130, gun: 'p_sniper', nades: 1, role: 'snipe',
-    desc: 'One shot, one kill from 700 m. Hidden while standing still.', hint: 'Stand still to stay hidden. Click once per shot; every shot is deadly.' },
-  { id: 'at', name: 'Anti-Tank', unit: 'antitank', hp: 160, gun: 'p_rocket', nades: 2, role: 'hunt',
-    desc: 'A rocket launcher that cracks armor. Hit tanks from behind for 1.5× damage.', hint: 'One rocket, then reload. Aim for the sides and rear of tanks.' },
-  { id: 'medic', name: 'Medic', unit: 'medic', hp: 150, gun: 'p_smg', nades: 2, role: 'capture',
-    desc: 'SMG and a medkit. Heals soldiers around you; Q heals yourself to full.', hint: 'Allies near you heal on their own. Q: patch yourself up (40 s).' , ability: 'medkit' },
-  { id: 'engineer', name: 'Engineer', unit: 'engineer', hp: 150, gun: 'p_smg', nades: 2, role: 'support',
-    desc: 'SMG, AT mines and a wrench. Repairs the vehicle you drive or stand next to.', hint: 'Q drops an AT mine at your feet. Your vehicle repairs itself while you drive it.' },
-  { id: 'radio', name: 'Radio Operator', unit: 'radioop', hp: 150, gun: 'p_carbine', nades: 2, role: 'fire',
-    desc: 'Carbine and a radio. Calls a 9-shell artillery barrage anywhere your side can see.', hint: 'Q, then click where the barrage should land (950 m).' },
-  { id: 'drone', name: 'Drone Operator', unit: 'droneop', hp: 150, gun: 'p_carbine', nades: 2, role: 'hunt',
-    desc: 'Carbine and kamikaze FPV drones. You fly them yourself.', hint: 'Q launches a drone: steer with the mouse, click to detonate. Your soldier stands still while you fly.' },
+  { id: 'rifleman', name: 'Rifleman', unit: 'rifleman', hp: 160, gun: 'p_rifle', mags: 5, nades: 3, role: 'capture',
+    desc: 'Assault rifle and three grenades. Takes towns and holds them.', hint: 'Hold right click to aim, left click to fire.' },
+  { id: 'mg', name: 'Machine Gunner', unit: 'mgunner', hp: 180, gun: 'p_mg', mags: 3, nades: 2, role: 'capture', speed: 0.9,
+    desc: 'A 100-round machine gun that pins infantry down. A bit slower on foot.', hint: 'Long bursts pin enemy infantry: pinned troops crawl and miss. Fire from a trench.' },
+  { id: 'sniper', name: 'Sniper', unit: 'sniper', hp: 130, gun: 'p_sniper', mags: 6, nades: 1, role: 'snipe',
+    desc: 'One shot, one kill from 700 m. Hidden while standing still.', hint: 'Stand still to stay hidden. Aim fully before each shot.' },
+  { id: 'at', name: 'Anti-Tank', unit: 'antitank', hp: 160, gun: 'p_rocket', mags: 6, nades: 2, role: 'hunt',
+    desc: 'A rocket launcher that cracks armor and town halls. Hit tanks from behind for 1.5× damage.', hint: 'One rocket, then reload. Aim for the sides and rear of tanks.' },
+  { id: 'medic', name: 'Medic', unit: 'medic', hp: 150, gun: 'p_smg', mags: 4, nades: 2, role: 'capture', bandages: 6,
+    desc: 'SMG and a medkit. Heals soldiers around you; Q heals yourself to full.', hint: 'Allies near you heal on their own. Q: patch yourself up (40 s).', ability: 'medkit' },
+  { id: 'engineer', name: 'Engineer', unit: 'engineer', hp: 150, gun: 'p_smg', mags: 4, nades: 2, role: 'build', carry: 1.6,
+    desc: 'Builds twice as fast, carries more materials, plants AT mines and repairs vehicles.', hint: 'Q drops an AT mine. Hammer (2) builds, repairs and gathers scrap.' },
+  { id: 'radio', name: 'Radio Operator', unit: 'radioop', hp: 150, gun: 'p_carbine', mags: 4, nades: 2, role: 'fire',
+    desc: 'Carbine and a radio. Calls a 9-shell artillery barrage anywhere your side can see.', hint: 'Q, then click where the barrage should land (950 m). Binoculars (3) spot targets.' },
+  { id: 'drone', name: 'Drone Operator', unit: 'droneop', hp: 150, gun: 'p_carbine', mags: 4, nades: 2, role: 'hunt',
+    desc: 'Carbine and kamikaze FPV drones. You fly them yourself.', hint: 'Q launches a drone: steer with the mouse, click to detonate.' },
+  { id: 'driver', name: 'Logistics', unit: 'rifleman', icon: 'supply', hp: 150, gun: 'p_carbine', mags: 3, nades: 1, role: 'logi', carry: 1.6,
+    desc: 'Drive cargo trucks: haul scrap to the HQ and supplies to the towns. The front moves with your trucks.', hint: 'Get in a cargo truck (E). Stop in a scrap field to load scrap. F at a base loads or unloads.' },
 ];
 const CLASS_BY_ID = {};
 for (const c of CLASSES) CLASS_BY_ID[c.id] = c;
+
+// ---------------------------------------------------------------------
+// Supply chain. Scrap is hammered out of scrap fields (or loaded into a
+// cargo truck parked in one). Any base turns scrap into building materials
+// (bmats); only the HQ turns bmats into supplies (ammo, grenades, bandages),
+// so supplies have to be trucked to the towns and forward bases.
+// Infantry costs supplies, vehicles cost bmats, structures cost bmats.
+// ---------------------------------------------------------------------
+const LOGI = {
+  hqScrap: 4,          // scrap/s the HQ salvages on its own
+  townScrap: 1,        // extra scrap/s at the HQ for every town you hold
+  refineHQ: 24,        // scrap -> bmats per second at the HQ
+  refineBase: 4,       // ... at a town hall or forward base
+  factory: 7,          // bmats -> supplies per second, HQ only
+  gather: 16,          // scrap/s a truck loads while parked in a scrap field
+  hammer: 9,           // scrap/s you hammer out of a field on foot
+  carry: { scrap: 100, bmats: 100 }, // what you can carry on foot
+  infCost: 0.25,       // supplies per point of product cost (infantry)
+  vehCost: 0.4,        // bmats per point of product cost (vehicles)
+  resupplyInf: 1.5,    // supplies to fully rearm one soldier
+  resupplyVeh: 5,      // ... one vehicle
+  respawn: 3,          // supplies to respawn you at a base
+  baseRange: 300,      // resupply / respawn radius around a base
+  hqStart: { scrap: 100, bmats: 420, supplies: 260 },
+  townStart: { bmats: 120, supplies: 100 },
+  hallCost: 100, hallTime: 16,
+  winTowns: 7, winTime: 90,
+};
+const prodCost = (p) => p.line ? { bmats: Math.round(p.cost * LOGI.vehCost), supplies: 0 } : { bmats: 0, supplies: Math.round(p.cost * LOGI.infCost) };
+// shots each unit carries before it needs resupply, and what each weapon uses per shot
+const AMMO = { rifleman: 45, mgunner: 350, medic: 30, officer: 45, scout: 60, sniper: 16, droneop: 30, antitank: 14, engineer: 160, radioop: 30, jammer: 60, grenadier: 60, lighttank: 260, heavytank: 300, landship: 320, radar: 300, aa: 700, howitzer: 30, mlrs: 36, jeep: 400 };
+const AMMO_USE = { bullet: 1, shell: 6, rocket: 3, grenade: 4, throw: 4, arty: 1, mrocket: 1 };
+for (const k in AMMO) UNITS[k].ammo = AMMO[k];
+
+// Towns at the nine old capture points
+const TOWN_NAMES = { A: 'Ashford', B: 'Brenmoor', C: 'Calloway', D: 'Dunmore', E: 'Easton Crossing', F: 'Fallow', G: 'Greywater', H: 'Halden', I: 'Ironvale' };
+
+// Structures you build with a hammer. len: lines (trench, sandbags, wire) lie along their facing.
+// cover: damage infantry inside take (and how much harder they are to hit); slow: speed for
+// enemy infantry walking through. key: the number key that picks it while you hold the hammer.
+const STRUCTS = [
+  { id: 'trench', key: '4', name: 'Trench', cost: 30, time: 6, len: 120, cover: 0.35, desc: 'Infantry inside take a third of the damage and are much harder to hit.' },
+  { id: 'sandbag', key: '5', name: 'Sandbags', cost: 12, time: 3, len: 60, cover: 0.55, desc: 'A low wall. Infantry right behind it take about half damage.' },
+  { id: 'wire', key: '6', name: 'Barbed Wire', cost: 10, time: 3, len: 80, slow: 0.3, desc: 'Enemy infantry crawl through it. Tanks and landships crush it.' },
+  { id: 'trap', key: '7', name: 'Tank Trap', cost: 18, time: 3, desc: 'A steel hedgehog that blocks vehicles. Infantry walk past it.' },
+  { id: 'bunker', key: '8', name: 'MG Bunker', cost: 90, time: 10, desc: 'A concrete nest with a machine gun that fires on its own.' },
+  { id: 'tower', key: '9', name: 'Watchtower', cost: 40, time: 6, desc: 'Sees 680 m and spots hidden enemies.' },
+  { id: 'fob', key: '0', name: 'Forward Base', cost: 160, time: 14, desc: 'A stockpile you can respawn at and resupply from. Fill it with a truck.' },
+];
+const STRUCT_BY_ID = {};
+for (const st of STRUCTS) STRUCT_BY_ID[st.id] = st;
+STRUCT_BY_ID.townhall = { id: 'townhall', name: 'Town Hall', cost: LOGI.hallCost, time: LOGI.hallTime, desc: 'Claims the town for your side.' };

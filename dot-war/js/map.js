@@ -76,12 +76,29 @@ function generateMap(seed) {
   }
   const nearRoad = (x, y, m) => { for (const r of MAP.roads) for (const p of r) if (dist2(p.x, p.y, x, y) < m * m) return true; return false; };
 
+  // --- scrap fields: behind and beside the towns on the left half, a couple in no-man's land, rotated across
+  MAP.scrap = [];
+  const inRiver = (x, y, pad) => Math.abs(x - MAP.riverX(y)) < MAP.riverHW(y) + pad;
+  const addScrap = (x, y) => {
+    for (let k = 0; k < 6 && inRiver(x, y, 130); k++) x -= 90;
+    const f = { x, y, r: R.range(72, 92) };
+    MAP.scrap.push(f, { x: W - x, y: H - y, r: f.r });
+  };
+  addScrap(a.x + R.range(300, 380), a.y + R.range(240, 300));
+  addScrap(b.x + R.range(300, 380), b.y - R.range(240, 300));
+  addScrap(c.x - R.range(340, 420), c.y + R.range(260, 340));
+  addScrap(d.x - R.range(430, 520), d.y + R.range(180, 260));
+  addScrap(e.x - R.range(420, 500), e.y - R.range(360, 440));
+  addScrap(0.43 * W, 0.31 * H);
+  addScrap(0.43 * W, 0.69 * H);
+  const avoid = pts.concat(MAP.scrap.map((f) => ({ x: f.x, y: f.y })));
+
   // --- lakes
   MAP.lakes = [];
   for (let tries = 0; tries < 120 && MAP.lakes.length < 6; tries++) {
     const L = { x: R.range(0.08 * W, 0.42 * W), y: R.range(0.06 * H, 0.94 * H), rx: R.range(90, 190), ry: R.range(70, 140), rot: R.range(0, Math.PI) };
     const m = Math.max(L.rx, L.ry);
-    if (pts.some((p) => dist(p.x, p.y, L.x, L.y) < m + 300 || dist(W - p.x, H - p.y, L.x, L.y) < m + 300)) continue;
+    if (avoid.some((p) => dist(p.x, p.y, L.x, L.y) < m + 300 || dist(W - p.x, H - p.y, L.x, L.y) < m + 300)) continue;
     if (dist(hq.x, hq.y, L.x, L.y) < m + 650) continue;
     if (Math.abs(L.x - MAP.riverX(L.y)) < m + 300) continue;
     if (nearRoad(L.x, L.y, m + 90)) continue;
@@ -104,6 +121,52 @@ function generateMap(seed) {
     }
   }
 
+  // --- town hall plots: near the middle of each town but off the roads, bridges and water
+  const clearPlot = (x, y, roads, pad) => {
+    if (inRiver(x, y, 70)) return false;
+    for (let dy = -pad; dy <= pad; dy += 12) for (let dx = -pad; dx <= pad; dx += 12) {
+      const t = MAP.terr[cellOf(x + dx, y + dy)];
+      if (t === T_WATER || t === T_BRIDGE || t === T_FORD || t === T_FOREST || (roads && t === T_ROAD)) return false;
+    }
+    return true;
+  };
+  for (const p of pts) {
+    if (p.x > W / 2 + 1) continue;
+    let plot = null;
+    for (const [roads, pad] of [[true, 60], [true, 40], [false, 60]]) {
+      for (let r = 0; r <= 200 && !plot; r += 25) for (let k = 0; k < (r ? 16 : 1); k++) {
+        const an = (k / 16) * TAU + 0.2, x = p.x + Math.cos(an) * r, y = p.y + Math.sin(an) * r;
+        if (clearPlot(x, y, roads, pad)) { plot = { x, y }; break; }
+      }
+      if (plot) break;
+    }
+    plot = plot || { x: p.x, y: p.y };
+    p.hx = plot.x; p.hy = plot.y;
+    const q = pts.find((o) => o !== p && Math.abs(o.x - (W - p.x)) < 2 && Math.abs(o.y - (H - p.y)) < 2);
+    if (q) { q.hx = W - plot.x; q.hy = H - plot.y; }
+    avoid.push({ x: plot.x, y: plot.y }, { x: W - plot.x, y: H - plot.y }); // keep fields and forests off it
+  }
+
+  // --- ruined houses around every town (left half, rotated across)
+  MAP.ruins = [];
+  for (const p of pts) {
+    if (p.x > W / 2 + 1) continue;
+    const n = p.letter === 'E' ? 7 : 12;
+    for (let k = 0, tries = 0; k < n && tries < 80; tries++) {
+      const an = R.range(0, TAU), d = R.range(75, 215);
+      const x = p.x + Math.cos(an) * d, y = p.y + Math.sin(an) * d;
+      if (p.letter === 'E' && x > W / 2 - 30) continue;
+      const t = MAP.terr[cellOf(x, y)];
+      if (t === T_WATER || t === T_BRIDGE || t === T_FORD || t === T_ROAD || inRiver(x, y, 40)) continue;
+      if (pts.some((o) => dist(o.hx, o.hy, x, y) < 85 || dist(W - o.hx, H - o.hy, x, y) < 85)) continue;
+      const rw = R.range(34, 60), rh = R.range(28, 46);
+      if (MAP.ruins.some((o) => dist(o.x, o.y, x, y) < (Math.max(rw, rh) + Math.max(o.w, o.h)) * 0.55)) continue;
+      const ru = { x, y, w: rw, h: rh, rot: R.range(-0.4, 0.4) + (R() < 0.5 ? 0 : Math.PI / 2), gaps: [R() < 0.6, R() < 0.6, R() < 0.6, R() < 0.6], seed: (R() * 1e6) | 0 };
+      MAP.ruins.push(ru, { ...ru, x: W - x, y: H - y });
+      k++;
+    }
+  }
+
   // --- base pads
   for (const h of MAP.hq) markRect(h.x - 320, h.y - 320, h.x + 320, h.y + 320, (i, x, y) => { if (dist(x, y, h.x, h.y) < 310 && MAP.terr[i] !== T_WATER) MAP.terr[i] = T_BASE; });
 
@@ -112,7 +175,7 @@ function generateMap(seed) {
   for (let tries = 0; tries < 80 && MAP.fields.length < 16; tries++) {
     const F = { x: R.range(0.07 * W, 0.45 * W), y: R.range(0.05 * H, 0.95 * H), w: R.range(220, 420), h: R.range(140, 280), rot: R.range(-0.5, 0.5), kind: (R() * 3) | 0 };
     const m = Math.max(F.w, F.h) / 2;
-    if (pts.some((p) => dist(p.x, p.y, F.x, F.y) < m + 140)) continue;
+    if (avoid.some((p) => dist(p.x, p.y, F.x, F.y) < m + 140)) continue;
     if (dist(hq.x, hq.y, F.x, F.y) < m + 380) continue;
     if (Math.abs(F.x - MAP.riverX(F.y)) < m + 120) continue;
     if (MAP.lakes.some((L) => dist(L.x, L.y, F.x, F.y) < m + Math.max(L.rx, L.ry) + 40)) continue;
@@ -128,7 +191,7 @@ function generateMap(seed) {
   MAP.forests = [];
   for (let tries = 0; tries < 200 && MAP.forests.length < 40; tries++) {
     const Fo = { x: R.range(0.05 * W, 0.49 * W), y: R.range(0.03 * H, 0.97 * H), r: R.range(100, 290), p1: R.range(0, TAU), p2: R.range(0, TAU), a1: R.range(0.12, 0.3), a2: R.range(0.06, 0.16) };
-    if (pts.some((p) => dist(p.x, p.y, Fo.x, Fo.y) < Fo.r + 110 || dist(W - p.x, H - p.y, Fo.x, Fo.y) < Fo.r + 110)) continue;
+    if (avoid.some((p) => dist(p.x, p.y, Fo.x, Fo.y) < Fo.r + 110 || dist(W - p.x, H - p.y, Fo.x, Fo.y) < Fo.r + 110)) continue;
     if (dist(hq.x, hq.y, Fo.x, Fo.y) < Fo.r + 430) continue;
     if (MAP.terr[cellOf(Fo.x, Fo.y)] === T_WATER) continue;
     if (MAP.fields.some((o) => dist(o.x, o.y, Fo.x, Fo.y) < Fo.r + Math.max(o.w, o.h) * 0.3)) continue;
@@ -352,15 +415,21 @@ function renderGround() {
   g.scale(GS, GS);
   MAP.ground = cv; MAP.gctx = g;
 
-  g.fillStyle = '#2b6b23'; g.fillRect(0, 0, W, H);
-  const greens = ['#33782a', '#25601e', '#3a8230', '#2a6822', '#41862f', '#22581b', '#4a7f2a'];
-  for (let i = 0; i < 1100; i++) softBlob(g, R() * W, R() * H, R.range(60, 280), greens[(R() * greens.length) | 0], R.range(0.12, 0.3));
+  // a muddy, muted olive battlefield
+  g.fillStyle = '#4f5233'; g.fillRect(0, 0, W, H);
+  const greens = ['#585a37', '#4a4c2f', '#62603b', '#53532f', '#6a6240', '#45472c', '#5c5434'];
+  for (let i = 0; i < 1100; i++) softBlob(g, R() * W, R() * H, R.range(60, 280), greens[(R() * greens.length) | 0], R.range(0.14, 0.32));
+  // mud, thickest in the middle of the map where the fighting is
+  for (let i = 0; i < 420; i++) {
+    const x = W / 2 + (R() - 0.5) * W * (R() < 0.6 ? 0.55 : 1), y = R() * H;
+    softBlob(g, x, y, R.range(40, 160), R() < 0.5 ? '#4a3e2a' : '#5b4a33', R.range(0.18, 0.4));
+  }
 
-  // dirt around capture points
-  for (const p of MAP.points) { softBlob(g, p.x, p.y, 190, '#6f6a3c', 0.35); softBlob(g, p.x, p.y, 110, '#7c7043', 0.4); }
+  // trampled dirt around the towns
+  for (const p of MAP.points) { softBlob(g, p.x, p.y, 260, '#5e5238', 0.45); softBlob(g, p.x, p.y, 150, '#6a5d42', 0.5); }
 
   // fields
-  const fieldCols = [['#7f8f34', '#6e7d2b'], ['#3f8d2f', '#357a28'], ['#6d5a35', '#5e4d2d']];
+  const fieldCols = [['#6e6e3a', '#62622f'], ['#5c6a34', '#52602d'], ['#5e4e33', '#52432c']];
   for (const F of MAP.fields) {
     g.save(); g.translate(F.x, F.y); g.rotate(F.rot);
     const [c1, c2] = fieldCols[F.kind];
@@ -373,7 +442,7 @@ function renderGround() {
 
   // grass tufts
   g.lineWidth = 2;
-  for (const col of ['rgba(25,70,20,0.45)', 'rgba(80,150,60,0.35)']) {
+  for (const col of ['rgba(40,44,20,0.45)', 'rgba(125,128,74,0.3)']) {
     g.strokeStyle = col; g.beginPath();
     for (let i = 0; i < 23000; i++) {
       const x = R() * W, y = R() * H, a = R.range(-1, 1) - Math.PI / 2, l = R.range(4, 9);
@@ -382,14 +451,22 @@ function renderGround() {
     g.stroke();
   }
   // flowers
-  for (let i = 0; i < 2600; i++) { g.fillStyle = pick(['#d9d36a', '#e8e8e0', '#c98ad0', '#e0a050']); g.globalAlpha = 0.55; g.fillRect(R() * W, R() * H, 3, 3); }
+  for (let i = 0; i < 700; i++) { g.fillStyle = pick(['#b8b06a', '#c8c4b0', '#a87850']); g.globalAlpha = 0.4; g.fillRect(R() * W, R() * H, 3, 3); }
   g.globalAlpha = 1;
+  // old shell holes from earlier fighting
+  for (let i = 0; i < 340; i++) {
+    const x = W / 2 + (R() - 0.5) * W * 0.62, y = R() * H, r = R.range(6, 18);
+    if (MAP.terr[cellOf(x, y)] === T_WATER) continue;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r * 1.7);
+    gr.addColorStop(0, 'rgba(30,24,15,0.6)'); gr.addColorStop(0.55, 'rgba(50,40,26,0.4)'); gr.addColorStop(0.8, 'rgba(110,96,66,0.25)'); gr.addColorStop(1, 'rgba(80,70,45,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, r * 1.7, 0, TAU); g.fill();
+  }
 
   // forest floor
   for (let i = 0; i < GW * GH; i++) {
     if (MAP.terr[i] !== T_FOREST) continue;
     const x = (i % GW + 0.5) * CELL, y = (((i / GW) | 0) + 0.5) * CELL;
-    softBlob(g, x, y, 46, '#173f14', 0.55);
+    softBlob(g, x, y, 46, '#2b3019', 0.6);
   }
 
   // roads
@@ -407,39 +484,39 @@ function renderGround() {
     }
     g.globalAlpha = 1;
   };
-  strokeRoads(60, '#2a3a18', 0.35);
-  strokeRoads(46, '#6f6040', 1);
-  strokeRoads(38, '#8c7a4f', 1);
-  strokeRoads(4, '#5f5034', 0.7, 9);
-  strokeRoads(4, '#5f5034', 0.7, -9);
+  strokeRoads(60, '#2f2a1a', 0.35);
+  strokeRoads(46, '#5a4c34', 1);
+  strokeRoads(38, '#74644a', 1);
+  strokeRoads(4, '#4a3e2a', 0.7, 9);
+  strokeRoads(4, '#4a3e2a', 0.7, -9);
   for (const r of MAP.roads) for (const p of r) if (R() < 0.6) { g.fillStyle = 'rgba(60,50,30,0.5)'; g.fillRect(p.x + R.range(-16, 16), p.y + R.range(-16, 16), 3, 3); }
 
   // river + lakes: bank, shallows, deep water, ripples
-  g.fillStyle = '#8b7f55'; riverPath(g, 22); g.fill();
+  g.fillStyle = '#6a5e42'; riverPath(g, 22); g.fill();
   for (const L of MAP.lakes) { lakePath(g, L, 20); g.fill(); }
-  g.fillStyle = '#3d7d8f'; riverPath(g, 6); g.fill();
+  g.fillStyle = '#4f6460'; riverPath(g, 6); g.fill();
   for (const L of MAP.lakes) { lakePath(g, L, 6); g.fill(); }
-  g.fillStyle = '#21597f'; riverPath(g, 0); g.fill();
+  g.fillStyle = '#3a5150'; riverPath(g, 0); g.fill();
   for (const L of MAP.lakes) { lakePath(g, L, 0); g.fill(); }
-  g.fillStyle = '#184a6e'; riverPath(g, -24); g.fill();
+  g.fillStyle = '#2f4544'; riverPath(g, -24); g.fill();
   for (const L of MAP.lakes) { lakePath(g, L, -30); g.fill(); }
-  g.strokeStyle = 'rgba(150,200,230,0.25)'; g.lineWidth = 3;
+  g.strokeStyle = 'rgba(170,190,180,0.2)'; g.lineWidth = 3;
   for (let i = 0; i < 520; i++) {
     const y = R() * H, x = MAP.riverX(y) + R.range(-1, 1) * MAP.riverHW(y) * 0.8;
     g.beginPath(); g.moveTo(x, y); g.lineTo(x + R.range(-3, 3), y + R.range(12, 30)); g.stroke();
   }
   // fords: shallow sandy crossing with stones
   for (const f of MAP.fords) {
-    g.fillStyle = '#5f97a3'; g.beginPath(); g.ellipse(f.x, f.y, f.hw + 26, 62, 0, 0, TAU); g.fill();
-    g.fillStyle = '#7fae9f'; g.beginPath(); g.ellipse(f.x, f.y, f.hw + 6, 40, 0, 0, TAU); g.fill();
+    g.fillStyle = '#5b706a'; g.beginPath(); g.ellipse(f.x, f.y, f.hw + 26, 62, 0, 0, TAU); g.fill();
+    g.fillStyle = '#76806c'; g.beginPath(); g.ellipse(f.x, f.y, f.hw + 6, 40, 0, 0, TAU); g.fill();
     for (let i = 0; i < 40; i++) { g.fillStyle = R() < 0.5 ? '#8c8a7a' : '#6d6c60'; g.beginPath(); g.arc(f.x + R.range(-f.hw, f.hw), f.y + R.range(-40, 40), R.range(2, 6), 0, TAU); g.fill(); }
   }
 
   // base pads
   for (let ti = 0; ti < 2; ti++) {
     const h = MAP.hq[ti];
-    g.fillStyle = '#4c5047'; g.beginPath(); g.arc(h.x, h.y, 312, 0, TAU); g.fill();
-    g.fillStyle = '#62665c'; g.beginPath(); g.arc(h.x, h.y, 296, 0, TAU); g.fill();
+    g.fillStyle = '#48463c'; g.beginPath(); g.arc(h.x, h.y, 312, 0, TAU); g.fill();
+    g.fillStyle = '#5c5a4e'; g.beginPath(); g.arc(h.x, h.y, 296, 0, TAU); g.fill();
     g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 2;
     g.save(); g.beginPath(); g.arc(h.x, h.y, 296, 0, TAU); g.clip();
     for (let x = h.x - 300; x < h.x + 300; x += 60) { g.beginPath(); g.moveTo(x, h.y - 300); g.lineTo(x, h.y + 300); g.stroke(); }
@@ -453,6 +530,47 @@ function renderGround() {
     g.fillStyle = '#d8d1a0'; g.fillRect(hx - 18, hy - 22, 8, 44); g.fillRect(hx + 10, hy - 22, 8, 44); g.fillRect(hx - 10, hy - 4, 20, 8);
     for (let k = 0; k < 6; k++) { const px = h.x - 120 + k * 46, py = h.y - 200 * dir; g.fillRect(px, py - 30, 4, 60); }
   }
+  for (const r of MAP.ruins) drawRuin(g, r);
+  for (const f of MAP.scrap) drawScrapField(g, f);
+}
+// a shelled house: rubble floor and the stumps of its walls
+function drawRuin(g, r) {
+  const R = makeRng(r.seed);
+  g.save(); g.translate(r.x, r.y); g.rotate(r.rot);
+  const w = r.w, h = r.h;
+  g.fillStyle = 'rgba(30,26,20,0.45)'; g.fillRect(-w / 2 - 3, -h / 2 + 4, w + 8, h + 4);
+  g.fillStyle = '#6a6355'; g.fillRect(-w / 2, -h / 2, w, h);
+  g.fillStyle = 'rgba(40,36,30,0.35)';
+  for (let i = 0; i < 8; i++) g.fillRect(R.range(-w / 2, w / 2 - 8), R.range(-h / 2, h / 2 - 6), R.range(5, 12), R.range(4, 9));
+  const walls = [[-w / 2, -h / 2, w / 2, -h / 2], [w / 2, -h / 2, w / 2, h / 2], [w / 2, h / 2, -w / 2, h / 2], [-w / 2, h / 2, -w / 2, -h / 2]];
+  g.lineCap = 'butt';
+  walls.forEach(([x0, y0, x1, y1], i) => {
+    const segs = r.gaps[i] ? [[0, R.range(0.2, 0.45)], [R.range(0.6, 0.8), 1]] : [[0, 1]];
+    for (const [a, b] of segs) {
+      const ax = lerp(x0, x1, a), ay = lerp(y0, y1, a), bx = lerp(x0, x1, b), by = lerp(y0, y1, b);
+      g.strokeStyle = '#3b372f'; g.lineWidth = 7; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      g.strokeStyle = '#948d7b'; g.lineWidth = 4.5; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+    }
+  });
+  for (let i = 0; i < 12; i++) { g.fillStyle = R() < 0.5 ? '#7d7766' : '#55514a'; const s = R.range(2, 6); g.fillRect(R.range(-w / 2 - 10, w / 2 + 6), R.range(-h / 2 - 10, h / 2 + 6), s, s); }
+  g.restore();
+}
+// rusted wreckage you can hammer into scrap
+function drawScrapField(g, f) {
+  const R = makeRng((f.x * 13 + f.y * 7) | 0);
+  softBlob(g, f.x, f.y, f.r * 1.3, '#3b3122', 0.55);
+  for (let i = 0; i < 26; i++) {
+    const a = R.range(0, TAU), d = Math.sqrt(R()) * f.r * 0.85;
+    const x = f.x + Math.cos(a) * d, y = f.y + Math.sin(a) * d;
+    g.save(); g.translate(x, y); g.rotate(R.range(0, TAU));
+    const w = R.range(8, 22), h = R.range(4, 10);
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(-w / 2 + 2, -h / 2 + 2, w, h);
+    g.fillStyle = pick(['#7a4a2a', '#8c5a32', '#5e5a52', '#6f3f24', '#9a6a3a']); g.fillRect(-w / 2, -h / 2, w, h);
+    g.strokeStyle = 'rgba(20,14,8,0.6)'; g.lineWidth = 1; g.strokeRect(-w / 2, -h / 2, w, h);
+    g.restore();
+  }
+  g.strokeStyle = 'rgba(210,140,70,0.45)'; g.lineWidth = 2; g.setLineDash([8, 7]);
+  g.beginPath(); g.arc(f.x, f.y, f.r, 0, TAU); g.stroke(); g.setLineDash([]);
 }
 
 // ---------------------------------------------------------------------
@@ -463,7 +581,7 @@ let TREE_SHADOW = null;
 function buildTreeSprites() {
   TREE_SPR.length = 0;
   const R = makeRng(99);
-  const pal = [['#123d16', '#1b5520', '#2a7029', '#3f8c38'], ['#143f18', '#1f5a22', '#2f7a2d', '#4a9a40'], ['#173d14', '#245a1c', '#3a7424', '#5a9336'], ['#0f3613', '#18501d', '#256b28', '#368332']];
+  const pal = [['#232a16', '#323c1e', '#465228', '#5d6a36'], ['#262c18', '#363f20', '#4b552b', '#66703c'], ['#2a2a17', '#3b3b1f', '#53512b', '#6c6838'], ['#1f2614', '#2c361b', '#3f4a25', '#55602f']];
   for (let v = 0; v < 6; v++) {
     const c = document.createElement('canvas'); c.width = c.height = 96;
     const g = c.getContext('2d'); g.translate(48, 48);
@@ -522,7 +640,7 @@ function makeDetailPattern(ctx) {
   const g = c.getContext('2d');
   for (let i = 0; i < 900; i++) {
     const x = Math.random() * 256, y = Math.random() * 256, a = rand(-0.9, 0.9) - Math.PI / 2, l = rand(2, 5);
-    g.strokeStyle = Math.random() < 0.55 ? 'rgba(10,40,10,0.35)' : 'rgba(140,200,110,0.18)';
+    g.strokeStyle = Math.random() < 0.55 ? 'rgba(30,30,12,0.35)' : 'rgba(160,150,100,0.16)';
     g.lineWidth = 1;
     g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
   }

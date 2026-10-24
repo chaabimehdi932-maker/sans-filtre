@@ -45,19 +45,15 @@ body[data-mode="menu"] .hud { display: none; }
 .res b { font: 700 22px/1 var(--ui); font-variant-numeric: tabular-nums; }
 .res small { color: var(--good); font-weight: 600; margin-left: 4px; font-variant-numeric: tabular-nums; }
 .war { display: grid; gap: 4px; justify-items: center; padding: 6px 12px 7px; border-radius: 6px; min-width: 360px; }
-.tickets { display: grid; grid-template-columns: auto 150px 20px 150px auto; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
-.tickets b { font: 700 18px/1 var(--ui); min-width: 38px; }
-.tickets b.t0 { color: var(--blue); text-align: right; }
-.tickets b.t1 { color: var(--red); }
-.tbar { height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
-.tbar i { display: block; height: 100%; transition: transform .3s; }
-#tb0 { background: var(--blue); transform-origin: right; }
-#tb1 { background: var(--red); transform-origin: left; }
-.vs { font: 400 13px var(--display); color: var(--muted); text-align: center; }
-.bleed { font-size: 12px; color: var(--bad); min-width: 46px; font-weight: 600; }
-#bleed0 { text-align: right; }
+.towns { display: grid; grid-template-columns: auto auto auto; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.towns b { font: 700 22px/1 var(--ui); min-width: 26px; }
+.towns b.t0 { color: var(--blue); text-align: right; }
+.towns b.t1 { color: var(--red); }
+.winnote { font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; min-height: 17px; }
+.winnote.hot { color: var(--gold); }
+#hqStock { margin-left: 8px; color: #cfc6a8; }
 #pts { display: flex; gap: 4px; }
-.pt { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; font: 400 12px var(--display); border: 1.5px solid rgba(0,0,0,0.6); color: #0b120d; }
+.pt { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; font: 400 12px var(--display); border: 1.5px solid rgba(0,0,0,0.6); color: #0b120d; }
 .pt.b { background: var(--blue); } .pt.r { background: var(--red); } .pt.n { background: #d9d8cf; }
 .pt.c { box-shadow: 0 0 0 2px var(--gold); animation: blink 0.6s infinite alternate; }
 @keyframes blink { to { box-shadow: 0 0 0 2px transparent; } }
@@ -204,9 +200,40 @@ body[data-mode="play"] #view { cursor: none; }
 .gun { font-size: 14px; color: #cfd8ca; margin-right: 10px; }
 #touch { display: none; }
 @media (pointer: coarse) {
-  body[data-mode="play"] #touch { display: flex; position: fixed; right: max(10px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 200px); flex-direction: column; gap: 8px; pointer-events: auto; z-index: 5; }
-  #touch button { width: 64px; height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-weight: 700; }
+  body[data-mode="play"] #touch { display: grid; grid-template-columns: repeat(3, 58px); position: fixed; right: max(10px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 230px); gap: 6px; pointer-events: auto; z-index: 5; }
+  #touch button { height: 42px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-weight: 700; font-size: 13px; }
 }
+/* ---------- your kit ---------- */
+.hp i.bleed { background: #e2443a; animation: blink 0.5s infinite alternate; }
+.sbar { height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+.sbar i { display: block; height: 100%; background: #b9c7d8; transform-origin: left; transition: transform .15s; }
+.sbar i.low { background: var(--bad); }
+.inv { display: flex; flex-wrap: wrap; gap: 5px; align-items: stretch; }
+.slot { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 1px 6px; min-width: 96px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; background: rgba(255,255,255,0.03); text-align: left; }
+.slot span { font-size: 13px; color: #cfd8ca; white-space: nowrap; }
+.slot b { grid-column: 1 / -1; font: 700 15px/1.1 var(--ui); font-variant-numeric: tabular-nums; }
+.slot b.warn { color: var(--bad); }
+.slot > i { grid-column: 1 / -1; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+.slot > i b { display: block; height: 100%; background: var(--gold); transform-origin: left; }
+.slot.on { border-color: var(--gold); background: rgba(247,213,74,0.12); }
+.slot.ab { border-color: rgba(120,200,255,0.5); }
+.pips { grid-column: 1 / -1; display: flex; gap: 3px; }
+.pips i { width: 10px; height: 13px; border-radius: 5px 5px 4px 4px; border: 1.5px solid var(--muted); }
+.pips i.on { background: #8d9a5a; border-color: #cbd59a; }
+.pips.band i { border-radius: 2px; width: 12px; height: 9px; }
+.pips.band i.on { background: #e8e2d4; border-color: #fff; }
+.build { display: flex; flex-wrap: wrap; gap: 4px; }
+.bslot { display: flex; align-items: baseline; gap: 5px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; background: rgba(255,255,255,0.04); font-size: 13px; font-weight: 600; }
+.bslot small { color: #c9b98a; font-variant-numeric: tabular-nums; }
+.bslot.on { border-color: var(--gold); background: rgba(247,213,74,0.14); }
+.bslot.poor { opacity: 0.5; }
+.cargo { gap: 14px; font-size: 14px; color: #cfd8ca; }
+.cargo span { display: inline-flex; align-items: center; gap: 5px; }
+.cargo .ck { color: var(--text); font-weight: 700; }
+.cargo i { width: 10px; height: 10px; border: 1px solid #000; }
+.cargo .cs { background: #8c5a32; } .cargo .cb { background: #8a8d90; } .cargo .cp { background: #6b7f3a; }
+.sq-status .bad { color: var(--bad); }
+.chip:disabled { opacity: 0.45; cursor: default; }
 
 /* ---------- squad picker ---------- */
 #picker { background: rgba(5,9,7,0.55); }
@@ -236,7 +263,6 @@ body[data-mode="play"] #view { cursor: none; }
 
 @media (max-width: 900px) {
   .war { min-width: 0; }
-  .tickets { grid-template-columns: auto 80px 18px 80px auto; }
   .pk-cols { grid-template-columns: 1fr; }
   #bottom { grid-template-columns: 1fr; }
   #mini { display: none; }
@@ -251,6 +277,10 @@ body[data-mode="play"] #view { cursor: none; }
   body[data-mode="play"] #feed { top: calc(env(safe-area-inset-top, 0px) + 268px); max-width: 80vw; }
   .note { font-size: 13px; }
   .sq-hint, .wpn { display: none; }
+  .slot { min-width: 0; padding: 3px 6px; }
+  .slot span { font-size: 12px; }
+  .slot.cons span { display: none; }
+  #hqStock { display: block; margin: 0; }
   #menu { background: linear-gradient(180deg, rgba(8,14,10,0.9), rgba(8,14,10,0.7)); place-items: center; }
   .lede { font-size: 16px; }
 }
@@ -265,21 +295,13 @@ body[data-mode="play"] #view { cursor: none; }
       <div class="res hud-panel" aria-label="Your score">
         <div><span class="k">Score</span><b id="score">0</b></div>
         <div><span class="k">Kills</span><b id="kills">0</b></div>
-        <div><span class="k">Captures</span><b id="caps">0</b></div>
-        <div><span class="k">Missions</span><b id="miss">0</b></div>
+        <div><span class="k">Towns</span><b id="caps">0</b></div>
+        <div><span class="k">Built</span><b id="built">0</b></div>
       </div>
-      <div class="war hud-panel" aria-label="Tickets and capture points">
-        <div class="tickets">
-          <span class="bleed" id="bleed0"></span>
-          <div class="tbar"><i id="tb0"></i></div>
-          <span class="vs">VS</span>
-          <div class="tbar"><i id="tb1"></i></div>
-          <span class="bleed" id="bleed1"></span>
-        </div>
-        <div class="tickets" style="grid-template-columns:auto auto auto">
-          <b class="t0" id="tk0">1000</b><div id="pts"></div><b class="t1" id="tk1">1000</b>
-        </div>
-        <div class="armies"><span id="armies">0 vs 0</span> units in the field</div>
+      <div class="war hud-panel" aria-label="Towns held">
+        <div class="towns"><b class="t0" id="tw0">0</b><div id="pts"></div><b class="t1" id="tw1">0</b></div>
+        <div class="winnote" id="winNote"></div>
+        <div class="armies"><span id="armies">0 vs 0</span> in the field<span id="hqStock"></span></div>
       </div>
       <div class="ctl hud-panel">
         <span id="clock">0:00</span>
@@ -297,7 +319,7 @@ body[data-mode="play"] #view { cursor: none; }
 
     <div id="bottom">
       <div id="mini" class="hud-panel"><canvas id="minimap" aria-label="Minimap"></canvas></div>
-      <div id="touch" aria-hidden="true"><button type="button" id="tE">E</button><button type="button" id="tG">Nade</button><button type="button" id="tQ">Q</button><button type="button" id="tR">Reload</button><button type="button" id="tM">MG</button></div>
+      <div id="touch" aria-hidden="true"><button type="button" id="tM">Aim</button><button type="button" id="tF">Use</button><button type="button" id="tE">E</button><button type="button" id="tT">Tool</button><button type="button" id="tB">Build</button><button type="button" id="tG">Nade</button><button type="button" id="tH">Bandage</button><button type="button" id="tQ">Q</button><button type="button" id="tR">R</button></div>
       <div id="mid">
         <div id="squad" class="hud-panel"></div>
       </div>
@@ -322,9 +344,9 @@ body[data-mode="play"] #view { cursor: none; }
 
   <div id="menu" class="overlay">
     <div class="menu-inner">
-      <div class="eyebrow">One soldier · two AI armies · drive anything</div>
+      <div class="eyebrow">One soldier · nine towns · a war that runs on supplies</div>
       <h1 class="logo">D<span class="dot" aria-hidden="true"></span>T <span class="r">WAR</span></h1>
-      <p class="lede">Two AI generals fight a full-scale war. You are one soldier in the blue army. Shoot, throw grenades, fly kamikaze drones, then jump into a jeep or a tank and drive straight into the fight.</p>
+      <p class="lede">Two AI generals fight over nine ruined towns. You are one soldier in the blue army: fight from the trenches, hammer up defences, or drive the cargo trucks that keep the front supplied. Tanks, landships and Katyushas are yours to take.</p>
       <div class="opt">
         <span class="lbl" id="lblDiff">Enemy general</span>
         <div class="chips" role="radiogroup" aria-labelledby="lblDiff">
@@ -358,38 +380,35 @@ body[data-mode="play"] #view { cursor: none; }
         <div>
           <h3>Controls</h3>
           <table>
-            <tr><td>Move</td><td>WASD (Shift to sprint)</td></tr>
-            <tr><td>Aim / shoot</td><td>Mouse / hold left click</td></tr>
-            <tr><td>Grenade</td><td>Right click or G</td></tr>
-            <tr><td>Reload</td><td>R</td></tr>
-            <tr><td>Get in / out</td><td>E next to a jeep or any friendly vehicle</td></tr>
-            <tr><td>Drive</td><td>WASD; the turret follows the mouse</td></tr>
+            <tr><td>Move</td><td>WASD · Shift sprints (uses stamina)</td></tr>
+            <tr><td>Shoot</td><td>Left click</td></tr>
+            <tr><td>Aim</td><td>Hold right click: the longer you hold still, the tighter your shots</td></tr>
+            <tr><td>Kit</td><td>1 gun · 2 hammer · 3 binoculars</td></tr>
+            <tr><td>Grenade / bandage</td><td>G / H</td></tr>
+            <tr><td>Use</td><td>F: rearm at a base or truck, hand in scrap, take bmats, load and unload trucks, start a town hall</td></tr>
+            <tr><td>Build</td><td>Hammer out, then 4–0 picks a structure, R turns it, click places it; hold left click next to it to build</td></tr>
+            <tr><td>Hammer</td><td>Hold left click: build blueprints, repair, or hammer scrap out of a scrap field</td></tr>
+            <tr><td>Binoculars</td><td>Hold right click to look 1000 m out; what you see is spotted for your artillery</td></tr>
+            <tr><td>Reload</td><td>R (uses a spare magazine)</td></tr>
+            <tr><td>Get in / out</td><td>E next to a jeep, a cargo truck or any friendly vehicle</td></tr>
             <tr><td>Vehicle guns</td><td>Left click: main gun · right click: machine gun</td></tr>
             <tr><td>Class ability</td><td>Q: medkit, AT mine, artillery barrage, FPV drone</td></tr>
-            <tr><td>Fly a drone</td><td>Steer with the mouse, left click to detonate</td></tr>
-            <tr><td>Change class</td><td>Tab</td></tr>
-            <tr><td>Zoom</td><td>Mouse wheel</td></tr>
-            <tr><td>Pause / sound</td><td>P or Esc / M</td></tr>
-            <tr><td>Touch</td><td>Left thumb moves, right thumb aims and shoots, buttons for the rest</td></tr>
+            <tr><td>Change class</td><td>Tab · Zoom: mouse wheel · Pause: P or Esc · Sound: M</td></tr>
           </table>
         </div>
         <div>
           <h3>How the war works</h3>
           <ul class="rules">
-            <li>Both armies are run by AI generals. You are one soldier in the blue army.</li>
-            <li>Jeeps wait at the HQ. You can also take over any friendly tank or truck: its crew lets you drive. Leave it and a crew takes it back after a while.</li>
-            <li>Drive fast enough and you run enemy soldiers over. If your vehicle blows up, you bail out hurt.</li>
-            <li>Your health comes back when you stay out of the fight for a few seconds.</li>
-            <li>Command sends you orders that fit your squad. Finish them for bonus points.</li>
-            <li>When you die, pick a class and deploy at the HQ or on a point your side holds.</li>
-            <li>After the first minute, whoever holds fewer points bleeds tickets every second (0.7 per point behind, up to 4). Losing units costs tickets too. Hit 0 and you lose.</li>
-            <li>Destroying the enemy HQ wins outright. It is guarded by two bunker turrets.</li>
-            <li>Infantry in forests take less damage and stay hidden until enemies get close. Scouts and snipers also hide while standing still. Radar trucks see through it.</li>
-            <li>Tanks take 1.5× damage from behind. Flank them.</li>
-            <li>Machine guns and explosions pin infantry: pinned troops crawl and miss.</li>
-            <li>Artillery, barrages and missiles need someone to see the target.</li>
-            <li>Units heal slowly next to the HQ, faster near medics and supply trucks.</li>
-            <li>Kills promote units to veteran: more damage and accuracy.</li>
+            <li>Two AI generals fight over nine towns. You are one soldier in the blue army.</li>
+            <li>A town belongs to whoever has a town hall in it. Wreck the enemy's hall (tanks, rockets, satchels and artillery do it fast; soldiers standing in an undefended town wreck it slowly), then hammer up your own.</li>
+            <li>Hold 7 of the 9 towns for 90 seconds, or destroy the enemy HQ, to win.</li>
+            <li>Supply chain: scrap fields → scrap → any base turns it into building materials (bmats) → only the HQ turns bmats into supplies (ammo, grenades, bandages). Cargo trucks carry it all to the towns.</li>
+            <li>The generals pay for infantry with supplies and for vehicles with bmats. New infantry walks out of supplied towns near the front.</li>
+            <li>Everybody's ammo runs out. Soldiers rearm near a base or a cargo truck that has supplies; a town with none can't rearm or respawn anyone.</li>
+            <li>Trenches and sandbags make infantry much harder to hit. Barbed wire slows enemy infantry to a crawl; tanks crush it. Tank traps stop vehicles. MG bunkers shoot on their own. Watchtowers see far. Forward bases hold supplies and let you respawn.</li>
+            <li>Wounds bleed until you bandage them (H). A base's medics patch you up.</li>
+            <li>Tanks take 1.5× damage from behind. Machine guns and explosions pin infantry.</li>
+            <li>Artillery, barrages and V-2s need someone to see the target; your binoculars count.</li>
           </ul>
         </div>
       </div>
@@ -427,6 +446,7 @@ body[data-mode="play"] #view { cursor: none; }
 <script src="js/fx.js"></script>
 <script src="js/draw.js"></script>
 <script src="js/entities.js"></script>
+<script src="js/towns.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/avatar.js"></script>
 <script src="js/game.js"></script>

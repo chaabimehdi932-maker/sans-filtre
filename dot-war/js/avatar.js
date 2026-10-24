@@ -1,24 +1,28 @@
 'use strict';
 // =====================================================================
 // You are one soldier in a big war. Both armies are run by AI generals;
-// you walk, shoot, throw grenades, jump into jeeps and tanks and drive
-// them. This file: spawning, direct control, vehicles, orders, score.
+// you walk, aim and shoot, throw grenades, bandage your wounds, hammer up
+// trenches and town halls, scout with binoculars, and jump into jeeps,
+// tanks and cargo trucks. This file: spawning, direct control, your kit,
+// building, vehicles, orders and score.
 // =====================================================================
 
 function newMe() {
   return {
     soldier: null, vehicle: null, cls: null, alive: false, respawnT: 0, drone: null,
-    score: 0, kills: 0, vkills: 0, captures: 0, missions: 0, lost: 0, dmg: 0,
+    score: 0, kills: 0, vkills: 0, captures: 0, missions: 0, lost: 0, dmg: 0, built: 0, delivered: 0,
     mission: null, missionT: 3, hurtT: -99, hitT: -99, abilityCd: 0, nadeT: 0, firstDeploy: true,
-    units: [], kit: { role: 'capture' }, zoom: 1.35,
+    units: [], kit: { role: 'capture' }, zoomMul: 1,
+    tool: 'gun', ghost: null, aimT: 0, stamina: 100, winded: false, bleed: 0, useT: 0, scrap: 0, bmats: 0, look: null, hammerSnd: 0, outNote: -99,
   };
 }
 // the thing you control right now: your soldier, or the vehicle you drive
 const avatar = () => (G.me.vehicle && !G.me.vehicle.dead ? G.me.vehicle : G.me.soldier);
 function myCenter() { const a = G.me && G.me.alive && avatar(); return a ? { x: a.x, y: a.y } : { x: G.teams[0].hq.x, y: G.teams[0].hq.y }; }
+const carryCap = (k) => Math.round(LOGI.carry[k] * ((G.me.cls && G.me.cls.carry) || 1));
 
 // ---------------------------------------------------------------------
-// spawning
+// spawning: at the HQ, or at any town hall or forward base with supplies
 // ---------------------------------------------------------------------
 function enemiesNear(x, y, r, team) {
   for (const e of G.grid.query(x, y, r)) if (e.team !== team && !e.dead && e.cls !== 'air' && e.cls !== 'bld' && e.vis[team]) return true;
@@ -26,10 +30,11 @@ function enemiesNear(x, y, r, team) {
 }
 function spawnPoints() {
   const T = G.teams[0];
-  const list = [{ id: 'hq', label: 'HQ', x: T.hq.x + 170, y: T.hq.y + 40 }];
-  for (const p of G.points) {
-    if (p.owner !== 0 || enemiesNear(p.x, p.y, 520, 0)) continue;
-    list.push({ id: p.letter, label: p.letter, x: p.x - 50, y: p.y + 20 });
+  const list = [{ id: 'hq', label: 'HQ', x: T.hq.x + 170, y: T.hq.y + 40, base: T.hq, ok: true }];
+  for (const b of G.bases[0]) {
+    if (b === T.hq || b.dead || !b.built) continue;
+    const ok = b.stock.supplies >= LOGI.respawn && !enemiesNear(b.x, b.y, 320, 0);
+    list.push({ id: 'b' + b.id, label: baseLabel(b), x: b.x - 60, y: b.y + 46, base: b, ok, supplies: Math.floor(b.stock.supplies) });
   }
   return list;
 }
@@ -37,22 +42,25 @@ function deployMe(cls, spawnId) {
   const me = G.me;
   if (me.soldier && !me.soldier.dead) removeSoldier();
   const sps = spawnPoints();
-  const sp = sps.find((s) => s.id === spawnId) || sps[0];
+  const sp = sps.find((s) => s.id === spawnId && s.ok) || sps[0];
+  if (sp.base !== G.teams[0].hq) sp.base.stock.supplies -= LOGI.respawn;
   const u = spawnUnit(cls.unit, 0, sp.x, sp.y);
   u.avatar = true; u.player = true; u.direct = true; u.auto = false;
   u.hp = u.maxHp = cls.hp; u.ang = 0;
   const g = PLAYER_GUNS[cls.gun];
   u.gun = { id: cls.gun, def: g, mag: g.mag, reloadT: 0, cd: 0 };
-  u.nades = cls.nades;
+  u.nades = cls.nades; u.mags = cls.mags; u.bandages = cls.bandages || 3;
   me.soldier = u; me.vehicle = null; me.cls = cls; me.alive = true;
   me.kit = { role: cls.role, cls: 'inf' };
   me.units = [u];
   me.mission = null; me.missionT = 2; me.abilityCd = 0; me.nadeT = 0;
+  me.tool = 'gun'; me.ghost = null; me.aimT = 0; me.stamina = 100; me.winded = false; me.bleed = 0; me.useT = 0; me.scrap = 0; me.bmats = 0; me.look = null;
   G.sel = new Set([u]);
   G.cam.x = u.x; G.cam.y = u.y;
   for (let k = 0; k < 8; k++) dust(sp.x + rand(-30, 30), sp.y + rand(-30, 30), 1, 1);
   Sound.play('build', 0.5);
   me.firstDeploy = false;
+  if (cls.role === 'logi' && sp.base === G.teams[0].hq && !G.units.some((t) => t.depot && t.empty && !t.dead && dist(t.x, t.y, sp.x, sp.y) < 500)) spawnDepotTruck();
 }
 // switching class without dying: your soldier walks off the field
 function removeSoldier() {
@@ -81,7 +89,7 @@ function enterVehicle(v) {
   v.order = null; v.path = null; v.override = null; v.vel = 0; v.speedCap = 0;
   for (const w of v.weapons) { w.target = null; w.manual = null; }
   s.inside = v;
-  me.vehicle = v; me.units = [s, v];
+  me.vehicle = v; me.units = [s, v]; me.ghost = null; me.look = null;
   G.sel = new Set([v]);
   Sound.play('ui', 0.4);
   notify(`You're driving the ${v.def.name.toLowerCase()}. E to get out.`, 'info');
@@ -106,8 +114,8 @@ function vehicleLost() {
   const me = G.me, s = me.soldier;
   me.vehicle = null; s.inside = null; me.units = [s];
   G.sel = new Set([s]);
-  s.hp -= s.maxHp * 0.45;
-  notify('Your vehicle was destroyed. You bailed out!', 'bad');
+  s.hp -= s.maxHp * 0.45; me.bleed = Math.max(me.bleed, 1.5);
+  notify('Your vehicle was destroyed. You bailed out, wounded!', 'bad');
   if (s.hp <= 0) killUnit(s, null);
 }
 
@@ -123,15 +131,30 @@ function updateMe(dt) {
   const s = me.soldier;
   if (!s || s.dead) return;
   me.abilityCd = Math.max(0, me.abilityCd - dt);
-  // grenades come back slowly
-  if (s.nades < me.cls.nades) { me.nadeT += dt; if (me.nadeT > 25) { me.nadeT = 0; s.nades++; } }
-  // health comes back when you stay out of the fight
-  if (G.time - s.lastHit > 6 && s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + 7 * dt);
+  // wounds bleed until you bandage them; a base's medics patch you up
+  const base = !me.vehicle && nearestBase(0, s.x, s.y, LOGI.baseRange);
+  if (base && G.time - s.lastHit > 4) { me.bleed = 0; if (s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + 8 * dt); }
+  if (me.bleed > 0 && !me.vehicle) {
+    s.hp -= me.bleed * dt;
+    if (G.frame % 20 === 0) part({ kind: 'dust', x: s.x + rand(-4, 4), y: s.y + rand(-4, 4), life: 1.2, s0: 2, s1: 3, a0: 0.6 });
+    if (s.hp <= 0) { killUnit(s, s.lastAttacker && !s.lastAttacker.dead ? s.lastAttacker : null); return; }
+  }
+  if (me.useT > 0) { me.useT -= dt; if (me.useT <= 0) finishBandage(); }
   const v = me.vehicle;
   if (v && !v.dead) { driveVehicle(v, dt); if (me.cls.id === 'engineer' && G.time - v.lastHit > 3) v.hp = Math.min(v.maxHp, v.hp + 12 * dt); }
   else if (!me.drone) walk(s, dt);
   else { s.moving = false; s.speedNow = 0; s.stillT += dt; }
-  if (!me.drone) aimAndFire(dt);
+  // right mouse: aim the gun, or look far out through the binoculars
+  const right = G.mouse.right && !G.mouse.overHud && !v && !me.drone;
+  const aiming = right && me.tool === 'gun' && me.useT <= 0;
+  me.aimT = aiming ? Math.min(s.moving ? 0.5 : 1, me.aimT + dt / 0.8) : Math.max(0, me.aimT - dt * 4);
+  me.aiming = aiming;
+  me.look = right && me.tool === 'binos' ? lookSpot(s) : null;
+  if (me.look) spotThrough(me.look);
+  if (!me.drone) {
+    if (v || me.tool === 'gun') aimAndFire(dt);
+    else if (me.tool === 'hammer') hammerTick(s, dt);
+  }
   missionTick(dt);
 }
 
@@ -146,21 +169,29 @@ function moveInput() {
   return l > 1 ? { x: x / l, y: y / l } : { x, y };
 }
 function walk(s, dt) {
-  const inp = moveInput();
-  const sprint = keys.ShiftLeft || keys.ShiftRight;
-  let spd = s.def.speed * 1.35 * (G.me.cls.speed || 1) * terrainSpeed(s) * (sprint ? 1.45 : 1);
+  const me = G.me, inp = moveInput();
+  const moving = inp.x !== 0 || inp.y !== 0;
+  // sprinting drains stamina; once you run dry you have to get your breath back
+  const wantSprint = (keys.ShiftLeft || keys.ShiftRight) && moving && !me.aiming && me.useT <= 0;
+  const sprint = wantSprint && !me.winded;
+  if (sprint) { me.stamina = Math.max(0, me.stamina - 22 * dt); if (me.stamina <= 0) me.winded = true; }
+  else me.stamina = Math.min(100, me.stamina + (moving ? 9 : 16) * dt);
+  if (me.winded && me.stamina > 35) me.winded = false;
+  let spd = s.def.speed * 1.35 * (me.cls.speed || 1) * terrainSpeed(s) * s.slow * (sprint ? 1.5 : 1);
+  if (me.aiming) spd *= 0.5;
+  if (me.useT > 0) spd *= 0.4;
   if (s.sup > 50) spd *= 0.55;
-  let vx = inp.x * spd, vy = inp.y * spd;
-  // don't walk through vehicles and buildings
+  const vx = inp.x * spd, vy = inp.y * spd;
+  // don't walk through vehicles and buildings (trenches, sandbags and wire you walk over)
   for (const o of G.grid.query(s.x, s.y, s.r + 40)) {
-    if (o === s || o.dead || o.cls === 'air' || o.cls === 'inf') continue;
+    if (o === s || o.dead || o.cls === 'air' || o.cls === 'inf' || o.def.line || o.type === 'trap' || !o.built) continue;
     const dx = s.x - o.x, dy = s.y - o.y, d = Math.hypot(dx, dy) || 1, min = s.r + o.r;
     if (d < min) { s.x += (dx / d) * (min - d); s.y += (dy / d) * (min - d); }
   }
   const nx = s.x + vx * dt, ny = s.y + vy * dt;
   if (!blockedAt(nx, ny)) { s.x = nx; s.y = ny; } else if (!blockedAt(nx, s.y)) s.x = nx; else if (!blockedAt(s.x, ny)) s.y = ny;
   s.x = clamp(s.x, 8, W - 8); s.y = clamp(s.y, 8, H - 8);
-  s.moving = inp.x !== 0 || inp.y !== 0; s.speedNow = s.moving ? spd : 0;
+  s.moving = moving; s.speedNow = moving ? spd : 0; me.sprinting = sprint;
   if (s.moving) s.stillT = 0; else s.stillT += dt;
   s.ang = Math.atan2(G.mouse.wy - s.y, G.mouse.wx - s.x);
 }
@@ -176,7 +207,7 @@ function driveVehicle(v, dt) {
   const tr = d.turn * (car ? clamp(Math.abs(v.vel) / (d.speed * 0.35), 0, 1) : 1) * (v.vel < -2 ? -1 : 1);
   v.ang += turn * tr * dt;
   let nx = v.x + Math.cos(v.ang) * v.vel * dt, ny = v.y + Math.sin(v.ang) * v.vel * dt;
-  // bump into buildings and vehicles, run over enemy infantry
+  // bump into buildings, tank traps and vehicles, run over enemy infantry, crush wire with tracks
   for (const o of G.grid.query(nx, ny, v.r + 40)) {
     if (o === v || o.dead || o.cls === 'air') continue;
     const dx = nx - o.x, dy = ny - o.y, dd = Math.hypot(dx, dy) || 1;
@@ -187,6 +218,8 @@ function driveVehicle(v, dt) {
       }
       continue;
     }
+    if (o.def.line) { if (o.type === 'wire' && !d.truck) crushWire(v, o, dt); continue; }
+    if (!o.built) continue;
     const min = (v.r + o.r) * 0.85;
     if (dd < min) { nx = o.x + (dx / dd) * min; ny = o.y + (dy / dd) * min; v.vel *= 0.5; }
   }
@@ -206,15 +239,20 @@ function driveVehicle(v, dt) {
 }
 
 // ---------------------------------------------------------------------
-// shooting
+// shooting: hip fire is wild; hold right click and the spread tightens
 // ---------------------------------------------------------------------
-// a bullet along a line: hits the first enemy it crosses
+function mySpread() {
+  const me = G.me, s = me.soldier, gd = s.gun.def;
+  const aimK = me.aiming ? me.aimT : 0;
+  return gd.spread * (1.6 - aimK * 1.15) * (s.moving ? 1.6 : 1) * (me.sprinting ? 1.6 : 1) * (s.sup > 50 ? 1.6 : 1) + 0.06 * (1 - aimK);
+}
+// a bullet along a line: hits the first enemy it crosses; soldiers in cover often make it miss
 function shootRay(u, x0, y0, ang, range, dmg, vs, sup, tracerKind, air) {
   const c = Math.cos(ang), s = Math.sin(ang);
   let hit = null, ht = range;
   for (let d = 0; d <= range && d <= ht + 20; d += 16) {
     for (const e of G.grid.query(x0 + c * d, y0 + s * d, 18)) {
-      if (e.team === u.team || e.dead) continue;
+      if (e.team === u.team || e.dead || e.def.line) continue;
       if (e.cls === 'air' && (!air || e.isMissile)) continue;
       const ex = e.x - x0, ey = e.y - y0, along = ex * c + ey * s;
       if (along < 0 || along > ht) continue;
@@ -222,6 +260,8 @@ function shootRay(u, x0, y0, ang, range, dmg, vs, sup, tracerKind, air) {
       if (Math.abs(-ex * s + ey * c) <= rad) { ht = along; hit = e; }
     }
   }
+  // the round smacks into the parapet instead
+  if (hit && hit.cls === 'inf' && hit.cover < 1 && Math.random() > 0.35 + 0.6 * hit.cover) { ht = Math.max(0, ht - 10); hit = null; }
   const ex = x0 + c * ht, ey = y0 + s * ht;
   const col = tracerKind === 1 ? '255,190,90' : tracerKind === 2 ? '255,255,235' : '255,225,150';
   tracer(x0, y0, ex, ey, col, tracerKind === 2 ? 2 : 1.4, tracerKind === 2 ? 4200 : 3000, tracerKind === 2 ? 160 : 70);
@@ -238,26 +278,28 @@ let mouseWasDown = false;
 function aimAndFire(dt) {
   const me = G.me, s = me.soldier, v = me.vehicle;
   const m = G.mouse;
-  const down = m.down && !m.overHud && !G.aim;
+  const down = m.down && !m.overHud && !G.aim && !me.ghost;
   const click = down && !mouseWasDown;
   mouseWasDown = m.down;
   if (v && !v.dead) { vehicleFire(v, down, click, m.right && !m.overHud); return; }
   const g = s.gun, gd = g.def;
   g.cd -= dt;
-  if (g.reloadT > 0) { g.reloadT -= dt; if (g.reloadT <= 0) g.mag = gd.mag; return; }
+  if (g.reloadT > 0) { g.reloadT -= dt; if (g.reloadT <= 0) { g.mag = gd.mag; s.mags--; } return; }
+  if (me.useT > 0) return;
   if (g.mag <= 0) { startReload(); return; }
   if (!(gd.auto ? down : click) || g.cd > 0) return;
   g.cd = gd.cd; g.mag--;
   const a = s.ang;
-  const spread = gd.spread * (s.moving ? 1.8 : 1) * (keys.ShiftLeft ? 1.5 : 1) * (s.sup > 50 ? 1.6 : 1);
+  const spread = mySpread();
   const mx = s.x + Math.cos(a) * 12 - Math.sin(a) * 6, my = s.y + Math.sin(a) * 12 + Math.cos(a) * 6;
   s.revealT = Math.max(s.revealT, gd.kind === 'rocket' ? 3 : 1.5);
   if (gd.kind === 'rocket') {
     const d = Math.min(gd.range, dist(s.x, s.y, m.wx, m.wy));
-    const tx = s.x + Math.cos(a) * d, ty = s.y + Math.sin(a) * d;
-    // homes onto a vehicle near the cursor, like the AI's rockets
-    let lock = null, ld = 50; for (const e of G.grid.query(m.wx, m.wy, 50)) if (e.team === 1 && !e.dead && e.cls === 'veh') { const dd = dist(e.x, e.y, m.wx, m.wy); if (dd < ld) { ld = dd; lock = e; } }
-    G.projs.push({ kind: 'rocket', team: 0, src: s, x: mx, y: my, ang: a + rand(-gd.spread, gd.spread), target: lock, tx, ty, speed: gd.speed, dmg: gd.dmg, splash: gd.splash, vs: gd.vs, sup: 20, t: 0, life: 2.2, acc: 0.95, wob: rand(0, TAU) });
+    const ra = a + rand(-spread, spread) * 0.6;
+    const tx = s.x + Math.cos(ra) * d, ty = s.y + Math.sin(ra) * d;
+    // homes onto a vehicle or building near the cursor, like the AI's rockets
+    let lock = null, ld = 50; for (const e of G.grid.query(m.wx, m.wy, 50)) if (e.team === 1 && !e.dead && (e.cls === 'veh' || (e.cls === 'bld' && !e.def.line))) { const dd = dist(e.x, e.y, m.wx, m.wy); if (dd < ld) { ld = dd; lock = e; } }
+    G.projs.push({ kind: 'rocket', team: 0, src: s, x: mx, y: my, ang: ra, target: lock, tx, ty, speed: gd.speed, dmg: gd.dmg, splash: gd.splash, vs: gd.vs, sup: 20, t: 0, life: 2.2, acc: me.aiming ? 0.95 : 0.7, wob: rand(0, TAU) });
     const ba = a + Math.PI;
     for (let i = 0; i < 6; i++) part({ kind: 'smoke', x: s.x + Math.cos(ba) * 14, y: s.y + Math.sin(ba) * 14, vx: Math.cos(ba + rand(-0.4, 0.4)) * rand(60, 140), vy: Math.sin(ba + rand(-0.4, 0.4)) * rand(60, 140), life: rand(0.8, 1.6), s0: 6, s1: 22, a0: 0.5, drag: 0.9 });
     muzzle(mx, my, a, 1.3); shake(s.x, s.y, 1.5);
@@ -270,14 +312,19 @@ function aimAndFire(dt) {
   if (g.mag <= 0) startReload();
 }
 function startReload() {
-  const g = G.me.soldier.gun;
+  const me = G.me, s = me.soldier, g = s.gun;
   if (g.reloadT > 0 || g.mag === g.def.mag) return;
+  if (s.mags <= 0) {
+    if (G.time - me.outNote > 4) { me.outNote = G.time; notify('Out of magazines. Press F at a base or next to a supply truck to rearm.', 'warn'); Sound.play('error', 0.3); }
+    return;
+  }
   g.reloadT = g.def.reload;
   Sound.play('throw', 0.3);
 }
 function throwGrenade() {
   const me = G.me, s = me.soldier;
-  if (!me.alive || me.vehicle || s.nades <= 0) return;
+  if (!me.alive || me.vehicle || me.useT > 0) return;
+  if (s.nades <= 0) { notify('No grenades left. Rearm at a base (F).', 'info'); return; }
   s.nades--;
   const m = G.mouse;
   const d = Math.min(280, dist(s.x, s.y, m.wx, m.wy)), a = Math.atan2(m.wy - s.y, m.wx - s.x);
@@ -285,25 +332,48 @@ function throwGrenade() {
   G.projs.push({ kind: 'lob', team: 0, src: s, x: s.x, y: s.y, sx: s.x, sy: s.y, tx, ty, target: null, t: 0, T: 0.55 + d / 340, h: 30 + d * 0.18, dmg: 75, splash: 60, vs: { inf: 1, veh: 0.35, bld: 0.4 }, sup: 35, satchel: false, spin: rand(0, TAU) });
   Sound.play('throw', 0.4);
 }
-// vehicle guns: left click = main gun at the cursor, right click = machine gun
+function useBandage() {
+  const me = G.me, s = me.soldier;
+  if (!me.alive || me.vehicle || me.useT > 0) return;
+  if (s.bandages <= 0) { notify('No bandages left. Rearm at a base (F).', 'info'); return; }
+  if (me.bleed <= 0 && s.hp >= s.maxHp) { notify('You are not wounded', 'info'); return; }
+  me.useT = 1.1;
+  Sound.play('throw', 0.2);
+}
+function finishBandage() {
+  const me = G.me, s = me.soldier;
+  if (!s || s.dead || s.bandages <= 0) return;
+  s.bandages--; me.bleed = 0;
+  s.hp = Math.min(s.maxHp, s.hp + 35);
+  floatText(s.x, s.y - 20, 'BANDAGED', '#ffd6cf');
+}
+// vehicle guns: left click = main gun at the cursor, right click = machine gun. Every shot uses the vehicle's ammo
 function vehicleFire(v, down, click, right) {
   const m = G.mouse, w0 = v.weapons[0], w1 = v.weapons[1];
   const aim = Math.atan2(m.wy - v.y, m.wx - v.x);
   if (v.type === 'missile') { if (click) { G.aim = { ab: 'missile' }; castAim(m.wx, m.wy); } return; }
+  const spend = (wd) => {
+    const use = wd.kind === 'mrocket' ? 1 : AMMO_USE[wd.kind] || 1;
+    if (v.ammo < use) { if ((click || right) && G.time - G.me.outNote > 3) { G.me.outNote = G.time; notify('Out of ammo. Drive to a base or a supply truck to rearm.', 'warn'); Sound.play('error', 0.3); } return false; }
+    if (wd.kind !== 'mrocket') v.ammo -= use; // a rocket salvo pays per rocket as it fires
+    return true;
+  };
   if (w0 && down && w0.cd <= 0 && w0.salvo <= 0) {
     const wd = w0.def, dd = dist(v.x, v.y, m.wx, m.wy);
     if (wd.arty) {
       if (!click) return;
-      if (v.moving || v.stillT < 0.8) { notify('Stop the truck to fire', 'info'); return; }
+      if (v.moving || v.stillT < 0.8) { notify('Stop the vehicle to fire', 'info'); return; }
       if (dd > wd.range || dd < wd.min) { notify(`Out of range (${wd.min}–${wd.range} m)`, 'info'); Sound.play('error', 0.3); return; }
+      if (!spend(wd)) return;
       v.ang = aim;
       w0.cd = wd.cd; fireWeapon(v, w0, { x: m.wx, y: m.wy, fake: true, moving: false }, dd);
     } else if (wd.kind === 'shell' || wd.kind === 'rocket') {
-      if (Math.abs(angDiff(v.tang, aim)) > 0.12) return;
+      if (Math.abs(angDiff(v.tang, aim)) > 0.12 || !spend(wd)) return;
       const d = Math.min(wd.range, dd);
       w0.cd = wd.cd;
       fireWeapon(v, w0, { x: v.x + Math.cos(v.tang) * d, y: v.y + Math.sin(v.tang) * d, fake: true, moving: false }, d);
     } else if (wd.kind === 'bullet') {
+      if (!spend(wd)) return;
       w0.cd = wd.cd;
       const mz = muzzlePos(v, w0);
       shootRay(v, mz.x, mz.y, mz.a + rand(-0.05, 0.05), wd.airRange || wd.range, wd.dmg * 1.4, wd.vs, wd.sup, wd.tracer || 1, true);
@@ -311,13 +381,209 @@ function vehicleFire(v, down, click, right) {
       Sound.at(wd.snd, v.x, v.y, 0.5);
     }
   }
-  if (w1 && right && w1.cd <= 0 && w1.def.kind === 'bullet') {
+  if (w1 && right && w1.cd <= 0 && w1.def.kind === 'bullet' && spend(w1.def)) {
     const wd = w1.def; w1.cd = wd.cd;
     const mz = muzzlePos(v, w0 || w1);
     shootRay(v, mz.x, mz.y, aim + rand(-0.06, 0.06), wd.range, wd.dmg * 1.4, wd.vs, wd.sup, 1, true);
     muzzle(mz.x, mz.y, aim, 0.6);
     Sound.at('mg', v.x, v.y, 0.4);
   }
+}
+
+// ---------------------------------------------------------------------
+// your kit: 1 gun, 2 hammer, 3 binoculars
+// ---------------------------------------------------------------------
+function selectTool(t) {
+  const me = G.me;
+  if (!me.alive || me.vehicle || me.tool === t) return;
+  me.tool = t; if (t !== 'hammer') me.ghost = null;
+  G.mouse.down = false;
+  Sound.play('ui', 0.2);
+}
+// binoculars: look up to 1000 m out; whatever you see there is spotted for your whole army
+function lookSpot(s) {
+  const m = G.mouse, d = Math.min(1000, dist(s.x, s.y, m.wx, m.wy)), a = Math.atan2(m.wy - s.y, m.wx - s.x);
+  return { x: s.x + Math.cos(a) * d, y: s.y + Math.sin(a) * d };
+}
+function spotThrough(p) {
+  if (G.frame % 6) return;
+  for (const e of G.grid.query(p.x, p.y, 200)) {
+    if (e.team === 0 || e.dead || e.cls === 'air' || e.def.line) continue;
+    if (e.cls !== 'bld' && e.spotT <= 0 && G.time - (G.me.spotNoteT || 0) > 3) { G.me.spotNoteT = G.time; floatText(e.x, e.y - 22, 'SPOTTED', '#ffd27a'); }
+    e.spotT = Math.max(e.spotT, 5);
+  }
+}
+// the hammer: build blueprints, repair structures and vehicles, or hammer scrap out of a field
+function hammerTarget(s) {
+  let best = null, bd = 52;
+  for (const o of G.grid.query(s.x, s.y, 60)) {
+    if (o.team !== 0 || o.dead || o === s) continue;
+    let d;
+    if (o.cls === 'bld') { if (!o.def.struct && o.type !== 'townhall') continue; if (o.built && o.hp >= o.maxHp) continue; d = structDist(o, s.x, s.y); }
+    else if (o.cls === 'veh') { if (o.hp >= o.maxHp || o.player) continue; d = Math.max(0, dist(o.x, o.y, s.x, s.y) - o.r); }
+    else continue;
+    if (!o.built) d -= 30; // blueprints first
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+function hammerTick(s, dt) {
+  const me = G.me, m = G.mouse;
+  me.working = null;
+  if (!m.down || m.overHud || me.ghost || G.aim || me.useT > 0) return;
+  const rate = me.cls.id === 'engineer' ? 2 : 1;
+  const o = hammerTarget(s);
+  if (o) {
+    if (!o.built) progressBuild(o, 1.6 * rate * dt, true);
+    else o.hp = Math.min(o.maxHp, o.hp + (o.cls === 'veh' ? 30 : 45) * rate * dt);
+    me.working = o;
+    s.ang = Math.atan2(o.y - s.y, o.x - s.x);
+  } else if (scrapAt(s.x, s.y)) {
+    if (me.scrap >= carryCap('scrap')) { if (G.time - me.outNote > 4) { me.outNote = G.time; notify(`Your pockets are full of scrap (${carryCap('scrap')}). Take it to any base and press F.`, 'info'); } return; }
+    me.scrap = Math.min(carryCap('scrap'), me.scrap + LOGI.hammer * rate * dt);
+    me.working = true;
+    if (Math.random() < 0.3) sparks(s.x + Math.cos(s.ang) * 14, s.y + Math.sin(s.ang) * 14, 1, 80, null, 0, '255,210,140');
+  } else {
+    if (G.time - me.outNote > 4) { me.outNote = G.time; notify('Nothing to hammer here. Stand by a blueprint or a damaged structure, or in a scrap field.', 'info'); }
+    return;
+  }
+  me.hammerSnd -= dt;
+  if (me.hammerSnd <= 0) { me.hammerSnd = 0.38; Sound.at('build', s.x, s.y, 0.25); dust(s.x + Math.cos(s.ang) * 16, s.y + Math.sin(s.ang) * 16, 0.4, 0.5); }
+}
+// the structure you're about to place: number keys pick it, R turns it, click places it
+function pickStruct(id) {
+  const me = G.me;
+  if (!me.alive || me.vehicle) return;
+  me.tool = 'hammer';
+  if (me.ghost && me.ghost.id === id) { me.ghost = null; return; }
+  const s = me.soldier;
+  me.ghost = { id, ang: Math.atan2(G.mouse.wy - s.y, G.mouse.wx - s.x) + Math.PI / 2 };
+  Sound.play('ui', 0.2);
+}
+function rotateGhost() { if (G.me.ghost) G.me.ghost.ang += Math.PI / 4; }
+// who pays: the materials in your pockets, or a friendly base you're standing near
+function payerFor(cost, x, y) {
+  const me = G.me;
+  if (me.bmats >= cost) return { me: true, label: 'your materials' };
+  const b = nearestBase(0, x, y, 600, (b) => b.stock.bmats >= cost);
+  return b ? { base: b, label: baseLabel(b) } : null;
+}
+function ghostState() {
+  const me = G.me, gh = me.ghost, s = me.soldier;
+  if (!gh) return null;
+  const st = STRUCT_BY_ID[gh.id], m = G.mouse;
+  let x = m.wx, y = m.wy;
+  const d = dist(s.x, s.y, x, y);
+  if (d > 240) { x = s.x + (x - s.x) / d * 240; y = s.y + (y - s.y) / d * 240; }
+  let err = canPlace(gh.id, x, y, gh.ang);
+  const pay = payerFor(st.cost, x, y);
+  if (!err && !pay) err = `Needs ${st.cost} bmats: carry them or build next to a base`;
+  return { x, y, ang: gh.ang, st, err, pay };
+}
+function placeGhost() {
+  const g = ghostState(); if (!g) return null;
+  if (g.err) { notify(g.err, 'info'); Sound.play('error', 0.3); return null; }
+  if (g.pay.me) G.me.bmats -= g.st.cost; else g.pay.base.stock.bmats -= g.st.cost;
+  const u = placeStruct(g.st.id, 0, g.x, g.y, g.st.len || g.st.id === 'bunker' ? g.ang - (g.st.len ? 0 : Math.PI / 2) : 0, false);
+  G.markers.push({ x: g.x, y: g.y, t: 0, color: 'rgba(247,213,74,A)' });
+  Sound.play('build', 0.3);
+  if (!G.me.firstBlueprint) { G.me.firstBlueprint = true; notify('Blueprint placed. Hold left click next to it with the hammer to build it.', 'info'); }
+  return u;
+}
+
+// ---------------------------------------------------------------------
+// F: rearm, hand in scrap, take materials, load and unload trucks, start a town hall
+// ---------------------------------------------------------------------
+function nearTruck(s) {
+  for (const o of G.grid.query(s.x, s.y, 70)) if (o.team === 0 && o.type === 'supply' && !o.dead && o.cargo && o.cargo.supplies + o.cargo.bmats >= 1 && dist(o.x, o.y, s.x, s.y) < o.r + 40) return o;
+  return null;
+}
+function interactHint() {
+  const me = G.me; if (!me.alive) return null;
+  const v = me.vehicle, s = me.soldier;
+  if (v) {
+    if (v.type !== 'supply') return null;
+    const b = dockBase(0, v.x, v.y);
+    if (!b) return scrapAt(v.x, v.y) ? (cargoTotal(v.cargo) >= v.def.cargoCap ? 'Truck full: drive the scrap to a base' : v.moving ? 'Stop here to load scrap' : 'Loading scrap…') : null;
+    return b.type === 'hq' ? 'F: unload scrap and load supplies at the HQ' : `F: unload at ${baseLabel(b)}`;
+  }
+  const b = nearestBase(0, s.x, s.y, LOGI.baseRange);
+  if (b) return `F: rearm${me.scrap >= 1 ? ', hand in scrap' : ''}${me.tool === 'hammer' ? ', take bmats' : ''} at ${baseLabel(b)}`;
+  if (nearTruck(s)) return 'F: rearm and take bmats from the truck';
+  const p = townAt(s.x, s.y, -40);
+  if (p && !p.hall) return `F: start a town hall in ${p.name} (${LOGI.hallCost} bmats)`;
+  return null;
+}
+function rearmFrom(store, label) {
+  const me = G.me, s = me.soldier, c = me.cls;
+  const missing = (c.mags - s.mags) + (s.gun.mag < s.gun.def.mag ? 0.5 : 0) + (c.nades - s.nades) + ((c.bandages || 3) - s.bandages);
+  if (missing <= 0) return false;
+  const cost = Math.max(0.5, LOGI.resupplyInf * 0.4 * missing);
+  if (store.supplies < cost) { notify(`${label} is out of supplies`, 'bad'); return false; }
+  store.supplies -= cost;
+  s.mags = c.mags; s.nades = c.nades; s.bandages = c.bandages || 3;
+  if (s.gun.reloadT <= 0) s.gun.mag = s.gun.def.mag;
+  return true;
+}
+function interact() {
+  const me = G.me; if (!me.alive || me.drone) return;
+  const v = me.vehicle, s = me.soldier;
+  if (v) {
+    if (v.type !== 'supply') return;
+    const b = dockBase(0, v.x, v.y);
+    if (!b) { notify(scrapAt(v.x, v.y) ? 'Stop in the scrap field and the truck loads itself' : 'Drive up to a base to load or unload', 'info'); return; }
+    const { moved, loaded } = truckDock(v, b, b.type === 'hq');
+    const parts = [];
+    if (moved.scrap >= 1) parts.push(`${Math.round(moved.scrap)} scrap`);
+    if (moved.bmats >= 1) parts.push(`${Math.round(moved.bmats)} bmats`);
+    if (moved.supplies >= 1) parts.push(`${Math.round(moved.supplies)} supplies`);
+    const pts = Math.round(moved.scrap * 0.25 + moved.bmats * 0.5 + moved.supplies * 0.6);
+    if (pts > 0) { me.score += pts; me.delivered += moved.scrap + moved.bmats + moved.supplies; floatText(v.x, v.y - 30, `DELIVERED +${pts}`, '#9be7ff'); }
+    const m = me.mission;
+    if (m && m.kind === 'deliver' && m.to === b) m.prog += m.what === 'scrap' ? moved.scrap : moved.supplies + moved.bmats;
+    const msg = [];
+    if (parts.length) msg.push('Unloaded ' + parts.join(', '));
+    if (loaded) msg.push(`Loaded ${Math.round(v.cargo.supplies)} supplies and ${Math.round(v.cargo.bmats)} bmats`);
+    notify(msg.length ? msg.join('. ') : 'Nothing to load or unload', msg.length ? 'good' : 'info');
+    Sound.play('build', 0.4);
+    return;
+  }
+  const b = nearestBase(0, s.x, s.y, LOGI.baseRange);
+  if (b) {
+    const did = [];
+    if (rearmFrom(b.stock, baseLabel(b))) did.push('rearmed');
+    if (me.scrap >= 1) { b.stock.scrap += me.scrap; me.score += Math.round(me.scrap * 0.3); did.push(`handed in ${Math.round(me.scrap)} scrap`); me.scrap = 0; }
+    if (me.tool === 'hammer' || me.ghost) {
+      const take = Math.min(carryCap('bmats') - me.bmats, Math.max(0, b.stock.bmats - 10));
+      if (take >= 1) { me.bmats += take; b.stock.bmats -= take; did.push(`took ${Math.round(take)} bmats`); }
+    }
+    notify(did.length ? `${baseLabel(b)}: ${did.join(', ')}` : `Nothing to take at ${baseLabel(b)}`, did.length ? 'good' : 'info');
+    if (did.length) Sound.play('build', 0.3);
+    return;
+  }
+  const t = nearTruck(s);
+  if (t) {
+    const did = [];
+    if (rearmFrom(t.cargo, 'The truck')) did.push('rearmed');
+    const take = Math.min(carryCap('bmats') - me.bmats, t.cargo.bmats);
+    if (take >= 1) { me.bmats += take; t.cargo.bmats -= take; did.push(`took ${Math.round(take)} bmats`); }
+    notify(did.length ? `Truck: ${did.join(', ')}` : 'Nothing to take from the truck', did.length ? 'good' : 'info');
+    return;
+  }
+  const p = townAt(s.x, s.y, -40);
+  if (p && !p.hall) {
+    if (enemiesNear(p.x, p.y, 380, 0)) { notify(`Clear the enemy out of ${p.name} first`, 'warn'); return; }
+    const pay = payerFor(LOGI.hallCost, p.hx, p.hy);
+    if (!pay) { notify(`A town hall needs ${LOGI.hallCost} bmats. Take them from a base (F with the hammer out) or a truck.`, 'info'); Sound.play('error', 0.3); return; }
+    if (pay.me) me.bmats -= LOGI.hallCost; else pay.base.stock.bmats -= LOGI.hallCost;
+    const h = placeHall(p, 0, false);
+    p.bpOf = p.bpOf || [null, null]; p.bpOf[0] = h;
+    me.tool = 'hammer'; me.ghost = null;
+    notify(`Town hall blueprint in ${p.name}: hold left click next to it to hammer it up`, 'good', p.hx, p.hy);
+    Sound.play('build', 0.4);
+    return;
+  }
+  notify('Nothing to use here', 'info');
 }
 
 // ---------------------------------------------------------------------
@@ -329,7 +595,7 @@ function useAbility() {
   const id = me.cls.id;
   if (id === 'medic') {
     if (me.abilityCd > 0) { notify(`Medkit ready in ${Math.ceil(me.abilityCd)} s`, 'info'); return; }
-    s.hp = s.maxHp; s.sup = 0; me.abilityCd = 40;
+    s.hp = s.maxHp; s.sup = 0; me.bleed = 0; me.abilityCd = 40;
     for (let i = 0; i < 8; i++) part({ kind: 'glow', add: true, x: s.x + rand(-8, 8), y: s.y + rand(-8, 8), vy: -30, life: 0.7, s0: 6, s1: 2, a0: 0.9 });
     floatText(s.x, s.y - 20, 'HEALED', '#9be7ff'); Sound.play('build', 0.4);
     return;
@@ -347,13 +613,13 @@ function useAbility() {
     if (s.abilityCd > 0) { notify(`Barrage ready in ${Math.ceil(s.abilityCd)} s`, 'info'); return; }
     G.aim = { ab: 'barrage' }; return;
   }
-  notify(`${me.cls.name}: right click throws a grenade`, 'info');
+  notify(`${me.cls.name}: G throws a grenade, H uses a bandage`, 'info');
 }
 function castAim(wx, wy) {
   const ab = G.aim.ab; G.aim = null;
   const me = G.me, u = ab === 'missile' ? me.vehicle : me.soldier;
   if (!u) return;
-  if (!cellVisible(0, wx, wy)) { notify('Nobody on your side can see that spot', 'info'); Sound.play('error', 0.4); return; }
+  if (!cellVisible(0, wx, wy)) { notify('Nobody on your side can see that spot. Spot it with binoculars (3).', 'info'); Sound.play('error', 0.4); return; }
   if (u.abilityCd > 0) { notify(`${ABILITIES[ab].name} ready in ${Math.ceil(u.abilityCd)} s`, 'info'); Sound.play('error', 0.4); return; }
   if (dist(u.x, u.y, wx, wy) > ABILITIES[ab].range) { notify(`Out of range (${ABILITIES[ab].range} m)`, 'info'); Sound.play('error', 0.4); return; }
   castAbility(u, wx, wy, null);
@@ -361,15 +627,21 @@ function castAim(wx, wy) {
 }
 
 // ---------------------------------------------------------------------
-// parked vehicles and the jeep depot
+// parked vehicles, the jeep depot and the truck depot
 // ---------------------------------------------------------------------
 function tickParkedVehicles(dt) {
   for (const v of G.units) {
     if (!v.empty || v.dead) continue;
     v.emptyT += dt;
-    // army vehicles you leave get a new crew after a while; jeeps wait for you
-    if (v.type !== 'jeep' && v.emptyT > 20 && G.ai[0]) { v.empty = false; G.ai[0].adopt([v]); }
+    // army vehicles you leave get a new crew after a while; jeeps and depot trucks wait for you
+    if (v.type !== 'jeep' && !v.depot && v.emptyT > 20 && G.ai[0]) { v.empty = false; G.ai[0].adopt([v]); }
   }
+}
+function spawnDepotTruck() {
+  const hq = G.teams[0].hq;
+  const t = spawnUnit('supply', 0, hq.x + 200, hq.y + 165);
+  t.empty = true; t.emptyT = 0; t.depot = true; t.ang = t.tang = 0;
+  return t;
 }
 function spawnJeep(x, y, ang) {
   const j = spawnUnit('jeep', 0, x, y);
@@ -381,9 +653,14 @@ function tickJeepDepot(dt) {
   depotT -= dt; if (depotT > 0) return;
   depotT = 15;
   const hq = G.teams[0].hq; if (!hq || hq.dead) return;
-  let parked = 0, total = 0;
-  for (const u of G.units) if (u.type === 'jeep' && !u.dead) { total++; if (u.empty && dist(u.x, u.y, hq.x, hq.y) < 420) parked++; }
+  let parked = 0, total = 0, trucks = 0, parkedT = 0;
+  for (const u of G.units) {
+    if (u.dead) continue;
+    if (u.type === 'jeep') { total++; if (u.empty && dist(u.x, u.y, hq.x, hq.y) < 420) parked++; }
+    if (u.depot) { trucks++; if (u.empty && dist(u.x, u.y, hq.x, hq.y) < 500) parkedT++; }
+  }
   if (parked < 2 && total < 8) spawnJeep(hq.x + 120 + parked * 50, hq.y + 150, 0);
+  if (!parkedT && trucks < 3) spawnDepotTruck();
 }
 
 // ---------------------------------------------------------------------
@@ -395,12 +672,13 @@ function pointScore(p, c, kind) {
   if (kind === 'attack') return (p.owner === 0 ? -1e9 : 0) + (p.owner === -1 ? 400 : 0) - d - info.enemy * 0.4 + info.own * 0.6;
   if (kind === 'enemy') return (p.owner === 0 && info.enemy < 30 ? -1e9 : 0) + (p.owner === 1 ? 500 : 0) + (p.contested ? 300 : 0) + info.enemy * 2 - d * 0.5;
   if (kind === 'front') return (info.enemy > 0 ? 600 : 0) + info.own * 0.5 - d * 0.7;
+  if (kind === 'fort') return (p.owner === 0 ? 0 : -1e9) + (info.enemy > 30 ? -400 : 0) + (p.hall && p.hall.stock ? Math.min(200, p.hall.stock.bmats) : 0) - d * 0.6;
   return -d;
 }
 function bestPoint(kind) {
   const c = myCenter(); let best = null, bs = -1e18;
   for (const p of G.points) { const s = pointScore(p, c, kind); if (s > bs) { bs = s; best = p; } }
-  return best;
+  return bs > -1e8 ? best : null;
 }
 function pickMission() {
   const me = G.me, role = me.cls.role;
@@ -408,25 +686,49 @@ function pickMission() {
   if (role === 'capture') {
     const c = myCenter();
     const threatened = G.points.find((p) => p.owner === 0 && p.ai[0] && p.ai[0].enemy > 60 && dist(p.x, p.y, c.x, c.y) < 1600);
-    if (threatened) m = { kind: 'defend', p: threatened, text: `Defend point ${threatened.letter}`, need: 30, prog: 0, reward: 300 };
-    else { const p = bestPoint('attack'); if (p) m = { kind: 'capture', p, text: `Capture point ${p.letter}`, need: 1, prog: 0, reward: 350 }; }
+    if (threatened) m = { kind: 'defend', p: threatened, text: `Defend ${threatened.name}`, need: 30, prog: 0, reward: 300 };
+    else {
+      const p = bestPoint('attack');
+      if (p) m = p.owner === 1 ? { kind: 'wreck', p, text: `Wreck the enemy town hall in ${p.name}`, need: 1, prog: 0, reward: 400 }
+        : { kind: 'claim', p, text: `Build a town hall in ${p.name}`, need: 1, prog: 0, reward: 400 };
+    }
   } else if (role === 'fire') {
     const p = bestPoint('enemy');
-    if (p) m = { kind: 'fire', p, text: `Call fire on the enemy at ${p.letter}`, need: 500, prog: 0, reward: 400, r: 480 };
+    if (p) m = { kind: 'fire', p, text: `Call fire on the enemy at ${p.name}`, need: 500, prog: 0, reward: 400, r: 480 };
   } else if (role === 'hunt') {
     m = { kind: 'hunt', cls: 'veh', text: 'Destroy an enemy vehicle', need: 1, prog: 0, reward: 400 };
   } else if (role === 'snipe') {
     m = { kind: 'hunt', cls: 'inf', text: 'Pick off 5 enemy soldiers', need: 5, prog: 0, reward: 350 };
+  } else if (role === 'build') {
+    const p = bestPoint('fort');
+    if (p) m = { kind: 'fortify', p, text: `Dig in at ${p.name}: build 3 structures`, need: 3, prog: 0, reward: 350, r: 520 };
+  } else if (role === 'logi') {
+    const hq = G.teams[0].hq;
+    let low = null, ls = 1e9;
+    for (const b of G.bases[0]) { if (b === hq || b.dead) continue; const v = b.stock.supplies + b.stock.bmats * 0.4; if (v < ls) { ls = v; low = b; } }
+    if (low && ls < 200 && hq.stock.supplies > 60) m = { kind: 'deliver', to: low, what: 'supplies', text: `Truck supplies to ${baseLabel(low)}`, need: 120, prog: 0, reward: 350 };
+    else m = { kind: 'deliver', to: hq, what: 'scrap', text: 'Haul scrap to the HQ', need: 150, prog: 0, reward: 250 };
   } else {
     const p = bestPoint('front');
-    if (p) m = { kind: 'support', p, text: `Support the fight at ${p.letter}`, need: 40, prog: 0, reward: 300, r: 420 };
+    if (p) m = { kind: 'support', p, text: `Support the fight at ${p.name}`, need: 40, prog: 0, reward: 300, r: 420 };
   }
   if (!m) return;
-  m.t = 0; m.limit = 220;
+  m.t = 0; m.limit = m.kind === 'deliver' ? 360 : 240;
   me.mission = m;
-  notify(`New orders: ${m.text}`, 'info', m.p ? m.p.x : undefined, m.p ? m.p.y : undefined);
+  const tg = missionTarget(m);
+  notify(`New orders: ${m.text}`, 'info', tg ? tg.x : undefined, tg ? tg.y : undefined);
 }
 function missionTarget(m) {
+  if (m.kind === 'deliver') {
+    // hauling scrap: first the nearest field on our side, then home
+    const v = G.me.vehicle;
+    if (m.what === 'scrap' && (!v || v.type !== 'supply' || v.cargo.scrap < v.def.cargoCap * 0.6)) {
+      const c = myCenter(); let best = null, bd = 1e9;
+      for (const f of MAP.scrap) { const d = dist(f.x, f.y, c.x, c.y); if (d < bd && f.x < W * 0.55) { bd = d; best = f; } }
+      return best;
+    }
+    return m.to;
+  }
   if (m.p) return m.p;
   if (m.kind === 'hunt') {
     const c = myCenter(); let best = null, bd = 1e9;
@@ -441,9 +743,12 @@ function missionTick(dt) {
   const m = me.mission; m.t += dt;
   const c = myCenter();
   const near = (r) => m.p && dist(c.x, c.y, m.p.x, m.p.y) < r;
-  if (m.kind === 'defend') { if (near(m.p.r + 160) && m.p.owner === 0) m.prog += dt; if (m.p.owner === 1) { failMission('Point ' + m.p.letter + ' fell'); return; } }
+  if (m.kind === 'defend') { if (near(m.p.r + 160) && m.p.owner === 0) m.prog += dt; if (m.p.owner !== 0) { failMission(m.p.name + ' fell'); return; } }
   else if (m.kind === 'support') { if (near(m.r)) m.prog += dt; }
-  else if (m.kind === 'capture' && m.p.owner === 0 && !near(m.p.r + 300)) { failMission(`${m.p.letter} is already ours`); return; }
+  else if (m.kind === 'wreck') { if (m.p.owner !== 1) { if (near(m.p.r + 400)) m.prog = 1; else { failMission(`the ${m.p.name} hall is already down`); return; } } }
+  else if (m.kind === 'claim' && m.p.owner === 0 && !near(m.p.r + 300)) { failMission(`${m.p.name} is already ours`); return; }
+  else if (m.kind === 'claim' && m.p.owner === 1) { failMission(`the enemy built in ${m.p.name}`); return; }
+  else if (m.kind === 'deliver' && m.to.dead) { failMission('the base is gone'); return; }
   if (m.prog >= m.need) { completeMission(); return; }
   if (m.t > m.limit) failMission('Orders expired');
 }
@@ -463,6 +768,23 @@ function playerDamage(t, amount) {
   const m = me.mission;
   if (m && m.kind === 'fire' && t.cls !== 'air' && dist(t.x, t.y, m.p.x, m.p.y) < m.r) m.prog += amount;
 }
+function playerWounded(s, amount) {
+  const me = G.me;
+  if (s !== me.soldier || amount < 7) return;
+  const was = me.bleed;
+  me.bleed = Math.min(4, me.bleed + amount * 0.03);
+  if (was <= 0 && G.time - (me.bleedNote || -99) > 15) { me.bleedNote = G.time; notify("You're bleeding! Press H to bandage the wound.", 'warn'); }
+}
+function playerBuilt(u) {
+  const me = G.me;
+  const st = STRUCT_BY_ID[u.type];
+  const share = clamp(u.byMe / u.bpNeed, 0.2, 1);
+  const pts = Math.round((20 + st.cost * 0.8) * share);
+  me.built++; me.score += pts;
+  floatText(u.x, u.y - 26, `${st.name.toUpperCase()} BUILT +${pts}`, '#f7d54a');
+  const m = me.mission;
+  if (m && m.kind === 'fortify' && dist(u.x, u.y, m.p.x, m.p.y) < m.r) m.prog++;
+}
 function playerKill(u) {
   const me = G.me;
   me.kills++; if (u.cls === 'veh') me.vkills++;
@@ -470,16 +792,16 @@ function playerKill(u) {
   me.score += pts;
   const m = me.mission;
   if (m && m.kind === 'hunt' && u.cls === m.cls) m.prog++;
-  floatText(u.x, u.y - 22, u.cls === 'veh' ? `${u.def.name.toUpperCase()} DESTROYED +${pts}` : `+${pts}`, u.cls === 'veh' ? '#ffd27a' : '#ffffff');
+  floatText(u.x, u.y - 22, u.cls === 'veh' || u.type === 'townhall' ? `${u.def.name.toUpperCase()} DESTROYED +${pts}` : `+${pts}`, u.cls === 'inf' ? '#ffffff' : '#ffd27a');
   Sound.play('ui', 0.35);
 }
 function playerCapture(p) {
   const me = G.me; if (!me.alive) return;
   const c = myCenter();
-  if (dist(c.x, c.y, p.x, p.y) > p.r + 200) return;
-  me.captures++; me.score += 150;
-  floatText(p.x, p.y - 60, `POINT ${p.letter} +150`, '#9be7ff');
-  if (me.mission && me.mission.kind === 'capture' && me.mission.p === p) me.mission.prog = 1;
+  if (dist(c.x, c.y, p.x, p.y) > p.r + 250) return;
+  me.captures++; me.score += 200;
+  floatText(p.x, p.y - 60, `${p.name.toUpperCase()} TAKEN +200`, '#9be7ff');
+  if (me.mission && me.mission.kind === 'claim' && me.mission.p === p) me.mission.prog = 1;
 }
 // your soldier or your vehicle died
 function onPlayerUnitDead(u) {
@@ -487,7 +809,7 @@ function onPlayerUnitDead(u) {
   if (u === me.vehicle) { vehicleLost(); return; }
   if (u === me.soldier && me.alive) {
     if (me.vehicle && !me.vehicle.dead) { const v = me.vehicle; me.vehicle = null; v.player = false; v.direct = false; v.empty = true; v.emptyT = 0; }
-    me.alive = false; me.lost++;
+    me.alive = false; me.lost++; me.bleed = 0; me.ghost = null; me.look = null;
     me.respawnT = 6;
     notify('You were killed', 'bad');
     Sound.play('lost', 0.6);

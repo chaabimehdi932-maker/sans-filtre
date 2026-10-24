@@ -1,7 +1,8 @@
 'use strict';
 // =====================================================================
 // Simulation: units, movement, weapons, projectiles, drones, missiles,
-// mines, barrages, vision, capture points and economy
+// mines, barrages, vision and production (towns, supplies and building
+// live in towns.js)
 // =====================================================================
 
 let NEXT_ID = 1;
@@ -26,6 +27,10 @@ class Unit {
     this.dead = false; this.hitFlash = 0; this.recoil = 0; this.anim = rand(0, 10);
     this.trackAcc = 0; this.lastHit = -99; this.moving = false; this.speedNow = 0;
     this.repathT = 0; this.healT = 0; this.mineTarget = null;
+    this.ammo = this.maxAmmo = d.ammo || Infinity;
+    if (d.base) this.stock = { scrap: 0, bmats: 0, supplies: 0 };
+    if (d.cargoCap) this.cargo = { scrap: 0, bmats: 0, supplies: 0 };
+    this.cover = 1; this.slow = 1; this.built = true;
   }
   get alive() { return !this.dead; }
 }
@@ -115,10 +120,11 @@ function updateUnit(u, dt) {
   u.sup = Math.max(0, u.sup - dt * (u.aura ? 30 : 16));
   if (u.abilityCd > 0) u.abilityCd -= dt * (u.supplied ? 1.4 : 1);
   if (u.inside) { u.x = u.inside.x; u.y = u.inside.y; return; } // you, riding in a vehicle
-  if (u.empty) return; // parked, nobody inside
+  if (u.empty || !u.built) return; // parked with nobody inside, or a blueprint
 
   if (d.speed > 0 && !u.direct) moveUnit(u, dt);
   updateWeapons(u, dt);
+  if (u.cls === 'inf' && !u.player) workTick(u, dt);
   if (d.heal || d.repair || d.repairAura) supportTick(u, dt);
   if (d.ability) abilityTick(u, dt);
 }
@@ -190,7 +196,7 @@ function moveUnit(u, dt) {
     } else if (dist(u.x, u.y, u.guard.x, u.guard.y) > 30) goal = u.guard;
   }
 
-  let spd = (u.speedCap ? Math.min(d.speed, u.speedCap) : d.speed) * terrainSpeed(u);
+  let spd = (u.speedCap ? Math.min(d.speed, u.speedCap) : d.speed) * terrainSpeed(u) * u.slow;
   if (u.aura) spd *= 1.12;
   if (u.cls === 'inf' && u.sup > 50) spd *= 0.45;
   if (u.cls === 'veh' && u.hp < u.maxHp * 0.3) spd *= 0.75;
@@ -214,8 +220,11 @@ function moveUnit(u, dt) {
   _nb.length = 0;
   const nb = G.grid.query(u.x, u.y, u.r + 26, _nb);
   let px = 0, py = 0;
+  const tracked = u.cls === 'veh' && !d.truck;
   for (const o of nb) {
     if (o === u || o.dead || o.cls === 'air') continue;
+    if (o.def.line) { if (tracked && o.type === 'wire') crushWire(u, o, dt); continue; }
+    if (!o.built || (o.type === 'trap' && u.cls === 'inf')) continue;
     const dx = u.x - o.x, dy = u.y - o.y; let dd = Math.hypot(dx, dy);
     const min = (u.r + o.r) * (u.cls === 'inf' && o.cls === 'inf' ? 1.25 : 1.05);
     if (dd >= min) continue;
@@ -251,6 +260,7 @@ function moveUnit(u, dt) {
 function canTarget(w, t) {
   const d = w.def;
   if (t.cls === 'air') { if (t.isMissile) return !!d.intercept; return d.air > 0; }
+  if (t.def.line) return false; // lines in the dirt: only explosions hurt them
   if (d.only && !d.only.includes(t.cls)) return false;
   return (d.vs[t.cls] || 0) > 0;
 }
@@ -284,7 +294,7 @@ function pickTarget(u, w) {
     if (e.isMissile) s *= 3;
     if (e.def && (e.def.role === 'arty' || e.type === 'droneop' || e.type === 'officer' || e.type === 'mgunner' || e.type === 'radioop')) s *= 1.35;
     if (d.arty) s *= clusterValue(e.x, e.y, d.splash, u.team);
-    if (e.cls === 'bld') s *= 0.6;
+    if (e.cls === 'bld') s *= e.type === 'trap' ? (dd < 160 ? 0.3 : 0) : e.def.struct ? 0.45 : 0.6;
     if (s > bs) { bs = s; best = e; }
   }
   if (!best) u.chase = chase;
@@ -310,7 +320,7 @@ function updateWeapons(u, dt) {
     // MLRS salvo in progress
     if (w.salvo > 0) {
       w.salvoT -= dt;
-      if (w.salvoT <= 0 && w.aim) { w.salvoT = wd.salvoGap; w.salvo--; fireMRocket(u, w); }
+      if (w.salvoT <= 0 && w.aim) { w.salvoT = wd.salvoGap; w.salvo--; if (u.ammo >= 1) { u.ammo--; fireMRocket(u, w); } else w.salvo = 0; }
       continue;
     }
     if (u.direct) continue; // you pull the trigger yourself
@@ -329,6 +339,7 @@ function updateWeapons(u, dt) {
     let aligned = true;
     if (wi === 0) {
       if (wd.turret) { u.tang = rotTo(u.tang, want, (d.tturn || 3) * dt); aligned = Math.abs(angDiff(u.tang, want)) < 0.12; }
+      else if (u.cls === 'bld') u.tang = rotTo(u.tang, want, 6 * dt);
       else if (u.cls === 'inf') { u.ang = rotTo(u.ang, want, 10 * dt); aligned = Math.abs(angDiff(u.ang, want)) < 0.3; }
       else if (u.cls === 'veh') {
         // fixed guns (howitzer): the truck turns to face the target when parked
@@ -340,6 +351,10 @@ function updateWeapons(u, dt) {
     if (wd.deploy && (u.moving || u.stillT < wd.deploy)) continue;
     if (!wd.moveFire && u.moving && !wd.deploy) continue;
     if (wd.arty && !t.vis[u.team]) continue;
+    // out of ammo: this unit stops shooting until it is resupplied
+    const use = wd.kind === 'mrocket' ? 0 : AMMO_USE[wd.kind] || 1;
+    if (u.ammo < Math.max(use, 1)) continue;
+    u.ammo -= use;
     // fire
     if (wd.burst) {
       w.burst++;
@@ -362,6 +377,9 @@ function manualFire(u, w, wi, dt) {
   if (!aligned || w.cd > 0) return;
   if (wd.deploy && (u.moving || u.stillT < wd.deploy)) return;
   if (!wd.moveFire && u.moving && !wd.deploy) return;
+  const use = wd.kind === 'mrocket' ? 0 : AMMO_USE[wd.kind] || 1;
+  if (u.ammo < Math.max(1, use)) { w.manual = null; return; }
+  u.ammo -= use;
   const dd = dist(u.x, u.y, m.x, m.y);
   let tx = m.x, ty = m.y;
   // firing blind at ground nobody can see is far less accurate
@@ -393,6 +411,7 @@ function hitChance(u, w, t, dd) {
   if (u.aura) acc *= 1.25;
   acc *= 1 + u.rank * 0.1;
   if (t.cls === 'inf' && MAP.terr[cellOf(t.x, t.y)] === T_FOREST) acc *= 0.65;
+  if (t.cls === 'inf') acc *= 0.35 + 0.65 * t.cover; // trenches and sandbags
   if (t.cls === 'inf' && t.sup > 50) acc *= 0.8; // prone
   if (t.cls === 'veh' || t.cls === 'bld') acc = Math.min(0.97, acc * 1.4);
   if (t.moving && t.cls === 'inf') acc *= 0.9;
@@ -510,10 +529,12 @@ function damage(t, amount, src, sup, fromX, fromY) {
   }
   if (t.cls === 'inf') {
     if (MAP.terr[cellOf(t.x, t.y)] === T_FOREST) amount *= 0.78;
-    if (sup) t.sup = Math.min(100, t.sup + sup * (t.aura ? 0.5 : 1));
+    amount *= t.cover;
+    if (sup) t.sup = Math.min(100, t.sup + sup * (t.aura ? 0.5 : 1) * (0.5 + 0.5 * t.cover));
   }
   if (t.isDrone || t.isMissile) { t.hp -= amount; if (t.hp <= 0) t.kill(src); return; }
-  if (t.avatar) amount *= 0.55; // you are a bit tougher than the average soldier
+  if (!t.built) amount *= 1.5; // half-built structures are flimsy
+  if (t.avatar) { amount *= 0.55; if (G.me) playerWounded(t, amount); } // you are a bit tougher than the average soldier
   if (t.player && G.me) G.me.hurtT = G.time;
   if (src && src.player && G.me && src.team !== t.team) playerDamage(t, amount);
   t.hp -= amount;
@@ -546,8 +567,7 @@ function killUnit(u, src) {
   if (u.dead) return;
   u.dead = true; u.hp = 0;
   const T = G.teams[u.team];
-  T.tickets = Math.max(0, T.tickets - u.def.tickets);
-  T.stats.lost++;
+  if (!u.def.struct) T.stats.lost++;
   if (src && src.team !== u.team && !src.dead) {
     src.kills++;
     src.xp += u.def.value || 50;
@@ -555,7 +575,7 @@ function killUnit(u, src) {
     const nr = src.xp >= base * 4 ? 2 : src.xp >= base * 1.5 ? 1 : 0;
     if (nr > src.rank) { src.rank = nr; if (G.seen(src)) floatText(src.x, src.y - 20, nr === 2 ? 'VETERAN ★★' : 'VETERAN ★', '#f7d54a'); src.hp = Math.min(src.maxHp, src.hp + src.maxHp * 0.25); }
   }
-  if (src) G.teams[1 - u.team].stats.kills++;
+  if (src && !u.def.struct) G.teams[1 - u.team].stats.kills++;
   if (src && src.player && G.me && src.team !== u.team) playerKill(u);
   if (u.player && G.me) onPlayerUnitDead(u);
   if (u.drone && !u.drone.dead) u.drone.lost = true;
@@ -569,11 +589,15 @@ function killUnit(u, src) {
     u.wreck = true;
     G.wrecks.push({ x: u.x, y: u.y, ang: u.ang, type: u.type, team: u.team, t: 0, life: 22, tang: u.tang });
     emitter(u.x, u.y, 22, 1.1);
+  } else if (u.def.line || !u.built) {
+    for (let i = 0; i < 6; i++) dust(u.x + rand(-u.r, u.r) * 0.6, u.y + rand(-u.r, u.r) * 0.6, 1, 1.2);
+    debris(u.x, u.y, 8, 160, '#5a4a32');
   } else if (u.cls === 'bld') {
-    explode(u.x, u.y, u.type === 'hq' ? 10 : 6);
-    for (let i = 0; i < (u.type === 'hq' ? 8 : 2); i++) setTimeout(() => explode(u.x + rand(-80, 80), u.y + rand(-70, 70), rand(3, 6)), i * 260);
-    emitter(u.x, u.y, 60, u.type === 'hq' ? 3 : 1.5);
-    decalScorch(u.x, u.y, u.type === 'hq' ? 200 : 70);
+    const big = u.type === 'hq' ? 10 : u.type === 'townhall' || u.type === 'fob' ? 6 : 3.5;
+    explode(u.x, u.y, big);
+    for (let i = 0; i < (u.type === 'hq' ? 8 : big > 5 ? 2 : 0); i++) setTimeout(() => explode(u.x + rand(-80, 80) * big / 10, u.y + rand(-70, 70) * big / 10, rand(3, 6)), i * 260);
+    emitter(u.x, u.y, big * 6, big / 3.3);
+    decalScorch(u.x, u.y, big * 20);
     if (u.type === 'hq') G.hqDestroyed(u.team);
   }
 }
@@ -898,7 +922,7 @@ function bestStrikePoint(team, ox, oy, range, radius, minScore, needVis) {
       if (o.team === team) { s -= (o.def.value || 50) * 3; continue; }
       if (!o.vis[team]) continue;
       let v = o.def.value || 50;
-      if (o.cls === 'bld') v *= 0.8;
+      if (o.cls === 'bld') v = o.def.struct ? 25 : v * 0.8;
       if (o.moving && o.cls === 'veh') v *= 0.6;
       s += v;
     }
@@ -1044,12 +1068,13 @@ function updateVision() {
   for (const T of G.teams) { T.radars = 0; }
   for (const u of G.units) {
     if (u.dead) continue;
-    stampVision(u.team, u.x, u.y, u.def.vision);
+    if (u.def.vision) stampVision(u.team, u.x, u.y, u.built ? u.def.vision : 120);
     if (u.type === 'jammer') G.jammers.push(u);
     if (u.type === 'radar') G.teams[u.team].radars++;
     u.aura = false; u.supplied = 0;
   }
   for (const d of G.drones) if (!d.dead) stampVision(d.team, d.x, d.y, 240);
+  if (G.me && G.me.look) stampVision(0, G.me.look.x, G.me.look.y, 230); // your binoculars
   for (const p of G.points) if (p.owner >= 0) stampVision(p.owner, p.x, p.y, 200);
   // officer aura
   for (const u of G.units) {
@@ -1077,100 +1102,41 @@ function updateVision() {
 }
 
 // ---------------------------------------------------------------------
-// capture points & economy (1 Hz)
-// ---------------------------------------------------------------------
-function updatePoints(dt) {
-  for (const p of G.points) {
-    const str = [0, 0];
-    for (const u of G.grid.query(p.x, p.y, p.r)) {
-      if (u.dead || u.cls === 'air' || u.cls === 'bld') continue;
-      str[u.team] += u.def.capture || (u.cls === 'veh' ? 2 : 1);
-    }
-    p.contested = str[0] > 0 && str[1] > 0;
-    p.str = str;
-    let delta = 0;
-    if (!p.contested) {
-      const s = Math.min(10, str[0] || str[1]);
-      const dir = str[0] ? 1 : str[1] ? -1 : 0;
-      delta = dir * (5 + s * 2.2) * dt;
-    }
-    const before = p.prog;
-    p.prog = clamp(p.prog + delta, -100, 100);
-    if (before > 0 && p.prog <= 0 && p.owner === 0) { setOwner(p, -1); }
-    if (before < 0 && p.prog >= 0 && p.owner === 1) { setOwner(p, -1); }
-    if (p.prog >= 100 && p.owner !== 0) setOwner(p, 0);
-    if (p.prog <= -100 && p.owner !== 1) setOwner(p, 1);
-    // drift back to the owner when nobody is around
-    if (!str[0] && !str[1]) { if (p.owner === 0) p.prog = Math.min(100, p.prog + 4 * dt); else if (p.owner === 1) p.prog = Math.max(-100, p.prog - 4 * dt); else p.prog *= Math.pow(0.9, dt); }
-  }
-}
-function setOwner(p, team) {
-  const prev = p.owner;
-  p.owner = team;
-  if (team >= 0) {
-    p.flash = 1;
-    ring(p.x, p.y, 20, p.r + 40, 0.9, team === 0 ? TEAM[0].rgb : TEAM[1].rgb, 5);
-    if (G.playerTeam >= 0) {
-      if (team === G.playerTeam) { notify(`Point ${p.letter} captured`, 'good', p.x, p.y); Sound.play('capture', 0.7); if (G.me) playerCapture(p); }
-      else notify(`Point ${p.letter} lost to the enemy`, 'bad', p.x, p.y);
-    }
-  } else if (prev >= 0 && G.playerTeam >= 0 && prev === G.playerTeam) notify(`Point ${p.letter} is being taken`, 'warn', p.x, p.y);
-}
-// first minute is a grace period; the bleed caps at a 4-point lead
-function bleedRate(diff) { return Math.min(4, Math.abs(diff)) * BLEED; }
-function economyTick(dt) {
-  const held = [0, 0];
-  for (const p of G.points) if (p.owner >= 0) held[p.owner]++;
-  for (let t = 0; t < 2; t++) {
-    const T = G.teams[t];
-    let inc = BASE_INCOME + held[t] * POINT_INCOME;
-    // supply trucks parked on held points
-    for (const u of G.units) {
-      if (u.dead || u.team !== t || u.type !== 'supply' || u.moving) continue;
-      for (const p of G.points) if (p.owner === t && dist2(p.x, p.y, u.x, u.y) < p.r * p.r) { inc += 2; break; }
-    }
-    if (G.ai[t]) inc *= G.ai[t].p.income;
-    T.income = inc;
-    T.supply += inc * dt;
-    T.held = held[t];
-  }
-  // ticket bleed: the side holding fewer points loses the difference
-  const diff = held[0] - held[1];
-  if (diff !== 0 && G.time > 60) {
-    const loser = diff > 0 ? 1 : 0;
-    G.teams[loser].tickets = Math.max(0, G.teams[loser].tickets - bleedRate(diff) * dt);
-  }
-}
-
-// ---------------------------------------------------------------------
-// production
+// production: infantry is paid in supplies at the base it walks out of
+// (a supplied town near the front if there is one), vehicles in bmats at
+// the HQ motor pool
 // ---------------------------------------------------------------------
 function popUsed(t) {
   let p = 0;
-  for (const u of G.units) if (!u.dead && u.team === t) p += u.def.pop;
+  for (const u of G.units) if (!u.dead && u.team === t) p += u.def.pop || 0;
   for (const q of G.teams[t].queues) for (const it of q) p += UNITS[it.p.unit].pop * it.p.n;
   return p;
 }
-function canQueue(t, prod) {
-  const T = G.teams[t];
-  if (T.supply < prod.cost) return 'Not enough supply';
+function spawnBaseFor(t, prod) {
+  const T = G.teams[t], c = prodCost(prod);
+  if (prod.line) return T.hq;
+  const ai = G.ai[t];
+  return (ai && ai.reinforceBase(c.supplies)) || T.hq;
+}
+function canQueue(t, prod, base) {
+  const T = G.teams[t], c = prodCost(prod);
+  base = base || spawnBaseFor(t, prod);
+  if (!base || base.dead) return 'No base';
+  if (c.bmats > base.stock.bmats) return 'Not enough building materials';
+  if (c.supplies > base.stock.supplies) return 'Not enough supplies';
   if (popUsed(t) + UNITS[prod.unit].pop * prod.n > POP_CAP) return 'Army at full strength';
   if (T.queues[prod.line].length >= 6) return 'Queue is full';
   return null;
 }
 function queueProduct(t, prod) {
-  const err = canQueue(t, prod);
+  const base = spawnBaseFor(t, prod);
+  const err = canQueue(t, prod, base);
   if (err) return err;
-  const T = G.teams[t];
-  T.supply -= prod.cost;
-  T.stats.spent += prod.cost;
-  T.queues[prod.line].push({ p: prod, t: 0 });
+  const T = G.teams[t], c = prodCost(prod);
+  base.stock.bmats -= c.bmats; base.stock.supplies -= c.supplies;
+  T.stats.spent += c.bmats + c.supplies;
+  T.queues[prod.line].push({ p: prod, t: 0, base });
   return null;
-}
-function cancelProduct(t, prod) {
-  const q = G.teams[t].queues[prod.line];
-  for (let i = q.length - 1; i >= 0; i--) if (q[i].p === prod) { G.teams[t].supply += prod.cost; G.teams[t].stats.spent -= prod.cost; q.splice(i, 1); return true; }
-  return false;
 }
 function updateProduction(dt) {
   for (let t = 0; t < 2; t++) {
@@ -1181,14 +1147,17 @@ function updateProduction(dt) {
       if (!q.length) continue;
       const it = q[0];
       it.t += dt * (G.ai[t] ? G.ai[t].p.income : 1);
-      if (it.t >= it.p.time) { q.shift(); deploy(t, it.p); }
+      if (it.t >= it.p.time) { q.shift(); deploy(t, it.p, it.base); }
     }
   }
 }
-function deploy(t, prod) {
+function deploy(t, prod, base) {
   const T = G.teams[t]; const hq = T.hq;
+  if (!base || base.dead) base = hq;
   const dir = t === 0 ? 1 : -1;
-  const sx = hq.x + dir * 130, sy = hq.y + (prod.line === 0 ? -50 : 50);
+  let sx, sy;
+  if (base === hq) { sx = hq.x + dir * 130; sy = hq.y + (prod.line === 0 ? -50 : 50); }
+  else { const c = nearestOpen(cellOf(base.x - dir * 70, base.y + rand(-50, 50))); sx = (c % GW + 0.5) * CELL; sy = (((c / GW) | 0) + 0.5) * CELL; }
   const made = [];
   for (let i = 0; i < prod.n; i++) {
     const u = spawnUnit(prod.unit, t, sx + rand(-14, 14), sy + rand(-24, 24));
@@ -1198,8 +1167,8 @@ function deploy(t, prod) {
   T.stats.built += prod.n;
   const g = { id: NEXT_ID++, prod, units: made, team: t };
   for (const u of made) u.group = g;
-  const r = T.rally;
-  issueMove(made, r.x + rand(-40, 40), r.y + rand(-40, 40), true);
+  if (base === hq) { const r = T.rally; issueMove(made, r.x + rand(-40, 40), r.y + rand(-40, 40), true); }
+  else issueMove(made, base.x + rand(-60, 60), base.y + rand(-60, 60), true);
   if (G.ai[t]) G.ai[t].onDeploy(made, prod);
   return made;
 }
