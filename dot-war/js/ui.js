@@ -19,7 +19,6 @@ function unitAt(wx, wy, preferTeam) {
   }
   return best;
 }
-const isArtillery = (prod) => prod && ['howitzer', 'mlrs'].includes(prod.unit);
 
 function setupInput() {
   const cv = canvas;
@@ -35,7 +34,7 @@ function setupInput() {
     }
     if (G.mode !== 'boot' && G.grid) G.hover = unitAt(m.wx, m.wy, G.playerTeam);
     const enemyHover = G.hover && G.hover.team !== G.playerTeam && G.playerTeam >= 0;
-    cv.style.cursor = G.drag && G.drag.moved ? 'grabbing' : G.aim || G.amove || enemyHover || (G.me && G.me.alive && hasManualFire(G.me.prod)) ? 'crosshair' : 'default';
+    cv.style.cursor = G.drag && G.drag.moved ? 'grabbing' : G.aim || G.amove || enemyHover || (G.me && G.me.alive && hasManualFire(G.me.kit)) ? 'crosshair' : 'default';
   });
   cv.addEventListener('mouseleave', () => { G.mouse.in = false; });
   cv.addEventListener('mousedown', (e) => {
@@ -74,7 +73,7 @@ function setupInput() {
     keys[e.code] = true;
     if (G.mode === 'menu' || G.mode === 'boot') return;
     if (!$('picker').hidden) { if (e.code === 'Escape' || e.code === 'Tab') { e.preventDefault(); closePicker(); } return; }
-    if (e.code === 'Escape') { if (G.aim || G.amove) { G.aim = null; G.amove = false; } else if (G.inspect) G.inspect = null; else togglePause(); return; }
+    if (e.code === 'Escape') { if (G.aim || G.amove) { G.aim = null; G.amove = false; } else togglePause(); return; }
     if (e.code === 'KeyP') { togglePause(); return; }
     if (e.code === 'KeyM') { toggleSound(); return; }
     if (e.code === 'F1') { e.preventDefault(); showHelp(true); return; }
@@ -82,12 +81,12 @@ function setupInput() {
     const me = G.me;
     if (e.code === 'Tab') { e.preventDefault(); openPicker(me.alive ? 'switch' : 'dead'); return; }
     if (e.code === 'Space') { e.preventDefault(); me.follow = true; return; }
-    if (e.code === 'KeyT' && G.inspect) { takeCommand(G.inspect); G.inspect = null; return; }
     if (!me.alive) return;
     if (e.code === 'KeyA') { G.amove = true; return; }
     if (e.code === 'KeyS') { issueStop(me.units); for (const u of me.units) for (const w of u.weapons) w.manual = null; return; }
     if (e.code === 'KeyH') { issueHold(me.units); return; }
-    if (e.code === 'KeyQ') { squadAbility(); return; }
+    if (e.code === 'KeyQ') { squadAbility(0); return; }
+    if (e.code === 'KeyF') { squadAbility(1); return; }
     if (e.code === 'KeyE') { toggleAuto(); return; }
   });
   window.addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -155,7 +154,6 @@ function setupTouch(cv) {
       else {
         const u = unitAt(wx, wy, 1);
         if (u && u.team === 1) leftClick(wx, wy);
-        else if (u && u.team === 0 && !u.player && u.group) G.inspect = u.group;
         else squadCommand(wx, wy, false);
       }
     }
@@ -168,25 +166,27 @@ function leftClick(wx, wy, forceFire) {
   const me = G.me;
   if (G.aim) { castAim(wx, wy); return; }
   if (G.amove) { squadCommand(wx, wy, true); G.amove = false; return; }
-  const u = unitAt(wx, wy, 1);
-  if (u && u.team === 0 && !u.player && u.group && !forceFire) { G.inspect = u.group; Sound.play('ui', 0.25); return; }
-  if (u && u.player) { G.inspect = null; return; }
   if (!me.alive) return;
-  const prod = me.prod;
-  if (prod.unit === 'missile') { G.aim = { ab: 'missile' }; castAim(wx, wy); return; }
-  if (hasManualFire(prod) && (isArtillery(prod) || !u || u.team !== 1 || forceFire)) {
-    const r = squadFireAt(u && u.team === 1 ? u.x : wx, u && u.team === 1 ? u.y : wy);
-    if (r.any) { G.markers.push({ x: wx, y: wy, t: 0, color: 'rgba(255,200,80,A)' }); Sound.play('ui', 0.25); }
-    else if (r.msg) { notify(r.msg, 'info'); Sound.play('error', 0.4); }
-    return;
+  const kit = me.kit;
+  const u = unitAt(wx, wy, 1);
+  const enemy = u && u.team === 1 ? u : null;
+  if (u && u.team === 0 && !forceFire) return;
+  // missile battery: every click is a launch
+  if (kitHas(kit, 'missile')) { G.aim = { ab: 'missile' }; castAim(enemy ? enemy.x : wx, enemy ? enemy.y : wy); return; }
+  let fired = false, msg = null;
+  if (hasManualFire(kit) && (!enemy || isArtillery(kit) || forceFire)) {
+    const r = squadFireAt(enemy ? enemy.x : wx, enemy ? enemy.y : wy);
+    fired = r.any; msg = r.msg;
   }
-  if (u && u.team === 1) {
-    issueAttack(me.units, u);
-    G.markers.push({ x: u.x, y: u.y, t: 0, color: 'rgba(255,90,60,A)' });
+  if (enemy && !isArtillery(kit)) {
+    const shooters = me.units.filter((m) => m.weapons.length && !m.weapons[0].def.arty);
+    issueAttack(shooters, enemy);
+    G.markers.push({ x: enemy.x, y: enemy.y, t: 0, color: 'rgba(255,90,60,A)' });
     Sound.play('ui', 0.25);
     return;
   }
-  G.inspect = null;
+  if (fired) { G.markers.push({ x: wx, y: wy, t: 0, color: 'rgba(255,200,80,A)' }); Sound.play('ui', 0.25); }
+  else if (msg) { notify(msg, 'info'); Sound.play('error', 0.4); }
 }
 // right-click: move or attack
 function squadCommand(wx, wy, amove) {
@@ -204,13 +204,15 @@ function squadCommand(wx, wy, amove) {
   me.follow = true;
   Sound.play('ui', 0.25);
 }
-function squadAbility() {
+function squadAbility(slot) {
   const me = G.me; if (!me.alive) return;
-  const ab = me.units[0].def.ability;
-  if (!ab) { notify(`${me.prod.name}: no special ability`, 'info'); return; }
+  const ab = kitAbilities(me.kit)[slot || 0];
+  if (!ab) { if (!slot) notify(`${me.kit.name}: no special ability`, 'info'); return; }
   if (ab === 'drone') {
-    const op = me.units.find((u) => !u.dead && !u.drone && u.abilityCd <= 0);
-    if (!op) { const w = Math.min(...me.units.map((u) => u.abilityCd)); notify(me.drone ? 'Your drone is already up' : `Next drone in ${Math.ceil(w)} s`, 'info'); Sound.play('error', 0.4); return; }
+    if (me.drone && !me.drone.dead) { notify('Your drone is already up', 'info'); Sound.play('error', 0.4); return; }
+    const ops = me.units.filter((u) => u.type === 'droneop');
+    const op = ops.find((u) => !u.drone && u.abilityCd <= 0);
+    if (!op) { notify(`Next drone in ${Math.ceil(Math.min(...ops.map((u) => u.abilityCd)))} s`, 'info'); Sound.play('error', 0.4); return; }
     launchDrone(op, null);
     notify('Drone up: steer with the mouse, click to detonate', 'info');
     return;
@@ -234,11 +236,10 @@ function castAim(wx, wy) {
 }
 function toggleAuto() {
   const me = G.me; if (!me.alive) return;
-  const has = me.units[0].def.ability || isArtillery(me.prod);
-  if (!has) return;
-  const v = !me.units[0].auto;
-  for (const u of me.units) { u.auto = v; u.autoArty = v; }
-  notify(v ? 'Auto-fire on: your squad picks its own targets' : 'Auto-fire off: you call every shot', 'info');
+  if (!kitAbilities(me.kit).length && !isArtillery(me.kit)) return;
+  me.auto = !me.auto;
+  for (const u of me.units) { u.auto = me.auto; u.autoArty = me.auto; }
+  notify(me.auto ? 'Auto-fire on: your squad picks its own targets' : 'Auto-fire off: you call every shot', 'info');
   sqKey = '';
 }
 function togglePause() {
@@ -259,7 +260,9 @@ function setSpeed(s) { G.speed = s; for (const b of document.querySelectorAll('[
 // HUD
 // ---------------------------------------------------------------------
 const ICONS = {};
-function iconCache(p, size = 34) { const k = p.id + size; if (!ICONS[k]) ICONS[k] = productIcon(p, size, 0); const c = ICONS[k].cloneNode(); c.getContext('2d').drawImage(ICONS[k], 0, 0); return c; }
+function iconOf(key, make) { if (!ICONS[key]) ICONS[key] = make(); const c = ICONS[key].cloneNode(); c.getContext('2d').drawImage(ICONS[key], 0, 0); return c; }
+const unitIc = (type, size) => iconOf('u' + type + size, () => unitIcon(type, size));
+const kitIc = (kit, size) => iconOf('k' + kit.id + size, () => kitIcon(kit, size));
 function wpnName(w) { return { rifle: 'Rifle', carbine: 'Carbine', pistol: 'Pistol', smg: 'SMG', mg: 'Machine gun', sniper: 'Sniper rifle', atrocket: 'AT rocket', satchel: 'Satchel', grenade: 'Grenades', cannonL: '90 mm cannon', cannonH: '125 mm cannon', coax: 'Coax MG', aa: '35 mm AA', howitzer: '155 mm gun', mlrs: '122 mm rockets', tcannon: 'Cannon', tmg: 'MG' }[w] || w; }
 function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
 let sqKey = '';
@@ -285,7 +288,6 @@ function updateHud() {
   $('score').textContent = me.score; $('kills').textContent = me.kills; $('caps').textContent = me.captures; $('miss').textContent = me.missions;
   updateMission();
   updateSquadPanel();
-  updateInspect();
   if (!$('picker').hidden) refreshPicker();
 }
 function updateMission() {
@@ -297,77 +299,83 @@ function updateMission() {
   $('mBar').style.transform = `scaleX(${k})`;
   $('mInfo').textContent = `+${m.reward} · ${m.kind === 'fire' ? `${Math.round(m.prog)} / ${m.need} damage` : m.kind === 'hunt' ? `${m.prog} / ${m.need}` : m.kind === 'capture' ? 'stand on the point' : `${Math.floor(m.prog)} / ${m.need} s`} · ${Math.max(0, Math.ceil(m.limit - m.t))} s left`;
 }
-function updateInspect() {
-  const g = G.inspect, el = $('inspect');
-  if (!g || !g.units.some((u) => !u.dead)) { G.inspect = null; el.hidden = true; return; }
-  el.hidden = false;
-  const live = g.units.filter((u) => !u.dead).length;
-  const key = g.id + ':' + live;
-  if (el.dataset.key === key) return;
-  el.dataset.key = key;
-  el.innerHTML = '';
-  el.append(iconCache(g.prod, 30));
-  const t = document.createElement('span'); t.innerHTML = `<b>Allied ${g.prod.name}</b> ${g.prod.n > 1 ? `${live}/${g.prod.n}` : ''}`; el.append(t);
-  const b = document.createElement('button'); b.type = 'button'; b.className = 'abbtn'; b.innerHTML = 'Take command <kbd>T</kbd>';
-  b.onclick = () => { takeCommand(g); G.inspect = null; }; el.append(b);
-  const x = document.createElement('button'); x.type = 'button'; x.className = 'cmd'; x.textContent = 'Close'; x.onclick = () => { G.inspect = null; }; el.append(x);
+// one slot per member, in squad order; living units fill the slots of their type
+function memberSlots() {
+  const me = G.me, pool = {};
+  for (const u of me.units) (pool[u.type] = pool[u.type] || []).push(u);
+  const slots = [];
+  for (const [t, n] of me.kit.members) for (let k = 0; k < n; k++) slots.push({ type: t, u: (pool[t] || [])[k] || null });
+  // extra units (none normally) still get a slot
+  for (const t in pool) for (let k = me.kit.members.find(([x]) => x === t)?.[1] || 0; k < pool[t].length; k++) slots.push({ type: t, u: pool[t][k] });
+  return slots;
 }
+function memberTypes() { return [...new Set(G.me.kit.members.map(([t]) => t))]; }
 function buildSquadPanel() {
   const me = G.me, box = $('squad');
   if (!me.alive) {
     box.innerHTML = `<div class="sq-dead"><b>No squad</b><span>${me.respawnT > 0 ? `Reinforcements in ${Math.ceil(me.respawnT)} s` : 'Ready to deploy'}</span><button type="button" class="btn primary" data-act="pick">Choose a squad <kbd>Tab</kbd></button></div>`;
     return;
   }
-  const u0 = me.units[0], d = u0.def, ab = d.ability ? ABILITIES[d.ability] : null;
-  const canAuto = !!ab || isArtillery(me.prod);
-  let h = `<div class="sq-top"><span class="sq-ic"></span><div class="sq-title"><b>${me.prod.name}</b><span id="sqCount"></span><span id="sqVet" class="vet"></span></div><button type="button" class="cmd" data-act="pick">Change squad <kbd>Tab</kbd></button></div>`;
-  h += `<div class="sq-mem" id="sqMem">${me.prod.n > 1 || me.units.length > 1 ? Array.from({ length: Math.max(me.prod.n, me.units.length) }, () => '<i><b></b></i>').join('') : '<i class="wide"><b></b></i>'}</div>`;
+  const kit = me.kit, abs = kitAbilities(kit);
+  const canAuto = abs.length || isArtillery(kit);
+  let h = `<div class="sq-top"><span class="sq-ic"></span><div class="sq-title"><b>${kit.name}</b><span id="sqCount"></span><span id="sqVet" class="vet"></span></div><button type="button" class="cmd" data-act="pick">Change squad <kbd>Tab</kbd></button></div>`;
+  h += `<div class="sq-mem" id="sqMem">${memberSlots().map((s) => `<span class="mem" data-t="${s.type}" title="${UNITS[s.type].name}"><i><b></b></i></span>`).join('')}</div>`;
   h += `<div class="sq-row">`;
-  d.weapons.forEach((w, i) => { h += `<div class="wpn"><span>${wpnName(w)} · ${WEAPONS[w].range} m</span><i><b id="rl${i}"></b></i></div>`; });
+  for (const t of memberTypes()) { const w = UNITS[t].weapons[0]; if (w) h += `<div class="wpn" data-t="${t}"><span>${UNITS[t].name} · ${wpnName(w)} ${WEAPONS[w].range} m</span><i><b></b></i></div>`; }
   h += `</div><div class="sq-row">`;
-  if (ab) h += `<button type="button" class="abbtn" data-act="ab">${ab.name} <kbd>Q</kbd> <span id="abState"></span></button>`;
+  abs.slice(0, 2).forEach((a, i) => { h += `<button type="button" class="abbtn" data-act="ab" data-slot="${i}">${ABILITIES[a].name} <kbd>${i ? 'F' : 'Q'}</kbd> <span class="abs" data-ab="${a}"></span></button>`; });
   if (canAuto) h += `<button type="button" class="autobtn" data-act="auto" id="autoBtn"></button>`;
   h += `<button type="button" class="cmd" data-act="stop">Stop <kbd>S</kbd></button><button type="button" class="cmd" data-act="hold">Hold <kbd>H</kbd></button><button type="button" class="cmd" data-act="follow">Follow cam <kbd>Space</kbd></button></div>`;
-  h += `<div class="sq-status" id="sqStatus"></div><div class="sq-hint">${ROLE_HINTS[me.prod.unit] || ''}</div>`;
+  h += `<div class="sq-status" id="sqStatus"></div><div class="sq-hint">${kit.hint}</div>`;
   box.innerHTML = h;
-  box.querySelector('.sq-ic').append(iconCache(me.prod, 46));
+  box.querySelector('.sq-ic').append(kitIc(kit, 46));
+  for (const el of box.querySelectorAll('.mem')) el.prepend(unitIc(el.dataset.t, 26));
 }
 function updateSquadPanel() {
   const me = G.me;
-  const key = (me.alive ? me.group.id + ':' + (me.units[0].auto ? 1 : 0) + ':' + me.units.length : 'dead:' + Math.ceil(me.respawnT));
+  const key = me.alive ? me.group.id + ':' + (me.auto ? 1 : 0) : 'dead:' + Math.ceil(me.respawnT);
   if (key !== sqKey) { sqKey = key; buildSquadPanel(); }
   if (!me.alive) return;
-  const u0 = me.units[0];
-  $('sqCount').textContent = me.prod.n > 1 ? `${me.units.length}/${me.prod.n} alive` : `${Math.ceil(u0.hp)} / ${u0.maxHp} HP`;
+  const kit = me.kit;
+  $('sqCount').textContent = `${me.units.length}/${kit.size} alive`;
   const rank = Math.max(...me.units.map((u) => u.rank));
   $('sqVet').textContent = rank ? '★'.repeat(rank) : '';
-  const bars = $('sqMem').children;
-  for (let i = 0; i < bars.length; i++) {
-    const u = me.units[i];
-    const k = u ? u.hp / u.maxHp : 0;
-    bars[i].firstChild.style.transform = `scaleX(${k})`;
-    bars[i].className = (bars[i].classList.contains('wide') ? 'wide ' : '') + (u ? (k < 0.35 ? 'low' : '') : 'gone');
+  const slots = memberSlots(), els = $('sqMem').children;
+  for (let i = 0; i < els.length; i++) {
+    const s = slots[i], u = s && s.u, k = u ? u.hp / u.maxHp : 0;
+    els[i].querySelector('b').style.transform = `scaleX(${k})`;
+    els[i].className = 'mem' + (u ? (k < 0.35 ? ' low' : '') : ' gone');
   }
-  u0.weapons.forEach((w, i) => {
-    const el = $('rl' + i); if (!el) return;
-    const k = w.salvo > 0 ? 0 : w.burst && w.def.burst ? 1 - w.burst / w.def.burst : clamp(1 - w.cd / (w.def.rest && w.burst === 0 && w.cd > w.def.cd ? w.def.rest : w.def.cd), 0, 1);
-    el.style.transform = `scaleX(${k})`;
-    el.parentNode.classList.toggle('ready', k >= 1);
-  });
-  const abEl = $('abState');
-  if (abEl) {
-    const op = me.units.reduce((a, u) => (u.abilityCd < a.abilityCd ? u : a), me.units[0]);
-    if (me.drone && !me.drone.dead) abEl.innerHTML = `<span class="ok">flying · ${Math.max(0, Math.ceil(16 - me.drone.t))} s battery</span>`;
-    else abEl.innerHTML = op.abilityCd > 0 ? `<span class="cd">${Math.ceil(op.abilityCd)} s</span>` : '<span class="ok">ready</span>';
+  // readiness of each member type's main weapon
+  for (const el of document.querySelectorAll('#squad .wpn')) {
+    const us = me.units.filter((u) => u.type === el.dataset.t);
+    let k = 0;
+    for (const u of us) {
+      const w = u.weapons[0];
+      k += w.salvo > 0 ? 0 : w.def.burst && w.burst > 0 ? 1 - w.burst / w.def.burst : clamp(1 - w.cd / (w.def.rest && w.cd > w.def.cd ? w.def.rest : w.def.cd), 0, 1);
+    }
+    k = us.length ? k / us.length : 0;
+    el.querySelector('b').style.transform = `scaleX(${k})`;
+    el.querySelector('i').classList.toggle('ready', k >= 0.99);
+    el.classList.toggle('gone', !us.length);
+  }
+  for (const el of document.querySelectorAll('#squad .abs')) {
+    const ab = el.dataset.ab, us = me.units.filter((u) => u.def.ability === ab);
+    if (ab === 'drone' && me.drone && !me.drone.dead) { el.innerHTML = `<span class="ok">flying · ${Math.max(0, Math.ceil(16 - me.drone.t))} s battery</span>`; continue; }
+    const ready = us.filter((u) => u.abilityCd <= 0 && !u.drone).length;
+    el.innerHTML = !us.length ? '<span class="cd">no one left</span>' : ready ? `<span class="ok">${ready} ready</span>` : `<span class="cd">${Math.ceil(Math.min(...us.map((u) => u.abilityCd)))} s</span>`;
   }
   const ab = $('autoBtn');
-  if (ab) { ab.innerHTML = `Auto-fire ${u0.auto ? 'on' : 'off'} <kbd>E</kbd>`; ab.classList.toggle('on', u0.auto); }
+  if (ab) { ab.innerHTML = `Auto-fire ${me.auto ? 'on' : 'off'} <kbd>E</kbd>`; ab.classList.toggle('on', !!me.auto); }
   // status line
   let st = '';
-  const w0 = u0.weapons[0];
-  if (w0 && w0.def.deploy && hasManualFire(me.prod)) st = u0.moving ? 'Moving: park to fire' : u0.stillT < w0.def.deploy ? 'Setting up…' : w0.salvo > 0 ? 'Firing salvo…' : w0.cd > 0 ? `Reloading ${Math.ceil(w0.cd)} s` : 'Ready: left-click a target';
+  const gun = me.units.find((u) => u.weapons[0] && u.weapons[0].def.arty);
+  if (gun) { const w = gun.weapons[0]; st = gun.moving ? 'Moving: park to fire' : gun.stillT < w.def.deploy ? 'Setting up…' : w.salvo > 0 ? 'Firing salvo…' : w.cd > 0 ? `Reloading ${Math.ceil(w.cd)} s` : 'Guns ready: left-click a target'; }
   if (me.units.some((u) => u.sup > 50)) st = (st ? st + ' · ' : '') + '<b class="warn">Pinned down</b>';
-  if (me.prod.n > me.units.length) st += (st ? ' · ' : '') + (me.src ? (me.calm ? `Reinforcing at ${me.src.name}…` : `Reinforcements wait until you're out of combat`) : 'Reinforce at the HQ, a point you hold or a supply truck');
+  if (me.missing) {
+    const name = me.nextType ? UNITS[me.nextType].name.toLowerCase() : 'soldier';
+    st += (st ? ' · ' : '') + (me.src ? (me.calm ? `Reinforcing: ${name} arriving from ${me.src.name} (${Math.max(0, Math.ceil(me.reinforceNeed - me.reinforceT))} s)` : 'Reinforcements wait until you are out of combat') : (kit.cls === 'veh' ? `${me.missing} missing: rest near the HQ to replace them` : `${me.missing} missing: rest near the HQ, a point you hold or a supply truck`));
+  }
   $('sqStatus').innerHTML = st;
 }
 
@@ -383,7 +391,7 @@ function setupHud() {
     const a = b.dataset.act, me = G.me;
     if (a === 'pick') openPicker(me.alive ? 'switch' : 'dead');
     else if (!me.alive) return;
-    else if (a === 'ab') squadAbility();
+    else if (a === 'ab') squadAbility(+b.dataset.slot || 0);
     else if (a === 'auto') toggleAuto();
     else if (a === 'stop') issueStop(me.units);
     else if (a === 'hold') issueHold(me.units);
@@ -398,19 +406,25 @@ function setupHud() {
 // ---------------------------------------------------------------------
 // squad picker
 // ---------------------------------------------------------------------
-const PICK = { prod: PRODUCT_BY_ID.rifle, spawn: 'hq', reason: 'start' };
+const PICK = { kit: SQUAD_BY_ID.rifle, spawn: 'hq', reason: 'start' };
+function plural(t, n) {
+  const name = { antitank: 'AT gunner', mgunner: 'machine gunner', droneop: 'drone pilot', radioop: 'radio operator', jammer: 'EW jammer', lighttank: 'light tank', heavytank: 'battle tank', radar: 'radar truck', aa: 'AA gun', howitzer: 'howitzer', missile: 'missile launcher', mlrs: 'MLRS', supply: 'supply truck' }[t] || UNITS[t].name.toLowerCase();
+  if (n === 1) return name;
+  return n + ' ' + (name.endsWith('man') ? name.slice(0, -3) + 'men' : name === 'MLRS' ? name : name + 's');
+}
+const kitLine = (kit) => kit.members.map(([t, n]) => plural(t, n)).join(', ');
 function buildPicker() {
-  for (const line of [0, 1]) {
-    const box = $(line ? 'pkVeh' : 'pkInf');
-    for (const p of PRODUCTS.filter((q) => q.line === line)) {
+  for (const cls of ['inf', 'veh']) {
+    const box = $(cls === 'veh' ? 'pkVeh' : 'pkInf');
+    for (const k of SQUADS.filter((q) => q.cls === cls)) {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = 'pk'; b.dataset.id = p.id;
-      b.append(productIcon(p, 44, 0));
+      b.type = 'button'; b.className = 'pk'; b.dataset.id = k.id;
+      b.append(kitIcon(k, 44));
       const t = document.createElement('span');
-      t.innerHTML = `<b>${p.name}</b><small>${p.good}</small>`;
+      t.innerHTML = `<b>${k.name}</b><small>${k.size} ${cls === 'inf' ? 'soldiers' : 'vehicles'} · ${k.good}</small>`;
       b.append(t);
-      b.addEventListener('click', () => { PICK.prod = p; Sound.play('ui', 0.25); refreshPicker(true); });
-      b.addEventListener('dblclick', () => { PICK.prod = p; deployPicked(); });
+      b.addEventListener('click', () => { PICK.kit = k; Sound.play('ui', 0.25); refreshPicker(true); });
+      b.addEventListener('dblclick', () => { PICK.kit = k; deployPicked(); });
       box.append(b);
     }
   }
@@ -422,8 +436,8 @@ function openPicker(reason) {
   PICK.reason = reason;
   $('picker').hidden = false;
   $('pkTitle').textContent = reason === 'dead' ? 'Your squad is gone' : reason === 'switch' ? 'Change squad' : 'Pick your squad';
-  $('pkSub').textContent = reason === 'start' ? 'The war is about to start. Both armies are commanded by AI generals; you lead one squad on the blue side. Pick any unit.'
-    : reason === 'dead' ? 'Pick what you want to fight as next, or take over a squad already in the field.'
+  $('pkSub').textContent = reason === 'start' ? 'The war is about to start. Both armies are commanded by AI generals; you lead one squad on the blue side.'
+    : reason === 'dead' ? 'Pick the squad you want to lead next.'
     : 'Your current squad goes back to the allied general.';
   $('pkBack').hidden = reason !== 'switch';
   PICK.spawn = null; // default to the point nearest the front
@@ -433,14 +447,18 @@ function closePicker() {
   if (PICK.reason !== 'switch' && !(G.me && G.me.alive)) return;
   $('picker').hidden = true;
 }
-let pkFieldKey = '';
 function refreshPicker(full) {
   const me = G.me; if (!me) return;
-  for (const b of document.querySelectorAll('.pk')) b.classList.toggle('on', b.dataset.id === PICK.prod.id);
-  const p = PICK.prod, d = UNITS[p.unit];
-  $('pkInfo').innerHTML = `<b>${p.name}</b>${p.n > 1 ? ` · ${p.n} soldiers` : ''}<p>${p.desc}</p><p class="muted">${ROLE_HINTS[p.unit] || ''}</p><div class="tip-vs"><span class="good">Strong vs ${p.good}</span><span class="bad">Weak vs ${p.bad}</span></div>`;
+  for (const b of document.querySelectorAll('.pk')) b.classList.toggle('on', b.dataset.id === PICK.kit.id);
+  const k = PICK.kit;
+  if (full) {
+    const info = $('pkInfo');
+    info.innerHTML = `<b>${k.name}</b><div class="pk-mem"></div><p>${k.desc}</p><p class="muted">${k.hint}</p><div class="tip-vs"><span class="good">Strong vs ${k.good}</span><span class="bad">Weak vs ${k.bad}</span></div>`;
+    const mem = info.querySelector('.pk-mem');
+    for (const [t, n] of k.members) { const s = document.createElement('span'); s.append(unitIc(t, 26)); s.append(plural(t, n).replace(/^\w/, (c) => c.toUpperCase())); mem.append(s); }
+  }
   // spawn choices
-  const sps = spawnPoints(p);
+  const sps = spawnPoints(k);
   if (!sps.some((s) => s.id === PICK.spawn)) PICK.spawn = sps.length > 1 ? sps[sps.length - 1].id : 'hq';
   const spBox = $('pkSpawn');
   const spKey = sps.map((s) => s.id).join(',') + PICK.spawn;
@@ -452,38 +470,23 @@ function refreshPicker(full) {
       b.onclick = () => { PICK.spawn = s.id; refreshPicker(true); };
       spBox.append(b);
     }
-    $('pkSpawnNote').textContent = d.cls === 'inf' ? 'Infantry can deploy on any point you hold that is not under attack.' : 'Vehicles roll out of the HQ.';
-  }
-  // squads in the field
-  const list = fieldSquads().slice(0, 8);
-  const fKey = list.map((f) => f.g.id + ':' + f.n).join(',');
-  if (full || fKey !== pkFieldKey) {
-    pkFieldKey = fKey;
-    const fb = $('pkField'); fb.innerHTML = '';
-    if (!list.length) fb.innerHTML = '<p class="muted">No allied squads in the field yet.</p>';
-    for (const f of list) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'fld';
-      b.append(iconCache(f.g.prod, 30));
-      const t = document.createElement('span'); t.innerHTML = `<b>${f.g.prod.name}</b> ${f.g.prod.n > 1 ? f.n + '/' + f.g.prod.n : ''} <small>near ${f.near} · ${Math.round(f.hp * 100)}% health</small>`;
-      b.append(t);
-      b.onclick = () => { takeCommand(f.g); $('picker').hidden = true; G.paused = false; };
-      fb.append(b);
-    }
+    $('pkSpawnNote').textContent = k.cls === 'inf' ? 'Infantry squads can deploy on any point you hold that is not under attack.' : 'Vehicle squads roll out of the HQ.';
   }
   const go = $('pkGo');
   const wait = me.alive ? 0 : me.respawnT;
   go.disabled = wait > 0;
-  go.textContent = wait > 0 ? `Deploy in ${Math.ceil(wait)} s` : `Deploy ${p.name}`;
+  go.textContent = wait > 0 ? `Deploy in ${Math.ceil(wait)} s` : `Deploy ${k.name}`;
 }
 function deployPicked() {
   const me = G.me;
   if (!me.alive && me.respawnT > 0) return;
-  deployMe(PICK.prod, PICK.spawn);
-  try { localStorage.setItem('dotwar.squad', PICK.prod.id); } catch (e) {}
+  const k = PICK.kit;
+  deployMe(k, PICK.spawn);
+  try { localStorage.setItem('dotwar.squad', k.id); } catch (e) {}
   $('picker').hidden = true;
   G.paused = false;
   sqKey = '';
-  notify(`You lead a ${PICK.prod.name.toLowerCase()}. ${PICK.prod.n > 1 ? 'Lost soldiers come back when you rest near the HQ, a point you hold or a supply truck.' : ''}`, 'info');
+  notify(`You lead a ${k.name.toLowerCase()}: ${kitLine(k)}.`, 'info');
 }
 
 // ---------------------------------------------------------------------
@@ -570,11 +573,11 @@ function setupMenu() {
   $('btnCam').addEventListener('click', () => { G.autoCam = !G.autoCam; syncSpectate(); });
   $('btnExit').addEventListener('click', toMenu);
   const roster = $('roster');
-  for (const p of PRODUCTS) {
+  for (const k of SQUADS) {
     const li = document.createElement('li');
-    li.append(productIcon(p, 40, 0));
+    li.append(kitIcon(k, 40));
     const d = document.createElement('div');
-    d.innerHTML = `<b>${p.name}</b> <span class="muted">${p.n > 1 ? '×' + p.n : 'single'}</span><br>${ROLE_HINTS[p.unit] || p.desc}`;
+    d.innerHTML = `<b>${k.name}</b> <span class="muted">${kitLine(k)}</span><br>${k.desc}`;
     li.append(d); roster.append(li);
   }
   buildPicker();
@@ -585,7 +588,7 @@ function boot() {
     const m = localStorage.getItem('dotwar.muted'); if (m === '1') Sound.muted = true;
     const d = localStorage.getItem('dotwar.diff'); if (d && DIFFS[d]) G.settings.diff = d;
     const t = localStorage.getItem('dotwar.tod'); if (t) G.settings.tod = t;
-    const s = localStorage.getItem('dotwar.squad'); if (s && PRODUCT_BY_ID[s]) PICK.prod = PRODUCT_BY_ID[s];
+    const s = localStorage.getItem('dotwar.squad'); if (s && SQUAD_BY_ID[s]) PICK.kit = SQUAD_BY_ID[s];
   } catch (e) {}
   $('btnSound').textContent = Sound.muted ? 'Sound off' : 'Sound on';
   G.settings.seed = (Math.random() * 1e9) | 0;

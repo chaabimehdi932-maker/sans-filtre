@@ -133,3 +133,61 @@ const DIFFS = {
   elite:   { name: 'Elite', think: 1.0, income: 1.15, dodge: true, kite: true, pincer: true, focus: true, retreatRatio: 0.6, minStrike: 150, raid: true },
   general: { name: 'General', think: 0.6, income: 1.35, dodge: true, kite: true, pincer: true, focus: true, retreatRatio: 0.65, minStrike: 130, raid: true },
 };
+
+// The squads you can lead. Every one is a team of several units built around one job.
+// members: [unit type, count]. role picks the kind of orders command gives you.
+const SQUADS = [
+  { id: 'rifle', name: 'Rifle Squad', members: [['officer', 1], ['rifleman', 5], ['mgunner', 1], ['medic', 1]], role: 'capture',
+    desc: 'A squad leader, five riflemen, a machine gunner and a medic. The all-rounder of the war.', good: 'Taking and holding points', bad: 'Tanks, artillery',
+    hint: 'Right-click to move or attack. Right-click a capture point to spread out on it; your officer captures 3× faster.' },
+  { id: 'assault', name: 'Assault Squad', members: [['officer', 1], ['grenadier', 4], ['engineer', 2]], role: 'capture',
+    desc: 'Grenadiers and satchel-carrying engineers. Clears forests and blows up armor that gets too close.', good: 'Troops in cover, armor up close', bad: 'Long-range fire',
+    hint: 'Left-click a spot to throw grenades there. Engineers throw satchels at nearby armor. Q lays an AT mine.' },
+  { id: 'mg', name: 'Heavy Weapons Squad', members: [['mgunner', 3], ['rifleman', 2], ['medic', 1]], role: 'capture',
+    desc: 'Three machine guns with riflemen and a medic. Hold a point and nothing on foot gets through.', good: 'Infantry attacks', bad: 'Tanks, artillery',
+    hint: 'Machine guns stop for a second to set up, then shred and pin infantry. Dig in on a point and let them come.' },
+  { id: 'at', name: 'Anti-Tank Squad', members: [['antitank', 4], ['engineer', 1], ['rifleman', 2]], role: 'hunt',
+    desc: 'Four rocket launchers, an engineer and two riflemen for cover. Built to kill tanks.', good: 'Tanks and trucks', bad: 'Infantry swarms',
+    hint: 'Left-click a spot or an enemy to fire every rocket. Hit tanks from the side or rear for more damage. Q lays an AT mine.' },
+  { id: 'sniper', name: 'Sniper Team', members: [['sniper', 3], ['scout', 1]], role: 'snipe',
+    desc: 'Three snipers and a spotter. Hidden while still, deadly at 590 m.', good: 'Officers, MGs, specialists', bad: 'Vehicles, artillery',
+    hint: 'Stand still to hide. Left-click an enemy and all three snipers take the shot. The scout sees far ahead.' },
+  { id: 'recon', name: 'Recon Team', members: [['scout', 3], ['radioop', 1]], role: 'recon',
+    desc: 'Three scouts and a radio operator. Find the enemy, then drop a barrage on them.', good: 'Vision, calling artillery', bad: 'Direct fights',
+    hint: 'Scouts hide when still and see 590 m. Q calls a 9-shell barrage on anything your side can see.' },
+  { id: 'drone', name: 'Drone Team', members: [['droneop', 3], ['jammer', 1], ['rifleman', 2]], role: 'hunt',
+    desc: 'Three FPV drone pilots, a jammer to keep enemy drones off them and two riflemen.', good: 'Tanks, artillery', bad: 'Jammers, AA guns',
+    hint: 'Q launches a drone: steer it with the mouse, left-click to detonate. With three pilots another drone is usually ready.' },
+  { id: 'fires', name: 'Fire Support Team', members: [['radioop', 2], ['scout', 1], ['rifleman', 2]], role: 'fire',
+    desc: 'Two radio operators with a spotter and an escort. Calls barrage after barrage.', good: 'Dug-in groups', bad: 'Fast movers',
+    hint: 'Q calls a 9-shell barrage on anything your side can see. Two radios: two barrages before the cooldown.' },
+  { id: 'eng', name: 'Combat Engineers', members: [['engineer', 4], ['rifleman', 2], ['medic', 1]], role: 'support',
+    desc: 'Four engineers, two riflemen and a medic. Repairs tanks, mines roads, blows up armor.', good: 'Repairs, ambushes', bad: 'Infantry at range',
+    hint: 'Engineers repair friendly vehicles nearby on their own. Q lays an AT mine on a road the enemy uses.' },
+  { id: 'tanks', name: 'Tank Platoon', members: [['heavytank', 2], ['lighttank', 1]], role: 'capture',
+    desc: 'Two battle tanks and a light tank. The hammer of the army.', good: 'Everything up front', bad: 'Drones, mines, flanking AT',
+    hint: 'Left-click to fire every cannon at a spot. Keep your front toward the enemy: hits from behind deal 1.5× damage.' },
+  { id: 'cav', name: 'Light Armor Platoon', members: [['lighttank', 3], ['aa', 1]], role: 'capture',
+    desc: 'Three fast light tanks with an AA gun riding along to swat drones.', good: 'Flanks, raids, infantry', bad: 'Battle tanks, AT squads',
+    hint: 'Left-click to fire the cannons at a spot. You are fast: go around and hit them from the side.' },
+  { id: 'arty', name: 'Artillery Battery', members: [['howitzer', 3], ['radar', 1], ['supply', 1]], role: 'fire',
+    desc: 'Three 155 mm howitzers, a radar truck to find targets and a supply truck to keep them running.', good: 'Static targets, clusters', bad: 'Drones, raids',
+    hint: 'Park, then left-click anywhere 320–1650 m away: all three guns fire. Spotted targets are hit more accurately.' },
+  { id: 'rockets', name: 'Rocket Battery', members: [['mlrs', 2], ['radar', 1]], role: 'fire',
+    desc: 'Two rocket launchers and a radar truck. 24 rockets in one click.', good: 'Infantry, area denial', bad: 'Drones, raids',
+    hint: 'Park, then left-click a spot 380–1450 m away for a 24-rocket salvo. 24 s reload.' },
+  { id: 'missile', name: 'Missile Battery', members: [['missile', 2], ['aa', 1]], role: 'fire',
+    desc: 'Two tactical missile launchers guarded by an AA gun.', good: 'Big groups, the enemy HQ', bad: 'AA guns, the 70 s reload',
+    hint: 'Q or left-click a spot your side can see to launch a missile. Each launcher reloads in 70 s.' },
+  { id: 'aa', name: 'Air Defense Platoon', members: [['aa', 2], ['radar', 1], ['supply', 1]], role: 'support',
+    desc: 'Two AA guns, a radar and a supply truck. No drone or missile gets through.', good: 'Drones, missiles, infantry', bad: 'Tanks, AT',
+    hint: 'Your guns shoot down drones and missiles on their own. Escort the tanks and the artillery.' },
+];
+for (const k of SQUADS) {
+  k.size = k.members.reduce((a, [, n]) => a + n, 0);
+  k.cost = k.members.reduce((a, [t, n]) => a + UNITS[t].value * n, 0);
+  k.cls = k.members.every(([t]) => UNITS[t].cls === 'inf') ? 'inf' : 'veh';
+  k.lead = k.members[0][0];
+}
+const SQUAD_BY_ID = {};
+for (const k of SQUADS) SQUAD_BY_ID[k.id] = k;

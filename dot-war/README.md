@@ -2,24 +2,46 @@
 
 A 2D war game in the browser. Two AI generals fight a full-scale battle (blue dots against red
 dots, with tanks, trucks, drones, artillery and tactical missiles) on a 7.2 km battlefield cut
-in half by a river. **You lead one squad on the blue side.** Pick any of the 20 unit types and
-fight the way that unit fights: call each howitzer shot, fly kamikaze drones by hand, snipe
-officers, or take the bridges with a rifle squad.
+in half by a river. **You lead one squad on the blue side**: 3 to 8 units built around one job.
+Call every shot of an artillery battery, fly kamikaze drones with a drone team, snipe officers
+with a sniper team, or take the bridges with a rifle squad.
 
 **Play:** open `index.html` in a browser. No build step and no install; everything (art,
 effects, sound) is generated in code.
 
 ## Your squad
 
-- Pick a squad when the battle starts. Infantry can deploy on any point blue holds that is not
-  under attack; vehicles roll out of the HQ.
+| Infantry squads | Members |
+|---|---|
+| Rifle Squad | officer, 5 riflemen, machine gunner, medic |
+| Assault Squad | officer, 4 grenadiers, 2 engineers |
+| Heavy Weapons Squad | 3 machine gunners, 2 riflemen, medic |
+| Anti-Tank Squad | 4 AT gunners, engineer, 2 riflemen |
+| Sniper Team | 3 snipers, scout |
+| Recon Team | 3 scouts, radio operator |
+| Drone Team | 3 drone pilots, EW jammer, 2 riflemen |
+| Fire Support Team | 2 radio operators, scout, 2 riflemen |
+| Combat Engineers | 4 engineers, 2 riflemen, medic |
+
+| Vehicle squads | Members |
+|---|---|
+| Tank Platoon | 2 battle tanks, light tank |
+| Light Armor Platoon | 3 light tanks, AA gun |
+| Artillery Battery | 3 howitzers, radar truck, supply truck |
+| Rocket Battery | 2 MLRS, radar truck |
+| Missile Battery | 2 missile launchers, AA gun |
+| Air Defense Platoon | 2 AA guns, radar truck, supply truck |
+
+- Infantry squads deploy at the HQ or on any point blue holds that is not under attack;
+  vehicle squads roll out of the HQ.
+- The squad moves at the pace of its slowest member. Left-clicking a spot makes every member
+  whose gun reaches fire at it.
 - Command gives you orders that fit your squad (capture or defend a point, fire missions,
   hunt vehicles, pick off soldiers, scout, support a push). Finish them for bonus points.
-- Lost soldiers come back while your squad rests near the HQ, a point blue holds or a supply
-  truck, out of combat.
-- When your squad is wiped out, pick another one, or take over any allied squad already in
-  the field (Tab, or click an allied squad and press T). Your old squad goes back to the
-  allied general.
+- Lost members come back while your squad rests out of combat near the HQ, a point blue holds
+  or a supply truck. Lost vehicles are only replaced at the HQ.
+- When your squad is wiped out, pick another one (Tab also switches at any time; your old
+  squad goes back to the allied general).
 - Score: kills, vehicles destroyed, points captured near you, missions.
 
 ## How the war is won
@@ -75,13 +97,12 @@ General.
 | Right-click | Move (right-click a capture point to spread out on it), or attack an enemy |
 | Left-click enemy | Attack it |
 | Left-click ground | Fire at that spot: howitzer, MLRS, tanks, AT rockets, grenades |
-| Q | Ability: launch a drone, call a barrage, fire the missile, lay a mine |
+| Q / F | First / second ability: launch a drone, call a barrage, fire the missile, lay a mine |
 | Mouse / left-click while a drone is up | Steer the drone / detonate it |
 | A + click, Ctrl + right-click | Attack-move |
 | E | Auto-fire: let your squad pick its own targets |
 | S / H | Stop / hold position |
 | Tab | Change squad |
-| Click an allied squad, then T | Take it over |
 | Drag, arrows, screen edge, wheel | Look around and zoom (the camera follows your squad) |
 | Space | Snap the camera back to your squad |
 | P or Esc / M | Pause / sound |
@@ -100,6 +121,6 @@ around, pinch to zoom.
 | `js/draw.js` | Unit artwork |
 | `js/entities.js` | Simulation: movement, combat, drones, missiles, vision, capture, economy |
 | `js/ai.js` | The AI generals |
-| `js/squad.js` | Your squad: deploying, taking over squads, reinforcements, missions, score |
+| `js/squad.js` | Your squad: deploying, reinforcements, missions, score |
 | `js/game.js` | Main loop, camera, rendering |
 | `js/ui.js` | Input, HUD, squad picker, menus |

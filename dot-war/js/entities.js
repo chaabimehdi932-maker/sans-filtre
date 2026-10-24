@@ -188,7 +188,7 @@ function moveUnit(u, dt) {
     } else if (dist(u.x, u.y, u.guard.x, u.guard.y) > 30) goal = u.guard;
   }
 
-  let spd = d.speed * terrainSpeed(u);
+  let spd = (u.speedCap ? Math.min(d.speed, u.speedCap) : d.speed) * terrainSpeed(u);
   if (u.aura) spd *= 1.12;
   if (u.cls === 'inf' && u.sup > 50) spd *= 0.45;
   if (u.cls === 'veh' && u.hp < u.maxHp * 0.3) spd *= 0.75;
@@ -489,7 +489,7 @@ function fireMRocket(u, w) {
 function counterBattery(u) {
   const enemy = G.teams[1 - u.team];
   if (enemy.radars > 0) {
-    if (u.spotT <= 0 && G.me && G.me.alive && G.playerTeam === 1 - u.team && UNITS[G.me.prod.unit].role === 'arty') notify(`Enemy ${u.def.name.toLowerCase()} spotted by radar`, 'warn', u.x, u.y);
+    if (u.spotT <= 0 && G.me && G.me.alive && G.playerTeam === 1 - u.team && G.me.kit.role === 'fire') notify(`Enemy ${u.def.name.toLowerCase()} spotted by radar`, 'warn', u.x, u.y);
     u.spotT = 8;
   }
 }

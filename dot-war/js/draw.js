@@ -308,7 +308,7 @@ function productIcon(p, size, team) {
   g.translate(size / 2, size / 2);
   g.rotate(-Math.PI / 2);
   if (d.cls === 'inf') {
-    const R = size * 0.23;
+    const R = size * (p.n > 2 ? 0.23 : 0.3);
     if (p.n > 2) {
       g.save(); g.translate(-R * 0.6, R * 1.5); g.globalAlpha = 0.55; drawInfantry(g, p.unit, tc, R * 0.8, 0); g.restore();
       g.save(); g.translate(-R * 0.6, -R * 1.7); g.globalAlpha = 0.55; drawInfantry(g, p.unit, tc, R * 0.8, 0); g.restore();
@@ -320,5 +320,25 @@ function productIcon(p, size, team) {
     g.scale(sc, sc);
     drawVehicle(g, p.unit, tc, d.len, d.wid, 0, 0, 0.6, null);
   }
+  return c;
+}
+function unitIcon(type, size, team) { return productIcon({ unit: type, n: 1 }, size, team); }
+// a squad's badge: its lead unit up front, the next two member types behind it
+function kitIcon(kit, size) {
+  const c = document.createElement('canvas');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = c.height = size * dpr; c.style.width = c.style.height = size + 'px';
+  const g = c.getContext('2d'); g.scale(dpr, dpr);
+  const types = [...new Set(kit.members.map(([t]) => t))];
+  const lead = types[0], rest = types.slice(1, 3);
+  const put = (type, x, y, s, a) => {
+    const d = UNITS[type];
+    g.save(); g.translate(x, y); g.rotate(-Math.PI / 2); g.globalAlpha = a;
+    if (d.cls === 'inf') drawInfantry(g, type, TEAM[0], s * 0.22, 0);
+    else { const sc = (s * 0.86) / (d.len * 1.15); g.scale(sc, sc); drawVehicle(g, type, TEAM[0], d.len, d.wid, 0, 0, 0.6, null); }
+    g.restore();
+  };
+  rest.forEach((t, i) => put(t, size * (i ? 0.76 : 0.24), size * 0.62, size * 0.62, 0.9));
+  put(lead, size * 0.5, size * 0.46, size * (rest.length ? 0.86 : 1), 1);
   return c;
 }

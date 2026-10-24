@@ -8,11 +8,11 @@ const G = {
   teams: [], ai: [null, null], grid: null,
   time: 0, frame: 0, speed: 1, paused: false, mode: 'boot', playerTeam: 0, over: false,
   cam: { x: W / 2, y: H / 2, zoom: 0.4, vx: 0, vy: 0 }, viewW: 800, viewH: 600, dpr: 1,
-  sel: new Set(), groups: {}, night: 0, markers: [], pings: [], me: null, inspect: null,
+  sel: new Set(), groups: {}, night: 0, markers: [], pings: [], me: null,
   mouse: { x: 0, y: 0, wx: 0, wy: 0, in: false }, drag: null, hover: null, aim: null,
   settings: { diff: 'veteran', tod: 'day', seed: 0 },
   seen(u) { return G.playerTeam < 0 || u.team === G.playerTeam || u.vis[G.playerTeam]; },
-  lossFeed(u) { lossFeed(u); }, onDeployed(made, prod) { onDeployed(made, prod); }, hqDestroyed(team) { endGame(1 - team, 'hq'); },
+  lossFeed(u) { lossFeed(u); }, hqDestroyed(team) { endGame(1 - team, 'hq'); },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -47,7 +47,6 @@ function newGame(o) {
   // both armies are run by AI generals; in a real battle you are one squad on the blue side
   G.ai = [new AICommander(0, o.mode === 'play' ? 'veteran' : o.blueDiff || 'elite'), new AICommander(1, o.mode === 'play' ? o.diff : o.redDiff || 'elite')];
   G.me = o.mode === 'play' ? newMe() : null;
-  G.inspect = null;
   // opening forces
   G.quiet = true;
   for (let t = 0; t < 2; t++) for (const id of ['rifle', 'rifle', 'mg', 'scout']) deploy(t, PRODUCT_BY_ID[id]);
@@ -571,19 +570,16 @@ function drawSquadAids(view, z) {
   const iz = 1 / z, me = G.me, c = myCenter();
   const t = G.time;
   // gun ranges for squads that fire by hand
-  if (hasManualFire(me.prod)) {
-    const u = me.units[0];
-    for (const w of u.weapons) {
-      if (!MANUAL_KINDS[w.def.kind]) continue;
-      ctx.strokeStyle = 'rgba(247,213,74,0.22)'; ctx.lineWidth = 1.5 * iz; ctx.setLineDash([10 * iz, 8 * iz]);
-      ctx.beginPath(); ctx.arc(u.x, u.y, w.def.range, 0, TAU); ctx.stroke();
-      if (w.def.min) { ctx.strokeStyle = 'rgba(255,90,60,0.22)'; ctx.beginPath(); ctx.arc(u.x, u.y, w.def.min, 0, TAU); ctx.stroke(); }
-      ctx.setLineDash([]);
-      break;
-    }
+  const mr = manualRangeUnit();
+  if (mr) {
+    const { u, w } = mr;
+    ctx.strokeStyle = 'rgba(247,213,74,0.22)'; ctx.lineWidth = 1.5 * iz; ctx.setLineDash([10 * iz, 8 * iz]);
+    ctx.beginPath(); ctx.arc(u.x, u.y, w.def.range, 0, TAU); ctx.stroke();
+    if (w.def.min) { ctx.strokeStyle = 'rgba(255,90,60,0.22)'; ctx.beginPath(); ctx.arc(u.x, u.y, w.def.min, 0, TAU); ctx.stroke(); }
+    ctx.setLineDash([]);
     // aim preview under the cursor
     if (!G.aim && !(me.drone) && G.mouse.in && !G.mouse.overHud) {
-      const m = G.mouse, w = u.weapons.find((w) => MANUAL_KINDS[w.def.kind]);
+      const m = G.mouse;
       const d = dist(u.x, u.y, m.wx, m.wy);
       const ok = d <= w.def.range && (!w.def.min || d >= w.def.min);
       const ready = w.cd <= 0 && w.salvo <= 0;
@@ -625,11 +621,6 @@ function drawOverlays(view, z) {
   const pt = G.playerTeam;
   // your squad
   ctx.lineWidth = 1.6 * iz;
-  if (G.inspect) {
-    ctx.strokeStyle = 'rgba(160,220,255,0.8)'; ctx.setLineDash([3 * iz, 3 * iz]);
-    for (const u of G.inspect.units) if (!u.dead) { const r = u.cls === 'veh' ? u.def.len * 0.62 : u.r + 5; ctx.beginPath(); ctx.arc(u.x, u.y, r, 0, TAU); ctx.stroke(); }
-    ctx.setLineDash([]);
-  }
   if (G.me && G.me.alive) drawSquadAids(view, z);
   for (const u of G.sel) {
     if (u.dead) continue;
@@ -762,9 +753,5 @@ function lossFeed(u) {
   if (G.time - lossNoteT < 3) return;
   lossNoteT = G.time;
   notify(u.cls === 'inf' ? `${u.def.name} down` : `${u.def.name} destroyed`, 'bad', u.x, u.y);
-}
-function onDeployed(made, prod) {
-  if (G.quiet) return;
-  notify(`${prod.name} ready`, 'info', made[0].x, made[0].y);
 }
 

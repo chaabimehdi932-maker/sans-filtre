@@ -154,9 +154,7 @@ h1.logo .r { color: var(--red); }
 #mBar { display: block; height: 100%; background: var(--gold); transform-origin: left; transform: scaleX(0); transition: transform .3s; }
 #mInfo { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 body[data-mode="play"] #feed { top: calc(env(safe-area-inset-top, 0px) + 168px); }
-#mid { display: grid; gap: 6px; align-self: end; justify-self: center; width: min(700px, 100%); }
-#inspect { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 6px; justify-self: center; }
-#inspect canvas { flex: none; }
+#mid { display: grid; gap: 6px; align-self: end; justify-self: center; width: min(760px, 100%); }
 #squad { border-radius: 6px; padding: 10px 12px; display: grid; gap: 7px; }
 .sq-top { display: flex; align-items: center; gap: 10px; }
 .sq-ic { width: 52px; height: 52px; display: grid; place-items: center; background: rgba(40,110,40,0.4); border-radius: 5px; flex: none; }
@@ -164,11 +162,17 @@ body[data-mode="play"] #feed { top: calc(env(safe-area-inset-top, 0px) + 168px);
 .sq-title b { font: 700 20px/1.1 var(--ui); }
 .sq-title span { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 .sq-title .vet { color: var(--gold); }
-.sq-mem { display: flex; gap: 4px; }
-.sq-mem i { flex: 1; height: 7px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
-.sq-mem i b { display: block; height: 100%; background: var(--good); transform-origin: left; }
-.sq-mem i.low b { background: var(--bad); }
-.sq-mem i.gone { background: rgba(255,90,70,0.15); outline: 1px dashed rgba(255,90,70,0.4); }
+.sq-mem { display: flex; flex-wrap: wrap; gap: 5px; }
+.mem { display: grid; justify-items: center; gap: 2px; width: 30px; }
+.mem canvas { display: block; }
+.mem i { width: 26px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+.mem i b { display: block; height: 100%; background: var(--good); transform-origin: left; }
+.mem.low i b { background: var(--bad); }
+.mem.gone canvas { opacity: 0.25; filter: grayscale(1); }
+.mem.gone i { outline: 1px dashed rgba(255,90,70,0.5); }
+.wpn.gone { opacity: 0.4; }
+.pk-mem { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 14px; color: #cfd8ca; }
+.pk-mem span { display: flex; align-items: center; gap: 4px; }
 .sq-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .wpn { display: grid; gap: 2px; min-width: 150px; flex: 1; font-size: 14px; color: #cfd8ca; }
 .wpn i { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
@@ -202,10 +206,6 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
 #pkInfo p { margin: 0; color: #cfd8ca; }
 #pkInfo .tip-vs { font-size: 14px; }
 #pkSpawnNote { font-size: 13px; color: var(--muted); margin: 4px 0 12px; }
-#pkField { display: grid; gap: 4px; max-height: 260px; overflow: auto; }
-.fld { display: flex; align-items: center; gap: 8px; text-align: left; padding: 3px 8px 3px 3px; border: 1px solid var(--line); border-radius: 5px; background: rgba(255,255,255,0.03); }
-.fld:hover { border-color: var(--blue); }
-.fld small { color: var(--muted); display: block; }
 #pkGo:disabled { opacity: 0.55; cursor: default; }
 .tip-vs { display: grid; gap: 1px; font-size: 13px; }
 .tip-vs .good { color: var(--good); } .tip-vs .bad { color: var(--bad); }
@@ -276,7 +276,6 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
     <div id="bottom">
       <div id="mini" class="hud-panel"><canvas id="minimap" aria-label="Minimap"></canvas></div>
       <div id="mid">
-        <div id="inspect" class="hud-panel" hidden></div>
         <div id="squad" class="hud-panel"></div>
       </div>
     </div>
@@ -294,7 +293,6 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
           <div id="pkInfo"></div>
           <h3>Deploy at</h3><div class="chips" id="pkSpawn"></div><p id="pkSpawnNote"></p>
           <div class="row" style="justify-content:flex-start"><button type="button" class="btn primary" id="pkGo">Deploy</button><button type="button" class="btn" id="pkBack">Back to the fight</button></div>
-          <h3 style="margin-top:16px">Or take over a squad in the field</h3><div id="pkField"></div>
         </div>
       </div>
     </div>
@@ -302,9 +300,9 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
 
   <div id="menu" class="overlay">
     <div class="menu-inner">
-      <div class="eyebrow">One squad · two AI armies · 20 unit types</div>
+      <div class="eyebrow">Your squad · two AI armies · 20 unit types</div>
       <h1 class="logo">D<span class="dot" aria-hidden="true"></span>T <span class="r">WAR</span></h1>
-      <p class="lede">Two AI generals fight a full-scale war. You lead one blue squad of your choice: shell the red line as a howitzer crew, fly kamikaze drones, snipe officers or take the bridges with a rifle squad.</p>
+      <p class="lede">Two AI generals fight a full-scale war. You lead one blue squad of your choice: shell the red line with an artillery battery, fly kamikaze drones, snipe officers with a sniper team or take the bridges with a rifle squad.</p>
       <div class="opt">
         <span class="lbl" id="lblDiff">Enemy general</span>
         <div class="chips" role="radiogroup" aria-labelledby="lblDiff">
@@ -341,12 +339,12 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
             <tr><td>Move</td><td>Right-click the ground (right-click a capture point to spread out on it)</td></tr>
             <tr><td>Attack</td><td>Right-click or left-click an enemy</td></tr>
             <tr><td>Fire at a spot</td><td>Left-click the ground: artillery, MLRS, tanks, AT rockets, grenades</td></tr>
-            <tr><td>Ability</td><td>Q: drone, barrage, missile, mine</td></tr>
+            <tr><td>Abilities</td><td>Q (and F for a second one): drone, barrage, missile, mine</td></tr>
             <tr><td>Fly a drone</td><td>Q to launch, steer with the mouse, left-click to detonate</td></tr>
             <tr><td>Attack-move</td><td>A then click, or Ctrl + right-click</td></tr>
             <tr><td>Auto-fire</td><td>E lets your squad pick its own targets</td></tr>
             <tr><td>Stop / hold</td><td>S / H</td></tr>
-            <tr><td>Change squad</td><td>Tab, or left-click an allied squad then T to take over</td></tr>
+            <tr><td>Change squad</td><td>Tab</td></tr>
             <tr><td>Camera</td><td>Follows your squad. Drag, arrows or screen edges to look around, Space to snap back</td></tr>
             <tr><td>Pause / sound</td><td>P or Esc / M</td></tr>
             <tr><td>Touch</td><td>Tap the ground to move, tap an enemy to attack, hold to fire at a spot, pinch to zoom</td></tr>
@@ -355,10 +353,11 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
         <div>
           <h3>How the war works</h3>
           <ul class="rules">
-            <li>Both armies are run by AI generals. You lead one squad; the allied general runs everyone else.</li>
+            <li>Both armies are run by AI generals. You lead one squad of 3 to 8 units; the allied general runs everyone else.</li>
+            <li>Your squad moves at the pace of its slowest member, and every member with a gun that reaches fires when you left-click a spot.</li>
             <li>Command sends you orders that fit your squad. Finish them for bonus points.</li>
-            <li>Lost soldiers come back while your squad rests near the HQ, a point you hold or a supply truck.</li>
-            <li>When your squad is wiped out, pick a new one: any unit type, deployed at the HQ or (for infantry) on a point you hold.</li>
+            <li>Lost soldiers come back while your squad rests out of combat near the HQ, a point you hold or a supply truck. Lost vehicles are replaced at the HQ.</li>
+            <li>When your squad is wiped out, pick a new one: infantry squads deploy at the HQ or on a point you hold, vehicle squads at the HQ.</li>
             <li>After the first minute, whoever holds fewer points bleeds tickets every second (0.7 per point behind, up to 4). Losing units costs tickets too. Hit 0 and you lose.</li>
             <li>Destroying the enemy HQ wins outright. It is guarded by two bunker turrets.</li>
             <li>Infantry in forests take less damage and stay hidden until enemies get close. Scouts and snipers also hide while standing still. Radar trucks see through it.</li>
@@ -371,7 +370,7 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
         </div>
       </div>
       <div>
-        <h3>Order of battle</h3>
+        <h3>Squads you can lead</h3>
         <ul id="roster"></ul>
       </div>
     </div>

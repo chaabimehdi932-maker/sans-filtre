@@ -1,26 +1,20 @@
 'use strict';
 // =====================================================================
-// You are one squad in a big war. Both generals are AI; this file is
-// everything about your squad: deploying, taking over squads in the
-// field, reinforcements, missions from command, and your score.
+// You lead one squad in a big war. Both generals are AI; this file is
+// everything about your squad: deploying, reinforcements, orders from
+// command, and your score. A squad is a team of several units (see
+// SQUADS in data.js).
 // =====================================================================
 
 function newMe() {
   return {
-    units: [], group: null, prod: null, alive: false, respawnT: 0, follow: true, drone: null,
+    units: [], kit: null, group: null, alive: false, respawnT: 0, follow: true, drone: null,
     score: 0, kills: 0, vkills: 0, captures: 0, missions: 0, lost: 0, dmg: 0,
     mission: null, missionT: 3, reinforceT: 0, src: null, firstDeploy: true,
   };
 }
-const squadRole = (prod) => {
-  const k = prod.unit;
-  if (['howitzer', 'mlrs', 'missile', 'radioop'].includes(k)) return 'fire';
-  if (['antitank', 'droneop'].includes(k)) return 'hunt';
-  if (k === 'sniper') return 'snipe';
-  if (['scout', 'radar'].includes(k)) return 'recon';
-  if (['medic', 'supply', 'engineer', 'jammer', 'aa', 'officer'].includes(k)) return 'support';
-  return 'capture';
-};
+const kitHas = (kit, type) => kit.members.some(([t]) => t === type);
+const kitAbilities = (kit) => ['missile', 'barrage', 'drone', 'mine'].filter((a) => kit.members.some(([t]) => UNITS[t].ability === a));
 function myCenter() {
   const us = G.me.units; let x = 0, y = 0;
   for (const u of us) { x += u.x; y += u.y; }
@@ -34,79 +28,70 @@ function enemiesNear(x, y, r, team) {
   for (const e of G.grid.query(x, y, r)) if (e.team !== team && !e.dead && e.cls !== 'air' && e.cls !== 'bld' && e.vis[team]) return true;
   return false;
 }
-// infantry can deploy on any point you hold that isn't under fire; vehicles roll out of the HQ
-function spawnPoints(prod) {
+// infantry squads can deploy on any point you hold that isn't under fire; vehicles roll out of the HQ
+function spawnPoints(kit) {
   const T = G.teams[0];
-  const list = [{ id: 'hq', label: 'HQ', x: T.hq.x + 150, y: T.hq.y }];
-  if (UNITS[prod.unit].cls !== 'inf') return list;
+  const list = [{ id: 'hq', label: 'HQ', x: T.hq.x + 160, y: T.hq.y }];
+  if (kit.cls !== 'inf') return list;
   for (const p of G.points) {
     if (p.owner !== 0 || enemiesNear(p.x, p.y, 520, 0)) continue;
     list.push({ id: p.letter, label: p.letter, x: p.x - 60, y: p.y });
   }
   return list;
 }
-function deployMe(prod, spawnId) {
-  const me = G.me;
-  const sp = spawnPoints(prod).find((s) => s.id === spawnId) || spawnPoints(prod)[0];
-  releaseMe();
-  const units = [];
-  for (let i = 0; i < prod.n; i++) {
-    const a = rand(0, TAU), r = prod.n > 1 ? rand(12, 42) : 0;
-    let x = sp.x + Math.cos(a) * r, y = sp.y + Math.sin(a) * r;
-    if (blockedAt(x, y)) { x = sp.x; y = sp.y; }
-    const u = spawnUnit(prod.unit, 0, x, y);
-    u.ang = u.tang = 0;
-    units.push(u);
-  }
-  const g = { id: NEXT_ID++, prod, units, team: 0 };
-  for (const u of units) u.group = g;
-  setMe(g, units);
-  for (let i = 0; i < 10; i++) dust(sp.x + rand(-40, 40), sp.y + rand(-40, 40), 1.2, 1.2);
-  Sound.play('build', 0.5);
-  if (me.firstDeploy) me.firstDeploy = false;
+function spawnMember(type, x, y) {
+  const u = spawnUnit(type, 0, x, y);
+  u.ang = u.tang = 0;
+  u.player = true; u.auto = G.me.auto; u.autoArty = G.me.auto;
+  u.group = G.me.group;
+  return u;
 }
-function setMe(g, units) {
+function deployMe(kit, spawnId) {
   const me = G.me;
-  for (const u of units) {
-    u.player = true; u.auto = false; u.autoArty = false;
-    u.order = null; u.path = null; u.override = null; u.focus = null; u.guard = { x: u.x, y: u.y };
+  const sps = spawnPoints(kit);
+  const sp = sps.find((s) => s.id === spawnId) || sps[0];
+  releaseMe();
+  me.kit = kit; me.auto = false;
+  me.group = { id: NEXT_ID++, kit, units: [], team: 0 };
+  const units = [];
+  let i = 0;
+  for (const [type, n] of kit.members) {
+    for (let k = 0; k < n; k++, i++) {
+      const veh = UNITS[type].cls === 'veh';
+      const a = (i / kit.size) * TAU, r = kit.size > 1 ? (veh ? 70 : 34) : 0;
+      let x = sp.x + Math.cos(a) * r, y = sp.y + Math.sin(a) * r;
+      if (blockedAt(x, y)) { x = sp.x + rand(-10, 10); y = sp.y + rand(-10, 10); }
+      units.push(spawnMember(type, x, y));
+    }
   }
-  me.group = g; me.units = units; me.prod = g.prod; me.alive = true; me.follow = true;
+  me.group.units = units;
+  setMe(units);
+  for (let k = 0; k < 12; k++) dust(sp.x + rand(-60, 60), sp.y + rand(-60, 60), 1.2, 1.2);
+  Sound.play('build', 0.5);
+  me.firstDeploy = false;
+}
+function setMe(units) {
+  const me = G.me;
+  for (const u of units) { u.order = null; u.path = null; u.override = null; u.focus = null; u.guard = { x: u.x, y: u.y }; }
+  me.units = units; me.alive = true; me.follow = true;
   me.mission = null; me.missionT = 1.5; me.reinforceT = 0; me.drone = null;
+  syncSpeedCap();
   G.sel = new Set(units);
   const c = myCenter(); G.cam.x = c.x; G.cam.y = c.y;
 }
-// your current squad goes back to the allied general
+// the squad moves at the pace of its slowest member so it stays together
+function syncSpeedCap() {
+  const us = G.me.units; if (!us.length) return;
+  const cap = Math.min(...us.map((u) => u.def.speed));
+  for (const u of us) u.speedCap = cap;
+}
+// switching squads: the old one goes back to the allied general
 function releaseMe() {
   const me = G.me;
   const alive = me.units.filter((u) => !u.dead);
-  for (const u of alive) { u.player = false; u.auto = true; u.autoArty = false; for (const w of u.weapons) w.manual = null; }
+  for (const u of alive) { u.player = false; u.auto = true; u.autoArty = false; u.speedCap = 0; for (const w of u.weapons) w.manual = null; }
   if (alive.length && G.ai[0]) G.ai[0].adopt(alive);
   me.units = []; me.group = null; me.alive = false; me.drone = null;
-}
-function takeCommand(g) {
-  const alive = g.units.filter((u) => !u.dead);
-  if (!alive.length || alive[0].player) return;
-  releaseMe();
-  G.ai[0].release(alive);
-  setMe(g, alive);
-  notify(`You now lead this ${g.prod.name.toLowerCase()}`, 'good');
-  Sound.play('build', 0.5);
-}
-// squads in the field you could take over, nearest the front first
-function fieldSquads() {
-  const seen = new Set(), out = [];
-  for (const u of G.units) {
-    if (u.team !== 0 || u.dead || !u.group || u.player || seen.has(u.group)) continue;
-    seen.add(u.group);
-    const live = u.group.units.filter((o) => !o.dead);
-    if (!live.length) continue;
-    let x = 0, y = 0, hp = 0, max = 0; for (const o of live) { x += o.x; y += o.y; hp += o.hp; max += o.maxHp; }
-    x /= live.length; y /= live.length;
-    let near = null, nd = 1e9; for (const p of G.points) { const d = dist(p.x, p.y, x, y); if (d < nd) { nd = d; near = p; } }
-    out.push({ g: u.group, n: live.length, x, y, hp: hp / max, near: near.letter, front: x });
-  }
-  return out.sort((a, b) => b.front - a.front);
 }
 
 // ---------------------------------------------------------------------
@@ -116,11 +101,13 @@ function updateMe(dt) {
   const me = G.me;
   if (me.drone && me.drone.dead) me.drone = null;
   if (!me.alive) { me.respawnT = Math.max(0, me.respawnT - dt); return; }
+  const before = me.units.length;
   me.units = me.units.filter((u) => !u.dead);
+  if (me.units.length !== before) syncSpeedCap();
   G.sel = new Set(me.units);
   if (!me.units.length) {
     me.alive = false; me.lost++;
-    me.respawnT = 4 + me.prod.cost / 90;
+    me.respawnT = 4 + me.kit.cost / 150;
     notify('Your squad was wiped out', 'bad');
     Sound.play('lost', 0.6);
     setTimeout(() => { if (!G.over && G.mode === 'play' && !G.me.alive) openPicker('dead'); }, 1200);
@@ -130,34 +117,50 @@ function updateMe(dt) {
   missionTick(dt);
 }
 
-// reinforcements trickle in while your squad rests near the HQ, a point you hold or a supply truck
-function reinforceSource() {
+// missing members by type, in squad order
+function missingMembers() {
+  const me = G.me, have = {};
+  for (const u of me.units) have[u.type] = (have[u.type] || 0) + 1;
+  const out = [];
+  for (const [t, n] of me.kit.members) for (let k = have[t] || 0; k < n; k++) out.push(t);
+  return out;
+}
+// reinforcements arrive while your squad rests near the HQ, a point you hold or a supply truck
+function reinforceSource(type) {
   const c = myCenter(), T = G.teams[0];
-  if (dist(c.x, c.y, T.hq.x, T.hq.y) < 480) return { x: T.hq.x + 140, y: T.hq.y, name: 'HQ' };
-  for (const u of G.units) if (u.team === 0 && u.type === 'supply' && !u.dead && dist(u.x, u.y, c.x, c.y) < 260) return { x: u.x, y: u.y, name: 'supply truck' };
-  for (const p of G.points) if (p.owner === 0 && dist(p.x, p.y, c.x, c.y) < p.r + 80) return { x: p.x, y: p.y, name: `point ${p.letter}` };
+  if (dist(c.x, c.y, T.hq.x, T.hq.y) < 520) return { x: T.hq.x + 150, y: T.hq.y, name: 'the HQ' };
+  if (UNITS[type].cls === 'veh') return null; // new vehicles only come from the HQ
+  for (const u of G.units) if (u.team === 0 && u.type === 'supply' && !u.dead && dist(u.x, u.y, c.x, c.y) < 280) return { x: u.x, y: u.y, name: 'the supply truck' };
+  for (const p of G.points) if (p.owner === 0 && dist(p.x, p.y, c.x, c.y) < p.r + 90) return { x: p.x, y: p.y, name: `point ${p.letter}` };
   return null;
 }
 function reinforceTick(dt) {
   const me = G.me;
-  const need = me.prod.n - me.units.length;
-  me.src = need > 0 ? reinforceSource() : null;
+  const missing = missingMembers();
+  me.missing = missing.length;
+  me.src = null;
+  if (!missing.length) { me.reinforceT = 0; return; }
+  // infantry first: they are quicker to bring up
+  const type = missing.find((t) => UNITS[t].cls === 'inf' && reinforceSource(t)) || missing.find((t) => reinforceSource(t));
+  me.src = type ? reinforceSource(type) : null;
+  me.nextType = type;
   me.calm = me.units.every((u) => G.time - u.lastHit > 4);
   if (!me.src || !me.calm) { me.reinforceT = 0; return; }
   me.reinforceT += dt;
-  if (me.reinforceT < 3) return;
+  me.reinforceNeed = UNITS[type].cls === 'veh' ? 9 : 3;
+  if (me.reinforceT < me.reinforceNeed) return;
   me.reinforceT = 0;
   const s = me.src;
-  const u = spawnUnit(me.prod.unit, 0, s.x + rand(-20, 20), s.y + rand(-20, 20));
-  u.player = true; u.auto = me.units[0] ? me.units[0].auto : false; u.group = me.group;
+  const u = spawnMember(type, s.x + rand(-20, 20), s.y + rand(-20, 20));
   me.group.units.push(u); me.units.push(u);
+  syncSpeedCap();
   const c = myCenter();
-  issueMove([u], c.x + rand(-20, 20), c.y + rand(-20, 20), false);
-  floatText(u.x, u.y - 16, '+1 REINFORCEMENT', '#9be7ff');
+  issueMove([u], c.x + rand(-25, 25), c.y + rand(-25, 25), false);
+  floatText(u.x, u.y - 16, `+ ${UNITS[type].name.toUpperCase()}`, '#9be7ff');
 }
 
 // ---------------------------------------------------------------------
-// missions: command gives your squad a job that fits what it is
+// orders: command gives your squad a job that fits what it is
 // ---------------------------------------------------------------------
 function pointScore(p, c, kind) {
   const info = p.ai[0] || { enemy: 0, own: 0 };
@@ -174,21 +177,22 @@ function bestPoint(kind) {
   return best;
 }
 function pickMission() {
-  const me = G.me; const role = squadRole(me.prod);
+  const me = G.me, kit = me.kit;
   let m = null;
-  if (role === 'capture') {
-    const threatened = G.points.find((p) => p.owner === 0 && p.ai[0] && p.ai[0].enemy > 60 && dist(p.x, p.y, myCenter().x, myCenter().y) < 1600);
+  if (kit.role === 'capture') {
+    const c = myCenter();
+    const threatened = G.points.find((p) => p.owner === 0 && p.ai[0] && p.ai[0].enemy > 60 && dist(p.x, p.y, c.x, c.y) < 1600);
     if (threatened) m = { kind: 'defend', p: threatened, text: `Defend point ${threatened.letter}`, need: 30, prog: 0, reward: 300 };
     else { const p = bestPoint('attack'); if (p) m = { kind: 'capture', p, text: `Capture point ${p.letter}`, need: 1, prog: 0, reward: 350 }; }
-  } else if (role === 'fire') {
+  } else if (kit.role === 'fire') {
     const p = bestPoint('enemy');
-    const big = me.prod.unit === 'missile';
-    if (p) m = { kind: 'fire', p, text: `Fire mission: shell the enemy at ${p.letter}`, need: big ? 900 : me.prod.unit === 'radioop' ? 450 : 700, prog: 0, reward: 350, r: 480 };
-  } else if (role === 'hunt') {
-    m = { kind: 'hunt', cls: 'veh', text: 'Destroy an enemy vehicle', need: 1, prog: 0, reward: 400 };
-  } else if (role === 'snipe') {
-    m = { kind: 'hunt', cls: 'inf', text: 'Pick off 4 enemy soldiers', need: 4, prog: 0, reward: 300 };
-  } else if (role === 'recon') {
+    const need = kitHas(kit, 'missile') ? 1500 : kitHas(kit, 'howitzer') ? 1300 : kitHas(kit, 'mlrs') ? 1200 : 700;
+    if (p) m = { kind: 'fire', p, text: `Fire mission: hit the enemy at ${p.letter}`, need, prog: 0, reward: 400, r: 480 };
+  } else if (kit.role === 'hunt') {
+    m = { kind: 'hunt', cls: 'veh', text: 'Destroy 2 enemy vehicles', need: 2, prog: 0, reward: 450 };
+  } else if (kit.role === 'snipe') {
+    m = { kind: 'hunt', cls: 'inf', text: 'Pick off 8 enemy soldiers', need: 8, prog: 0, reward: 350 };
+  } else if (kit.role === 'recon') {
     const p = bestPoint('enemy');
     if (p) m = { kind: 'recon', p, text: `Scout point ${p.letter} and stay alive`, need: 18, prog: 0, reward: 300, r: 520 };
   } else {
@@ -196,7 +200,7 @@ function pickMission() {
     if (p) m = { kind: 'support', p, text: `Support the fight at ${p.letter}`, need: 40, prog: 0, reward: 300, r: 420 };
   }
   if (!m) return;
-  m.t = 0; m.limit = 200;
+  m.t = 0; m.limit = 220;
   me.mission = m;
   notify(`New orders: ${m.text}`, 'info', m.p ? m.p.x : undefined, m.p ? m.p.y : undefined);
 }
@@ -218,7 +222,7 @@ function missionTick(dt) {
   if (m.kind === 'defend') { if (near(m.p.r + 160) && m.p.owner === 0) m.prog += dt; if (m.p.owner === 1) { failMission('Point ' + m.p.letter + ' fell'); return; } }
   else if (m.kind === 'recon') { if (near(m.r)) m.prog += dt; }
   else if (m.kind === 'support') { if (near(m.r)) m.prog += dt; }
-  else if (m.kind === 'capture' && m.p.owner === 0 && !near(m.p.r + 300)) { failMission(`Others took ${m.p.letter} first`); return; }
+  else if (m.kind === 'capture' && m.p.owner === 0 && !near(m.p.r + 300)) { failMission(`${m.p.letter} is already ours`); return; }
   if (m.prog >= m.need) { completeMission(); return; }
   if (m.t > m.limit) { failMission('Orders expired'); }
 }
@@ -257,41 +261,27 @@ function playerCapture(p) {
 }
 
 // ---------------------------------------------------------------------
-// what left-click does depends on the squad
+// firing at a spot: every member with a gun that can reach it fires
 // ---------------------------------------------------------------------
 function squadFireAt(x, y) {
   let any = false, msg = null;
   for (const u of G.me.units) for (const w of u.weapons) {
     if (!MANUAL_KINDS[w.def.kind]) continue;
     const d = dist(u.x, u.y, x, y);
-    if (d > w.def.range) { msg = 'Out of range'; continue; }
-    if (w.def.min && d < w.def.min) { msg = 'Too close for that gun'; continue; }
+    if (d > w.def.range) { msg = msg || 'Out of range'; continue; }
+    if (w.def.min && d < w.def.min) { msg = 'Too close for the guns'; continue; }
     w.manual = { x, y, t: G.time }; any = true;
   }
   return { any, msg };
 }
-function hasManualFire(prod) {
-  return UNITS[prod.unit].weapons.some((w) => MANUAL_KINDS[WEAPONS[w].kind]);
+function hasManualFire(kit) {
+  return kit.members.some(([t]) => UNITS[t].weapons.some((w) => MANUAL_KINDS[WEAPONS[w].kind]));
 }
-const ROLE_HINTS = {
-  rifleman: 'Right-click to move or attack. Right-click a capture point to spread out around it.',
-  mgunner: 'Park to set up the MG (1 s), then it shreds infantry. Right-click to move.',
-  medic: 'Medics heal wounded infantry nearby on their own. Stay just behind the fight.',
-  officer: 'Units around you aim better and move faster. You capture points 3× faster.',
-  scout: 'Stand still to hide. Everything you see, your artillery can hit.',
-  sniper: 'Stand still to hide. Left-click an enemy to take the shot.',
-  droneop: 'Q: launch a drone, steer it with the mouse, left-click to blow it up. It also explodes on contact.',
-  antitank: 'Left-click a spot or enemy to fire a rocket. Hit tanks from behind for 1.5× damage.',
-  engineer: 'Q: lay an AT mine. You repair vehicles nearby and throw satchels at armor.',
-  radioop: 'Q: call a 9-shell barrage on anything your side can see, 950 m away.',
-  jammer: 'Enemy drones near you crash. Stay close to friendly tanks.',
-  grenadier: 'Left-click a spot to throw grenades. Great against troops in forests.',
-  lighttank: 'Left-click to fire the cannon at a spot. Fast: hit them from the side.',
-  heavytank: 'Left-click to fire the 125 mm at a spot. Keep your front toward the enemy.',
-  radar: 'You see 950 m, reveal hidden units and expose enemy artillery when it fires.',
-  aa: 'Your guns shoot down drones and missiles on their own. Escort the tanks.',
-  howitzer: 'Park, then left-click anywhere 320–1650 m away to fire. Spotted targets are hit more accurately.',
-  missile: 'Q or left-click a spot your side can see to launch. 70 s reload.',
-  mlrs: 'Park, then left-click a spot 380–1450 m away for a 12-rocket salvo. 24 s reload.',
-  supply: 'You repair vehicles and heal troops nearby. Park on a point you hold for +2 supply/s.',
-};
+// artillery squads fire at the ground under an enemy instead of chasing it
+function isArtillery(kit) { return kit && (kitHas(kit, 'howitzer') || kitHas(kit, 'mlrs')); }
+// the member type with the longest gun that fires by hand (for range rings)
+function manualRangeUnit() {
+  let best = null, br = 0;
+  for (const u of G.me.units) for (const w of u.weapons) if (MANUAL_KINDS[w.def.kind] && w.def.range > br) { br = w.def.range; best = { u, w }; }
+  return best;
+}
