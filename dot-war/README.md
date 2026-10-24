@@ -2,47 +2,37 @@
 
 A 2D war game in the browser. Two AI generals fight a full-scale battle (blue dots against red
 dots, with tanks, trucks, drones, artillery and tactical missiles) on a 7.2 km battlefield cut
-in half by a river. **You lead one squad on the blue side**: 3 to 8 units built around one job.
-Call every shot of an artillery battery, fly kamikaze drones with a drone team, snipe officers
-with a sniper team, or take the bridges with a rifle squad.
+in half by a river. **You are one soldier in the blue army.** Run, shoot and throw grenades,
+then jump into a jeep, a tank or any friendly truck and drive it into the fight.
 
 **Play:** open `index.html` in a browser. No build step and no install; everything (art,
 effects, sound) is generated in code.
 
-## Your squad
+## You
 
-| Infantry squads | Members |
-|---|---|
-| Rifle Squad | officer, 5 riflemen, machine gunner, medic |
-| Assault Squad | officer, 4 grenadiers, 2 engineers |
-| Heavy Weapons Squad | 3 machine gunners, 2 riflemen, medic |
-| Anti-Tank Squad | 4 AT gunners, engineer, 2 riflemen |
-| Sniper Team | 3 snipers, scout |
-| Recon Team | 3 scouts, radio operator |
-| Drone Team | 3 drone pilots, EW jammer, 2 riflemen |
-| Fire Support Team | 2 radio operators, scout, 2 riflemen |
-| Combat Engineers | 4 engineers, 2 riflemen, medic |
+| Class | Gun | Q ability |
+|---|---|---|
+| Rifleman | assault rifle, 3 grenades | |
+| Machine Gunner | 100-round machine gun that pins infantry | |
+| Sniper | 700 m sniper rifle, hidden while still | |
+| Anti-Tank | rocket launcher that homes on vehicles near the cursor | |
+| Medic | SMG, heals soldiers around you | medkit: back to full health |
+| Engineer | SMG, repairs the vehicle you drive | AT mine at your feet |
+| Radio Operator | carbine | 9-shell artillery barrage |
+| Drone Operator | carbine | kamikaze FPV drone you fly with the mouse |
 
-| Vehicle squads | Members |
-|---|---|
-| Tank Platoon | 2 battle tanks, light tank |
-| Light Armor Platoon | 3 light tanks, AA gun |
-| Artillery Battery | 3 howitzers, radar truck, supply truck |
-| Rocket Battery | 2 MLRS, radar truck |
-| Missile Battery | 2 missile launchers, AA gun |
-| Air Defense Platoon | 2 AA guns, radar truck, supply truck |
-
-- Infantry squads deploy at the HQ or on any point blue holds that is not under attack;
-  vehicle squads roll out of the HQ.
-- The squad moves at the pace of its slowest member. Left-clicking a spot makes every member
-  whose gun reaches fire at it.
-- Command gives you orders that fit your squad (capture or defend a point, fire missions,
-  hunt vehicles, pick off soldiers, scout, support a push). Finish them for bonus points.
-- Lost members come back while your squad rests out of combat near the HQ, a point blue holds
-  or a supply truck. Lost vehicles are only replaced at the HQ.
-- When your squad is wiped out, pick another one (Tab also switches at any time; your old
-  squad goes back to the allied general).
-- Score: kills, vehicles destroyed, points captured near you, missions.
+- **Vehicles:** jeeps wait at the HQ (with a mounted machine gun). Walk up to any friendly
+  vehicle and press E: jeep, light or battle tank, AA gun, howitzer, MLRS, missile launcher,
+  radar or supply truck. The turret follows the mouse; left click fires the main gun, right
+  click the machine gun. Drive fast and you run enemy soldiers over. Leave an army vehicle and
+  a crew takes it back after 20 s. If your vehicle blows up, you bail out hurt.
+- **Health** comes back when you stay out of the fight for a few seconds. You are a bit tougher
+  than an ordinary soldier.
+- **Respawn:** when you die, pick a class and deploy at the HQ or on any point blue holds that
+  is not under attack.
+- **Orders:** command gives you a job that fits your class (capture or defend a point, call
+  fire on the enemy, destroy a vehicle, pick off soldiers, support a push). Finish it for bonus
+  points. Score: kills, vehicles destroyed, points captured, missions.
 
 ## How the war is won
 
@@ -51,23 +41,6 @@ effects, sound) is generated in code.
 - After the first minute, the side holding fewer points bleeds 0.7 tickets/s per point behind
   (capped at 4), and every lost unit costs tickets. Run out and that side loses.
 - Destroying the enemy HQ wins outright. It is guarded by two bunker turrets.
-
-## Units
-
-| Infantry | | Vehicles | |
-|---|---|---|---|
-| Rifle Squad (×6) | all-rounder | Light Tank | fast flanker |
-| MG Team (×2) | sets up, pins infantry | Battle Tank | heavy armor, weak rear |
-| Medics (×2) | heal infantry | Radar Truck | 950 m sight, counter-battery |
-| Officer | aura: aim, speed, morale | AA Gun | kills drones and missiles |
-| Scouts (×2) | long sight, hidden when still | Howitzer | 1650 m artillery |
-| Sniper | one-shot kills at 590 m | Missile Launcher | tactical missile anywhere in sight |
-| Drone Operator | kamikaze FPV drones | MLRS | 12-rocket salvo |
-| Anti-Tank (×2) | rockets vs armor | Supply Truck | repairs, +2 supply/s on a point |
-| Engineers (×2) | repair, satchels, AT mines | | |
-| Radio Operator | 9-shell barrage | | |
-| EW Jammer | drones crash near him | | |
-| Grenadiers (×4) | blast infantry out of cover | | |
 
 ## Mechanics
 
@@ -83,32 +56,29 @@ effects, sound) is generated in code.
 ## The AI
 
 Both generals play by the same rules (no map hacks, same fog). Each one remembers what it has
-seen, counter-builds against the other army, forms task forces, attacks points with enough
-force, pincers from two sides (Elite and up), leaves garrisons, retreats from losing fights,
-reinforces worn squads, keeps artillery behind the front, posts scouts and snipers in cover,
-lays mines on roads, dodges incoming strikes, focuses fire and pulls wounded vehicles back for
-repairs. The allied general plays at Veteran; the menu sets the enemy general from Recruit to
-General.
+seen, counter-builds against the other army from 20 unit types, forms task forces, attacks
+points with enough force, pincers from two sides, leaves garrisons, retreats from losing
+fights, reinforces worn squads, keeps artillery behind the front, posts scouts and snipers in
+cover, lays mines on roads, dodges incoming strikes, focuses fire and pulls wounded vehicles
+back for repairs. The allied general plays at Veteran; the menu sets the enemy general from
+Recruit to General.
 
 ## Controls
 
 | Input | Action |
 |---|---|
-| Right-click | Move (right-click a capture point to spread out on it), or attack an enemy |
-| Left-click enemy | Attack it |
-| Left-click ground | Fire at that spot: howitzer, MLRS, tanks, AT rockets, grenades |
-| Q / F | First / second ability: launch a drone, call a barrage, fire the missile, lay a mine |
-| Mouse / left-click while a drone is up | Steer the drone / detonate it |
-| A + click, Ctrl + right-click | Attack-move |
-| E | Auto-fire: let your squad pick its own targets |
-| S / H | Stop / hold position |
-| Tab | Change squad |
-| Drag, arrows, screen edge, wheel | Look around and zoom (the camera follows your squad) |
-| Space | Snap the camera back to your squad |
+| WASD, Shift | Move, sprint (in a vehicle: drive) |
+| Mouse, hold left click | Aim, shoot (in a vehicle: main gun) |
+| Right click or G | Grenade (in a vehicle: machine gun) |
+| R | Reload |
+| E | Get in / out of the vehicle next to you |
+| Q | Class ability; while flying a drone, click to detonate |
+| Tab | Change class |
+| Mouse wheel | Zoom |
 | P or Esc / M | Pause / sound |
 
-Touch: tap the ground to move, tap an enemy to attack, hold to fire at a spot, drag to look
-around, pinch to zoom.
+Touch: left thumb moves, right thumb aims and shoots, buttons for get in/out, grenade,
+ability, reload and the vehicle machine gun.
 
 ## Code
 
@@ -121,6 +91,6 @@ around, pinch to zoom.
 | `js/draw.js` | Unit artwork |
 | `js/entities.js` | Simulation: movement, combat, drones, missiles, vision, capture, economy |
 | `js/ai.js` | The AI generals |
-| `js/squad.js` | Your squad: deploying, reinforcements, missions, score |
+| `js/avatar.js` | You: classes, walking, shooting, vehicles, orders, score |
 | `js/game.js` | Main loop, camera, rendering |
-| `js/ui.js` | Input, HUD, squad picker, menus |
+| `js/ui.js` | Input, HUD, class picker, menus |

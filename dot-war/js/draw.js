@@ -247,6 +247,20 @@ function drawVehicle(ctx, type, tc, L, Wd, rel, recoil, t, u) {
       ctx.restore();
       break;
     }
+    case 'jeep': {
+      ctx.fillStyle = INK;
+      for (const [x, y] of [[0.28, -1], [0.28, 1], [-0.3, -1], [-0.3, 1]]) ctx.fillRect(x * L - 4, y * (Wd / 2) - 3, 8, 6);
+      ctx.fillStyle = tc.main; ctx.strokeStyle = INK; ctx.lineWidth = 2;
+      rrect(ctx, -L / 2, -Wd / 2 + 1, L, Wd - 2, 5); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = tc.dark; rrect(ctx, 0.12 * L, -Wd / 2 + 3, 0.34 * L, Wd - 6, 3); ctx.fill();
+      ctx.fillStyle = '#d3d7db'; ctx.fillRect(0.06 * L, -Wd / 2 + 3, 0.06 * L, Wd - 6);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-0.36 * L, -Wd / 2 + 4, 0.36 * L, Wd - 8);
+      ctx.save(); ctx.translate(-0.2 * L, 0); ctx.rotate(rel);
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.stroke();
+      ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(16 - recoil * 3, 0); ctx.stroke();
+      ctx.restore();
+      break;
+    }
     case 'supply': {
       truckBase(ctx, L, Wd, tc, false);
       ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;

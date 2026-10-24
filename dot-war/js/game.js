@@ -44,6 +44,8 @@ function newGame(o) {
     G.teams.push({ id: t, supply: START_SUPPLY, income: 0, tickets: START_TICKETS, queues: [[], []], rally: { x: h.x + dir * 430, y: h.y }, hq, stats: { built: 0, lost: 0, kills: 0, spent: 0 }, radars: 0, held: 0, lastHitT: -99 });
   }
   NAV.cache.clear();
+  // jeeps waiting at your HQ
+  if (o.mode === 'play') for (let k = 0; k < 3; k++) spawnJeep(MAP.hq[0].x + 110 + k * 55, MAP.hq[0].y + 150, 0);
   // both armies are run by AI generals; in a real battle you are one squad on the blue side
   G.ai = [new AICommander(0, o.mode === 'play' ? 'veteran' : o.blueDiff || 'elite'), new AICommander(1, o.mode === 'play' ? o.diff : o.redDiff || 'elite')];
   G.me = o.mode === 'play' ? newMe() : null;
@@ -72,7 +74,7 @@ let visT = 0, hudT = 0, miniT = 0, aiLate = 0;
 function step(dt) {
   G.time += dt; G.frame++;
   G.grid.clear();
-  for (const u of G.units) if (!u.dead) G.grid.insert(u);
+  for (const u of G.units) if (!u.dead && !u.inside) G.grid.insert(u);
   for (const d of G.drones) if (!d.dead) G.grid.insert(d);
   for (const m of G.missiles) if (!m.dead) G.grid.insert(m);
   visT -= dt;
@@ -131,24 +133,27 @@ function updateCamera(dt) {
   const sp = 900 / c.zoom * dt;
   let mx = 0, my = 0;
   const play = G.mode === 'play';
-  if (keys.ArrowUp || (!play && keys.KeyW)) my -= 1;
-  if (keys.ArrowDown || (!play && keys.KeyS)) my += 1;
-  if (keys.ArrowLeft || (!play && keys.KeyA)) mx -= 1;
-  if (keys.ArrowRight || (!play && keys.KeyD)) mx += 1;
-  if (play && G.mouse.in && !G.drag && !G.mouse.overHud && document.hasFocus() && !(G.me && G.me.drone)) {
-    const m = 6;
-    if (G.mouse.x < m) mx -= 1; if (G.mouse.x > G.viewW - m) mx += 1;
-    if (G.mouse.y < m) my -= 1; if (G.mouse.y > G.viewH - m) my += 1;
+  if (!play) {
+    if (keys.ArrowUp || keys.KeyW) my -= 1;
+    if (keys.ArrowDown || keys.KeyS) my += 1;
+    if (keys.ArrowLeft || keys.KeyA) mx -= 1;
+    if (keys.ArrowRight || keys.KeyD) mx += 1;
   }
-  if ((mx || my) && G.me) G.me.follow = false;
   c.x += mx * sp; c.y += my * sp;
-  // follow your squad (or the drone you are flying)
-  if (G.me && !G.over) {
+  // follow you (or the drone you are flying), leaning toward where you aim
+  if (play && G.me && !G.over) {
     const me = G.me;
-    let tgt = null;
-    if (me.drone && !me.drone.dead) tgt = { x: me.drone.x, y: me.drone.y };
-    else if (me.alive && me.follow) tgt = myCenter();
-    if (tgt) { const k = 1 - Math.pow(me.drone ? 0.02 : 0.08, dt); c.x = lerp(c.x, tgt.x, k); c.y = lerp(c.y, tgt.y, k); }
+    let tgt = null, zt = null;
+    if (me.drone && !me.drone.dead) { tgt = { x: me.drone.x, y: me.drone.y }; zt = 1.15 * me.zoomMul; }
+    else if (me.alive) {
+      const a = avatar(), m = G.mouse;
+      const lx = m.in ? clamp((m.x - G.viewW / 2) / c.zoom * 0.35, -240, 240) : 0, ly = m.in ? clamp((m.y - G.viewH / 2) / c.zoom * 0.35, -170, 170) : 0;
+      tgt = { x: a.x + lx, y: a.y + ly };
+      const v = me.vehicle, far = v && (v.type === 'missile' || (v.weapons[0] && v.weapons[0].def.arty));
+      zt = (v ? (far ? 0.7 : 1.0) : 1.35) * me.zoomMul;
+    }
+    if (tgt) { const k = 1 - Math.pow(me.drone ? 0.02 : 0.03, dt); c.x = lerp(c.x, tgt.x, k); c.y = lerp(c.y, tgt.y, k); }
+    if (zt) c.zoom = lerp(c.zoom, zt, 1 - Math.pow(0.25, dt));
   }
   // menu / spectator director camera follows the action
   if ((G.mode === 'menu' || (G.mode === 'spectate' && G.autoCam)) && !G.over) {
@@ -246,8 +251,8 @@ function render(dt) {
   if (G.me && G.me.alive) {
     const m = G.me.mission, tg = m && missionTarget(m);
     if (tg) edgeArrow(tg.x, tg.y, '#f7d54a', m.p ? m.p.letter : '!');
-    if (!G.me.follow) { const c = myCenter(); edgeArrow(c.x, c.y, '#9be7ff', 'YOU'); }
   }
+  if (G.me) drawCrosshair();
   if (FX.flash > 0.01) { ctx.fillStyle = `rgba(255,244,220,${FX.flash * 0.6})`; ctx.fillRect(0, 0, G.viewW, G.viewH); }
   if (G.drag && G.drag.box) {
     const d = G.drag; const x = Math.min(d.sx, d.ex), y = Math.min(d.sy, d.ey), w = Math.abs(d.ex - d.sx), h = Math.abs(d.ey - d.sy);
@@ -364,12 +369,12 @@ function drawUnits(view, z) {
   // shadows first
   ctx.fillStyle = 'rgba(0,0,0,0.26)';
   for (const u of G.units) {
-    if (u.x < view.x0 - 120 || u.x > view.x1 + 120 || u.y < view.y0 - 120 || u.y > view.y1 + 120 || !G.seen(u)) continue;
+    if (u.x < view.x0 - 120 || u.x > view.x1 + 120 || u.y < view.y0 - 120 || u.y > view.y1 + 120 || !G.seen(u) || u.inside) continue;
     if (u.cls === 'inf') { ctx.beginPath(); ctx.ellipse(u.x + 2.5, u.y + 3.5, u.r, u.r * 0.85, 0, 0, TAU); ctx.fill(); }
     else if (u.cls === 'veh') { ctx.save(); ctx.translate(u.x + 4, u.y + 5); ctx.rotate(u.ang); ctx.fillRect(-u.def.len / 2, -u.def.wid / 2, u.def.len, u.def.wid); ctx.restore(); }
   }
   for (const u of G.units) {
-    if (u.x < view.x0 - 120 || u.x > view.x1 + 120 || u.y < view.y0 - 120 || u.y > view.y1 + 120 || !G.seen(u)) continue;
+    if (u.x < view.x0 - 120 || u.x > view.x1 + 120 || u.y < view.y0 - 120 || u.y > view.y1 + 120 || !G.seen(u) || u.inside) continue;
     const tc = TEAM[u.team];
     ctx.save(); ctx.translate(u.x, u.y);
     if (u.cls === 'bld') {
@@ -565,44 +570,41 @@ function drawWarnings(view) {
     }
   }
 }
-// range rings, queued shots, the squad marker and the mission waypoint
-function drawSquadAids(view, z) {
-  const iz = 1 / z, me = G.me, c = myCenter();
-  const t = G.time;
-  // gun ranges for squads that fire by hand
-  const mr = manualRangeUnit();
-  if (mr) {
-    const { u, w } = mr;
-    ctx.strokeStyle = 'rgba(247,213,74,0.22)'; ctx.lineWidth = 1.5 * iz; ctx.setLineDash([10 * iz, 8 * iz]);
-    ctx.beginPath(); ctx.arc(u.x, u.y, w.def.range, 0, TAU); ctx.stroke();
-    if (w.def.min) { ctx.strokeStyle = 'rgba(255,90,60,0.22)'; ctx.beginPath(); ctx.arc(u.x, u.y, w.def.min, 0, TAU); ctx.stroke(); }
-    ctx.setLineDash([]);
-    // aim preview under the cursor
-    if (!G.aim && !(me.drone) && G.mouse.in && !G.mouse.overHud) {
-      const m = G.mouse;
-      const d = dist(u.x, u.y, m.wx, m.wy);
-      const ok = d <= w.def.range && (!w.def.min || d >= w.def.min);
-      const ready = w.cd <= 0 && w.salvo <= 0;
-      const rr = w.def.kind === 'mrocket' ? d * w.def.scatter + w.def.splash : w.def.kind === 'arty' ? d * w.def.scatter + w.def.splash : (w.def.splash || 20);
-      ctx.strokeStyle = ok ? (ready ? 'rgba(255,210,90,0.9)' : 'rgba(255,255,255,0.45)') : 'rgba(255,80,60,0.6)';
-      ctx.lineWidth = 1.5 * iz;
-      ctx.beginPath(); ctx.arc(m.wx, m.wy, rr, 0, TAU); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(m.wx - 10 * iz, m.wy); ctx.lineTo(m.wx + 10 * iz, m.wy); ctx.moveTo(m.wx, m.wy - 10 * iz); ctx.lineTo(m.wx, m.wy + 10 * iz); ctx.stroke();
+// vehicles you can take, gun ranges, your marker and the mission waypoint
+function drawAvatarAids(view, z) {
+  const iz = 1 / z, me = G.me, t = G.time, a = avatar();
+  // parked vehicles waiting for a driver
+  for (const v of G.units) {
+    if (!v.empty || v.dead || v.team !== 0 || v.x < view.x0 - 60 || v.x > view.x1 + 60 || v.y < view.y0 - 60 || v.y > view.y1 + 60) continue;
+    ctx.strokeStyle = `rgba(255,255,255,${0.35 + 0.2 * Math.sin(t * 3)})`; ctx.lineWidth = 1.5 * iz; ctx.setLineDash([5 * iz, 5 * iz]);
+    ctx.beginPath(); ctx.arc(v.x, v.y, v.def.len * 0.62, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (!me.vehicle && !me.drone) {
+    const v = nearestVehicle();
+    if (v) {
+      ctx.strokeStyle = '#f7d54a'; ctx.lineWidth = 2 * iz; ctx.beginPath(); ctx.arc(v.x, v.y, v.def.len * 0.66, 0, TAU); ctx.stroke();
+      ctx.font = `700 ${Math.round(14 * iz)}px "Barlow Condensed", "Arial Narrow", sans-serif`; ctx.textAlign = 'center';
+      const label = `E  ${v.empty ? 'Drive' : 'Take over'} ${v.def.name.toLowerCase()}`;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(label, v.x + 1 * iz, v.y - v.def.len * 0.7 - 6 * iz + 1 * iz);
+      ctx.fillStyle = '#f7d54a'; ctx.fillText(label, v.x, v.y - v.def.len * 0.7 - 6 * iz);
     }
   }
-  // queued shots
-  for (const u of me.units) for (const w of u.weapons) {
-    if (!w.manual) continue;
-    const p = w.manual;
-    ctx.strokeStyle = `rgba(255,200,80,${0.5 + 0.4 * Math.sin(t * 10)})`; ctx.lineWidth = 2 * iz;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 12 * iz, 0, TAU); ctx.stroke();
-    ctx.setLineDash([4 * iz, 6 * iz]); ctx.beginPath(); ctx.moveTo(u.x, u.y); ctx.lineTo(p.x, p.y); ctx.stroke(); ctx.setLineDash([]);
+  // artillery ranges when you drive a gun truck
+  const v = me.vehicle;
+  if (v && v.weapons[0] && v.weapons[0].def.arty) {
+    const w = v.weapons[0].def;
+    ctx.strokeStyle = 'rgba(247,213,74,0.25)'; ctx.lineWidth = 1.5 * iz; ctx.setLineDash([10 * iz, 8 * iz]);
+    ctx.beginPath(); ctx.arc(v.x, v.y, w.range, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,90,60,0.25)'; ctx.beginPath(); ctx.arc(v.x, v.y, w.min, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    const m = G.mouse, d = dist(v.x, v.y, m.wx, m.wy), rr = d * w.scatter + w.splash;
+    ctx.strokeStyle = d <= w.range && d >= w.min ? 'rgba(255,210,90,0.85)' : 'rgba(255,80,60,0.6)';
+    ctx.beginPath(); ctx.arc(m.wx, m.wy, rr, 0, TAU); ctx.stroke();
   }
-  // squad marker
-  const top = Math.min(...me.units.map((u) => u.y)) - 26 - 6 * iz;
+  // your marker
+  const top = a.y - (a.cls === 'veh' ? a.def.wid * 0.5 + 22 : 30);
   ctx.fillStyle = '#f7d54a'; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5 * iz;
-  const s = 7 * iz, by = top + Math.sin(t * 4) * 3 * iz;
-  ctx.beginPath(); ctx.moveTo(c.x - s, by - s); ctx.lineTo(c.x + s, by - s); ctx.lineTo(c.x, by + s * 0.4); ctx.closePath(); ctx.fill(); ctx.stroke();
+  const s = 6 * iz, by = top + Math.sin(t * 4) * 2 * iz;
+  ctx.beginPath(); ctx.moveTo(a.x - s, by - s); ctx.lineTo(a.x + s, by - s); ctx.lineTo(a.x, by + s * 0.4); ctx.closePath(); ctx.fill(); ctx.stroke();
   // mission waypoint
   const m = me.mission;
   if (m) {
@@ -612,8 +614,43 @@ function drawSquadAids(view, z) {
       ctx.strokeStyle = `rgba(247,213,74,${0.5 + pr * 0.4})`; ctx.lineWidth = 3 * iz;
       const r = (tg.r && !tg.def ? tg.r + 30 : 40) + pr * 6;
       ctx.beginPath(); ctx.arc(tg.x, tg.y, r, 0, TAU); ctx.stroke();
-      for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + t * 0.6; ctx.beginPath(); ctx.moveTo(tg.x + Math.cos(a) * (r + 6), tg.y + Math.sin(a) * (r + 6)); ctx.lineTo(tg.x + Math.cos(a) * (r + 22 * iz), tg.y + Math.sin(a) * (r + 22 * iz)); ctx.stroke(); }
+      for (let k = 0; k < 4; k++) { const an = k * Math.PI / 2 + t * 0.6; ctx.beginPath(); ctx.moveTo(tg.x + Math.cos(an) * (r + 6), tg.y + Math.sin(an) * (r + 6)); ctx.lineTo(tg.x + Math.cos(an) * (r + 22 * iz), tg.y + Math.sin(an) * (r + 22 * iz)); ctx.stroke(); }
     }
+  }
+}
+// crosshair, hit marker and the red edge when you get hurt (screen space)
+function drawCrosshair() {
+  const me = G.me, m = G.mouse;
+  const hurt = clamp(1 - (G.time - me.hurtT) / 0.6, 0, 1);
+  if (hurt > 0 && me.alive) {
+    const g = ctx.createRadialGradient(G.viewW / 2, G.viewH / 2, Math.min(G.viewW, G.viewH) * 0.35, G.viewW / 2, G.viewH / 2, Math.max(G.viewW, G.viewH) * 0.7);
+    g.addColorStop(0, 'rgba(200,0,0,0)'); g.addColorStop(1, `rgba(200,0,0,${0.35 * hurt})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, G.viewW, G.viewH);
+  }
+  const st = G.touch && G.touch.stick;
+  if (st) {
+    ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(st.x, st.y, 50, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(247,213,74,0.6)'; ctx.beginPath(); ctx.arc(st.x + st.dx, st.y + st.dy, 20, 0, TAU); ctx.fill();
+  }
+  if (!me.alive || !m.in || m.overHud || G.mode !== 'play') return;
+  const s = me.soldier, gun = s && s.gun;
+  let gap = 6, col = '#f2f2ea';
+  if (!me.vehicle && gun) {
+    gap = 5 + gun.def.spread * 160 * (s.moving ? 1.8 : 1);
+    if (gun.reloadT > 0) col = 'rgba(255,255,255,0.4)';
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 3.5;
+  const cross = () => { ctx.beginPath(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(m.x + dx * gap, m.y + dy * gap); ctx.lineTo(m.x + dx * (gap + 7), m.y + dy * (gap + 7)); } ctx.stroke(); };
+  cross(); ctx.strokeStyle = col; ctx.lineWidth = 1.6; cross();
+  if (!me.vehicle && gun && gun.reloadT > 0) {
+    ctx.strokeStyle = '#f7d54a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(m.x, m.y, gap + 12, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - gun.reloadT / gun.def.reload)); ctx.stroke();
+  }
+  const hit = clamp(1 - (G.time - me.hitT) / 0.25, 0, 1);
+  if (hit > 0) {
+    ctx.strokeStyle = `rgba(255,90,60,${hit})`; ctx.lineWidth = 2.2; ctx.beginPath();
+    for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { ctx.moveTo(m.x + dx * 4, m.y + dy * 4); ctx.lineTo(m.x + dx * 10, m.y + dy * 10); }
+    ctx.stroke();
   }
 }
 function drawOverlays(view, z) {
@@ -621,7 +658,7 @@ function drawOverlays(view, z) {
   const pt = G.playerTeam;
   // your squad
   ctx.lineWidth = 1.6 * iz;
-  if (G.me && G.me.alive) drawSquadAids(view, z);
+  if (G.me && G.me.alive) drawAvatarAids(view, z);
   for (const u of G.sel) {
     if (u.dead) continue;
     const r = (u.cls === 'veh' ? u.def.len * 0.62 : u.cls === 'bld' ? u.r + 12 : u.r + 4);
@@ -638,7 +675,7 @@ function drawOverlays(view, z) {
   // health bars
   if (z > 0.38) {
     for (const u of G.units) {
-      if (u.x < view.x0 - 60 || u.x > view.x1 + 60 || u.y < view.y0 - 60 || u.y > view.y1 + 60 || !G.seen(u)) continue;
+      if (u.x < view.x0 - 60 || u.x > view.x1 + 60 || u.y < view.y0 - 60 || u.y > view.y1 + 60 || !G.seen(u) || u.inside) continue;
       const show = G.sel.has(u) || u === G.hover || (u.hp < u.maxHp && (u.cls !== 'inf' || z > 1.15)) || u.cls === 'bld';
       if (!show) continue;
       const w = u.cls === 'inf' ? 18 : u.cls === 'bld' ? (u.type === 'hq' ? 150 : 50) : u.def.len * 0.9;
@@ -715,8 +752,8 @@ function drawMinimap() {
     g.beginPath(); g.arc(p.x * sx, p.y * sy, 5 * dpr, 0, TAU); g.fill(); g.stroke();
   }
   for (const u of G.units) {
-    if (!G.seen(u)) continue;
-    g.fillStyle = u.team === 0 ? '#5cbcff' : '#ff6455';
+    if (!G.seen(u) || u.inside) continue;
+    g.fillStyle = u.avatar || (G.me && u === G.me.vehicle) ? '#f7d54a' : u.team === 0 ? '#5cbcff' : '#ff6455';
     const s = (u.cls === 'inf' ? 1.6 : u.cls === 'bld' ? 5 : 3) * dpr;
     g.fillRect(u.x * sx - s / 2, u.y * sy - s / 2, s, s);
   }
@@ -745,7 +782,7 @@ function underAttack(u) {
   const s = worldToScreen(u.x, u.y);
   if (s.x > 0 && s.y > 0 && s.x < G.viewW && s.y < G.viewH) return;
   lastAttackNote = G.time;
-  notify('Your squad is under fire!', 'warn', u.x, u.y);
+  notify("You're under fire!", 'warn', u.x, u.y);
   Sound.play('alert', 0.35);
 }
 let lossNoteT = -99;

@@ -39,6 +39,7 @@ const WEAPONS = {
   howitzer: { range: 1650, min: 320, dmg: 190, cd: 6.5, acc: 1, kind: 'arty', splash: 85, sup: 50, scatter: 0.05, deploy: 2, air: 0, vs: { inf: 1, veh: 0.8, bld: 1.1 }, snd: 'howitzer', arty: true },
   mlrs:     { range: 1450, min: 380, dmg: 62, cd: 24, salvo: 12, salvoGap: 0.2, acc: 1, kind: 'mrocket', splash: 56, sup: 35, scatter: 0.085, deploy: 1.5, air: 0, vs: { inf: 1, veh: 0.7, bld: 0.8 }, snd: 'mlrs', turret: true, arty: true },
   tcannon:  { range: 470, dmg: 150, cd: 2.8, acc: 0.85, kind: 'shell', speed: 1200, splash: 34, sup: 25, air: 0, vs: { inf: 0.7, veh: 1, bld: 0.5 }, snd: 'cannon', turret: true },
+  jeepmg:   { range: 330, dmg: 8, cd: 0.1, acc: 0.45, kind: 'bullet', tracer: 1, air: 0.35, sup: 8, vs: { inf: 1, veh: 0.05, bld: 0.03, air: 1 }, snd: 'mg', moveFire: true, turret: true },
   tmg:      { range: 360, dmg: 8, cd: 0.1, burst: 10, rest: 0.9, acc: 0.45, kind: 'bullet', tracer: 1, air: 0.35, sup: 9, vs: { inf: 1, veh: 0.04, bld: 0.03, air: 1 }, snd: 'mg' },
 };
 
@@ -65,6 +66,8 @@ const UNITS = {
   missile:   { name: 'Missile Launcher', cls: 'veh', hp: 560, speed: 64, vision: 360, len: 68, wid: 28, turn: 1.5, weapons: [], role: 'arty', ability: 'missile', pop: 6, truck: true },
   mlrs:      { name: 'MLRS', cls: 'veh', hp: 560, speed: 72, vision: 360, len: 58, wid: 26, turn: 1.8, tturn: 1.4, weapons: ['mlrs'], role: 'arty', pop: 5, truck: true },
   supply:    { name: 'Supply Truck', cls: 'veh', hp: 650, speed: 98, vision: 340, len: 56, wid: 26, turn: 2.3, weapons: [], role: 'support', pop: 2, truck: true, repairAura: { range: 170, veh: 22, inf: 7 }, capture: 3 },
+
+  jeep:      { name: 'Jeep', cls: 'veh', hp: 380, speed: 165, vision: 380, len: 36, wid: 20, turn: 2.8, tturn: 6, weapons: ['jeepmg'], role: 'support', pop: 0, truck: true, value: 120 },
 
   hq:        { name: 'Headquarters', cls: 'bld', hp: 9000, speed: 0, vision: 560, r: 92, weapons: [], role: 'bld' },
   turret:    { name: 'Bunker Turret', cls: 'bld', hp: 1800, speed: 0, vision: 500, r: 26, weapons: ['tcannon', 'tmg'], role: 'bld' },
@@ -112,6 +115,7 @@ for (const p of PRODUCTS) {
   if (!u.pop) u.pop = 1;
 }
 UNITS.hq.value = 1600; UNITS.hq.pop = 0;
+UNITS.jeep.pop = 0;
 UNITS.turret.value = 400; UNITS.turret.pop = 0;
 for (const k in UNITS) {
   const u = UNITS[k];
@@ -134,60 +138,35 @@ const DIFFS = {
   general: { name: 'General', think: 0.6, income: 1.35, dodge: true, kite: true, pincer: true, focus: true, retreatRatio: 0.65, minStrike: 130, raid: true },
 };
 
-// The squads you can lead. Every one is a team of several units built around one job.
-// members: [unit type, count]. role picks the kind of orders command gives you.
-const SQUADS = [
-  { id: 'rifle', name: 'Rifle Squad', members: [['officer', 1], ['rifleman', 5], ['mgunner', 1], ['medic', 1]], role: 'capture',
-    desc: 'A squad leader, five riflemen, a machine gunner and a medic. The all-rounder of the war.', good: 'Taking and holding points', bad: 'Tanks, artillery',
-    hint: 'Right-click to move or attack. Right-click a capture point to spread out on it; your officer captures 3× faster.' },
-  { id: 'assault', name: 'Assault Squad', members: [['officer', 1], ['grenadier', 4], ['engineer', 2]], role: 'capture',
-    desc: 'Grenadiers and satchel-carrying engineers. Clears forests and blows up armor that gets too close.', good: 'Troops in cover, armor up close', bad: 'Long-range fire',
-    hint: 'Left-click a spot to throw grenades there. Engineers throw satchels at nearby armor. Q lays an AT mine.' },
-  { id: 'mg', name: 'Heavy Weapons Squad', members: [['mgunner', 3], ['rifleman', 2], ['medic', 1]], role: 'capture',
-    desc: 'Three machine guns with riflemen and a medic. Hold a point and nothing on foot gets through.', good: 'Infantry attacks', bad: 'Tanks, artillery',
-    hint: 'Machine guns stop for a second to set up, then shred and pin infantry. Dig in on a point and let them come.' },
-  { id: 'at', name: 'Anti-Tank Squad', members: [['antitank', 4], ['engineer', 1], ['rifleman', 2]], role: 'hunt',
-    desc: 'Four rocket launchers, an engineer and two riflemen for cover. Built to kill tanks.', good: 'Tanks and trucks', bad: 'Infantry swarms',
-    hint: 'Left-click a spot or an enemy to fire every rocket. Hit tanks from the side or rear for more damage. Q lays an AT mine.' },
-  { id: 'sniper', name: 'Sniper Team', members: [['sniper', 3], ['scout', 1]], role: 'snipe',
-    desc: 'Three snipers and a spotter. Hidden while still, deadly at 590 m.', good: 'Officers, MGs, specialists', bad: 'Vehicles, artillery',
-    hint: 'Stand still to hide. Left-click an enemy and all three snipers take the shot. The scout sees far ahead.' },
-  { id: 'recon', name: 'Recon Team', members: [['scout', 3], ['radioop', 1]], role: 'recon',
-    desc: 'Three scouts and a radio operator. Find the enemy, then drop a barrage on them.', good: 'Vision, calling artillery', bad: 'Direct fights',
-    hint: 'Scouts hide when still and see 590 m. Q calls a 9-shell barrage on anything your side can see.' },
-  { id: 'drone', name: 'Drone Team', members: [['droneop', 3], ['jammer', 1], ['rifleman', 2]], role: 'hunt',
-    desc: 'Three FPV drone pilots, a jammer to keep enemy drones off them and two riflemen.', good: 'Tanks, artillery', bad: 'Jammers, AA guns',
-    hint: 'Q launches a drone: steer it with the mouse, left-click to detonate. With three pilots another drone is usually ready.' },
-  { id: 'fires', name: 'Fire Support Team', members: [['radioop', 2], ['scout', 1], ['rifleman', 2]], role: 'fire',
-    desc: 'Two radio operators with a spotter and an escort. Calls barrage after barrage.', good: 'Dug-in groups', bad: 'Fast movers',
-    hint: 'Q calls a 9-shell barrage on anything your side can see. Two radios: two barrages before the cooldown.' },
-  { id: 'eng', name: 'Combat Engineers', members: [['engineer', 4], ['rifleman', 2], ['medic', 1]], role: 'support',
-    desc: 'Four engineers, two riflemen and a medic. Repairs tanks, mines roads, blows up armor.', good: 'Repairs, ambushes', bad: 'Infantry at range',
-    hint: 'Engineers repair friendly vehicles nearby on their own. Q lays an AT mine on a road the enemy uses.' },
-  { id: 'tanks', name: 'Tank Platoon', members: [['heavytank', 2], ['lighttank', 1]], role: 'capture',
-    desc: 'Two battle tanks and a light tank. The hammer of the army.', good: 'Everything up front', bad: 'Drones, mines, flanking AT',
-    hint: 'Left-click to fire every cannon at a spot. Keep your front toward the enemy: hits from behind deal 1.5× damage.' },
-  { id: 'cav', name: 'Light Armor Platoon', members: [['lighttank', 3], ['aa', 1]], role: 'capture',
-    desc: 'Three fast light tanks with an AA gun riding along to swat drones.', good: 'Flanks, raids, infantry', bad: 'Battle tanks, AT squads',
-    hint: 'Left-click to fire the cannons at a spot. You are fast: go around and hit them from the side.' },
-  { id: 'arty', name: 'Artillery Battery', members: [['howitzer', 3], ['radar', 1], ['supply', 1]], role: 'fire',
-    desc: 'Three 155 mm howitzers, a radar truck to find targets and a supply truck to keep them running.', good: 'Static targets, clusters', bad: 'Drones, raids',
-    hint: 'Park, then left-click anywhere 320–1650 m away: all three guns fire. Spotted targets are hit more accurately.' },
-  { id: 'rockets', name: 'Rocket Battery', members: [['mlrs', 2], ['radar', 1]], role: 'fire',
-    desc: 'Two rocket launchers and a radar truck. 24 rockets in one click.', good: 'Infantry, area denial', bad: 'Drones, raids',
-    hint: 'Park, then left-click a spot 380–1450 m away for a 24-rocket salvo. 24 s reload.' },
-  { id: 'missile', name: 'Missile Battery', members: [['missile', 2], ['aa', 1]], role: 'fire',
-    desc: 'Two tactical missile launchers guarded by an AA gun.', good: 'Big groups, the enemy HQ', bad: 'AA guns, the 70 s reload',
-    hint: 'Q or left-click a spot your side can see to launch a missile. Each launcher reloads in 70 s.' },
-  { id: 'aa', name: 'Air Defense Platoon', members: [['aa', 2], ['radar', 1], ['supply', 1]], role: 'support',
-    desc: 'Two AA guns, a radar and a supply truck. No drone or missile gets through.', good: 'Drones, missiles, infantry', bad: 'Tanks, AT',
-    hint: 'Your guns shoot down drones and missiles on their own. Escort the tanks and the artillery.' },
+// ---------------------------------------------------------------------
+// You: one soldier. Guns you fire by hand, and the classes you can play.
+// ---------------------------------------------------------------------
+const PLAYER_GUNS = {
+  p_rifle:   { name: 'Assault rifle', kind: 'bullet', dmg: 20, cd: 0.13, mag: 30, reload: 2.0, spread: 0.045, range: 330, sup: 5, tracer: 0, auto: true, snd: 'rifle', air: true },
+  p_mg:      { name: 'Machine gun', kind: 'bullet', dmg: 15, cd: 0.075, mag: 100, reload: 4.2, spread: 0.085, range: 380, sup: 10, tracer: 1, auto: true, snd: 'mg', air: true },
+  p_sniper:  { name: 'Sniper rifle', kind: 'bullet', dmg: 135, cd: 1.1, mag: 5, reload: 2.8, spread: 0.004, range: 700, sup: 40, tracer: 2, auto: false, snd: 'sniper' },
+  p_smg:     { name: 'SMG', kind: 'bullet', dmg: 12, cd: 0.07, mag: 35, reload: 1.7, spread: 0.08, range: 230, sup: 3, tracer: 0, auto: true, snd: 'pistol', air: true },
+  p_carbine: { name: 'Carbine', kind: 'bullet', dmg: 17, cd: 0.15, mag: 25, reload: 1.9, spread: 0.05, range: 300, sup: 4, tracer: 0, auto: true, snd: 'rifle', air: true },
+  p_pistol:  { name: 'Pistol', kind: 'bullet', dmg: 24, cd: 0.2, mag: 12, reload: 1.4, spread: 0.04, range: 220, sup: 2, tracer: 0, auto: false, snd: 'pistol' },
+  p_rocket:  { name: 'Rocket launcher', kind: 'rocket', dmg: 330, cd: 0.5, mag: 1, reload: 3.0, spread: 0.01, range: 430, splash: 30, speed: 520, vs: { inf: 0.6, veh: 1, bld: 0.9 }, auto: false, snd: 'rocket' },
+};
+const CLASSES = [
+  { id: 'rifleman', name: 'Rifleman', unit: 'rifleman', hp: 160, gun: 'p_rifle', nades: 3, role: 'capture',
+    desc: 'Assault rifle and three grenades. Takes points and holds them.', hint: 'Hold left click to fire. Right click throws a grenade. Stand on points to capture them.' },
+  { id: 'mg', name: 'Machine Gunner', unit: 'mgunner', hp: 180, gun: 'p_mg', nades: 2, role: 'capture', speed: 0.9,
+    desc: 'A 100-round machine gun that pins infantry down. A bit slower on foot.', hint: 'Long bursts pin enemy infantry: pinned troops crawl and miss.' },
+  { id: 'sniper', name: 'Sniper', unit: 'sniper', hp: 130, gun: 'p_sniper', nades: 1, role: 'snipe',
+    desc: 'One shot, one kill from 700 m. Hidden while standing still.', hint: 'Stand still to stay hidden. Click once per shot; every shot is deadly.' },
+  { id: 'at', name: 'Anti-Tank', unit: 'antitank', hp: 160, gun: 'p_rocket', nades: 2, role: 'hunt',
+    desc: 'A rocket launcher that cracks armor. Hit tanks from behind for 1.5× damage.', hint: 'One rocket, then reload. Aim for the sides and rear of tanks.' },
+  { id: 'medic', name: 'Medic', unit: 'medic', hp: 150, gun: 'p_smg', nades: 2, role: 'capture',
+    desc: 'SMG and a medkit. Heals soldiers around you; Q heals yourself to full.', hint: 'Allies near you heal on their own. Q: patch yourself up (40 s).' , ability: 'medkit' },
+  { id: 'engineer', name: 'Engineer', unit: 'engineer', hp: 150, gun: 'p_smg', nades: 2, role: 'support',
+    desc: 'SMG, AT mines and a wrench. Repairs the vehicle you drive or stand next to.', hint: 'Q drops an AT mine at your feet. Your vehicle repairs itself while you drive it.' },
+  { id: 'radio', name: 'Radio Operator', unit: 'radioop', hp: 150, gun: 'p_carbine', nades: 2, role: 'fire',
+    desc: 'Carbine and a radio. Calls a 9-shell artillery barrage anywhere your side can see.', hint: 'Q, then click where the barrage should land (950 m).' },
+  { id: 'drone', name: 'Drone Operator', unit: 'droneop', hp: 150, gun: 'p_carbine', nades: 2, role: 'hunt',
+    desc: 'Carbine and kamikaze FPV drones. You fly them yourself.', hint: 'Q launches a drone: steer with the mouse, click to detonate. Your soldier stands still while you fly.' },
 ];
-for (const k of SQUADS) {
-  k.size = k.members.reduce((a, [, n]) => a + n, 0);
-  k.cost = k.members.reduce((a, [t, n]) => a + UNITS[t].value * n, 0);
-  k.cls = k.members.every(([t]) => UNITS[t].cls === 'inf') ? 'inf' : 'veh';
-  k.lead = k.members[0][0];
-}
-const SQUAD_BY_ID = {};
-for (const k of SQUADS) SQUAD_BY_ID[k.id] = k;
+const CLASS_BY_ID = {};
+for (const c of CLASSES) CLASS_BY_ID[c.id] = c;

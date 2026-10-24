@@ -114,8 +114,10 @@ function updateUnit(u, dt) {
   u.spotT = Math.max(0, u.spotT - dt);
   u.sup = Math.max(0, u.sup - dt * (u.aura ? 30 : 16));
   if (u.abilityCd > 0) u.abilityCd -= dt * (u.supplied ? 1.4 : 1);
+  if (u.inside) { u.x = u.inside.x; u.y = u.inside.y; return; } // you, riding in a vehicle
+  if (u.empty) return; // parked, nobody inside
 
-  if (d.speed > 0) moveUnit(u, dt);
+  if (d.speed > 0 && !u.direct) moveUnit(u, dt);
   updateWeapons(u, dt);
   if (d.heal || d.repair || d.repairAura) supportTick(u, dt);
   if (d.ability) abilityTick(u, dt);
@@ -311,6 +313,7 @@ function updateWeapons(u, dt) {
       if (w.salvoT <= 0 && w.aim) { w.salvoT = wd.salvoGap; w.salvo--; fireMRocket(u, w); }
       continue;
     }
+    if (u.direct) continue; // you pull the trigger yourself
     if (w.manual) { manualFire(u, w, wi, dt); continue; }
     if (u.player && wd.arty && !u.autoArty) { if (wi === 0 && wd.turret) u.tang = rotTo(u.tang, u.ang, (d.tturn || 2) * dt); continue; }
     w.retarget -= dt;
@@ -510,6 +513,8 @@ function damage(t, amount, src, sup, fromX, fromY) {
     if (sup) t.sup = Math.min(100, t.sup + sup * (t.aura ? 0.5 : 1));
   }
   if (t.isDrone || t.isMissile) { t.hp -= amount; if (t.hp <= 0) t.kill(src); return; }
+  if (t.avatar) amount *= 0.55; // you are a bit tougher than the average soldier
+  if (t.player && G.me) G.me.hurtT = G.time;
   if (src && src.player && G.me && src.team !== t.team) playerDamage(t, amount);
   t.hp -= amount;
   t.hitFlash = 0.1;
@@ -552,11 +557,11 @@ function killUnit(u, src) {
   }
   if (src) G.teams[1 - u.team].stats.kills++;
   if (src && src.player && G.me && src.team !== u.team) playerKill(u);
+  if (u.player && G.me) onPlayerUnitDead(u);
   if (u.drone && !u.drone.dead) u.drone.lost = true;
   if (u.cls === 'inf') {
     decalBody(u);
     for (let i = 0; i < 3; i++) dust(u.x, u.y, 0.6, 0.8);
-    if (u.player) G.lossFeed(u);
   } else if (u.cls === 'veh') {
     explode(u.x, u.y, 5);
     sparks(u.x, u.y, 30, 400);
@@ -564,7 +569,6 @@ function killUnit(u, src) {
     u.wreck = true;
     G.wrecks.push({ x: u.x, y: u.y, ang: u.ang, type: u.type, team: u.team, t: 0, life: 22, tang: u.tang });
     emitter(u.x, u.y, 22, 1.1);
-    if (u.player) G.lossFeed(u);
   } else if (u.cls === 'bld') {
     explode(u.x, u.y, u.type === 'hq' ? 10 : 6);
     for (let i = 0; i < (u.type === 'hq' ? 8 : 2); i++) setTimeout(() => explode(u.x + rand(-80, 80), u.y + rand(-70, 70), rand(3, 6)), i * 260);

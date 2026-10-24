@@ -186,6 +186,28 @@ body[data-mode="play"] #feed { top: calc(env(safe-area-inset-top, 0px) + 168px);
 .sq-dead span { color: var(--muted); }
 body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-mode="spectate"] .res { display: none; }
 
+/* ---------- you ---------- */
+body[data-mode="play"] #view { cursor: none; }
+.hp { height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+.hp i { display: block; height: 100%; background: var(--good); transform-origin: left; transition: transform .15s; }
+.hp i.low { background: var(--bad); }
+.ammo { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 2px 10px; min-width: 210px; }
+.ammo span { color: #cfd8ca; font-size: 14px; }
+.ammo b { font: 700 22px/1 var(--ui); font-variant-numeric: tabular-nums; justify-self: end; }
+.ammo i { grid-column: 1 / -1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+.ammo i b { display: block; height: 100%; background: var(--gold); transform-origin: left; font: inherit; }
+.nades { display: flex; gap: 4px; align-items: center; }
+.nades i { width: 12px; height: 15px; border-radius: 6px 6px 5px 5px; border: 1.5px solid var(--muted); }
+.nades i.on { background: #8d9a5a; border-color: #cbd59a; }
+.veh { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid rgba(247,213,74,0.4); border-radius: 5px; background: rgba(247,213,74,0.06); }
+.veh > div { flex: 1; display: grid; gap: 3px; }
+.gun { font-size: 14px; color: #cfd8ca; margin-right: 10px; }
+#touch { display: none; }
+@media (pointer: coarse) {
+  body[data-mode="play"] #touch { display: flex; position: fixed; right: max(10px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 200px); flex-direction: column; gap: 8px; pointer-events: auto; z-index: 5; }
+  #touch button { width: 64px; height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-weight: 700; }
+}
+
 /* ---------- squad picker ---------- */
 #picker { background: rgba(5,9,7,0.55); }
 #picker .sheet { width: min(1060px, 100%); display: grid; gap: 14px; }
@@ -275,6 +297,7 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
 
     <div id="bottom">
       <div id="mini" class="hud-panel"><canvas id="minimap" aria-label="Minimap"></canvas></div>
+      <div id="touch" aria-hidden="true"><button type="button" id="tE">E</button><button type="button" id="tG">Nade</button><button type="button" id="tQ">Q</button><button type="button" id="tR">Reload</button><button type="button" id="tM">MG</button></div>
       <div id="mid">
         <div id="squad" class="hud-panel"></div>
       </div>
@@ -286,8 +309,7 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
       <div><h2 id="pkTitle">Pick your squad</h2><p id="pkSub"></p></div>
       <div class="pk-cols">
         <div>
-          <h3>Infantry</h3><div class="pk-grid" id="pkInf"></div>
-          <h3>Vehicles</h3><div class="pk-grid" id="pkVeh"></div>
+          <h3>Class</h3><div class="pk-grid" id="pkInf"></div>
         </div>
         <div>
           <div id="pkInfo"></div>
@@ -300,9 +322,9 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
 
   <div id="menu" class="overlay">
     <div class="menu-inner">
-      <div class="eyebrow">Your squad · two AI armies · 20 unit types</div>
+      <div class="eyebrow">One soldier · two AI armies · drive anything</div>
       <h1 class="logo">D<span class="dot" aria-hidden="true"></span>T <span class="r">WAR</span></h1>
-      <p class="lede">Two AI generals fight a full-scale war. You lead one blue squad of your choice: shell the red line with an artillery battery, fly kamikaze drones, snipe officers with a sniper team or take the bridges with a rifle squad.</p>
+      <p class="lede">Two AI generals fight a full-scale war. You are one soldier in the blue army. Shoot, throw grenades, fly kamikaze drones, then jump into a jeep or a tank and drive straight into the fight.</p>
       <div class="opt">
         <span class="lbl" id="lblDiff">Enemy general</span>
         <div class="chips" role="radiogroup" aria-labelledby="lblDiff">
@@ -336,28 +358,30 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
         <div>
           <h3>Controls</h3>
           <table>
-            <tr><td>Move</td><td>Right-click the ground (right-click a capture point to spread out on it)</td></tr>
-            <tr><td>Attack</td><td>Right-click or left-click an enemy</td></tr>
-            <tr><td>Fire at a spot</td><td>Left-click the ground: artillery, MLRS, tanks, AT rockets, grenades</td></tr>
-            <tr><td>Abilities</td><td>Q (and F for a second one): drone, barrage, missile, mine</td></tr>
-            <tr><td>Fly a drone</td><td>Q to launch, steer with the mouse, left-click to detonate</td></tr>
-            <tr><td>Attack-move</td><td>A then click, or Ctrl + right-click</td></tr>
-            <tr><td>Auto-fire</td><td>E lets your squad pick its own targets</td></tr>
-            <tr><td>Stop / hold</td><td>S / H</td></tr>
-            <tr><td>Change squad</td><td>Tab</td></tr>
-            <tr><td>Camera</td><td>Follows your squad. Drag, arrows or screen edges to look around, Space to snap back</td></tr>
+            <tr><td>Move</td><td>WASD (Shift to sprint)</td></tr>
+            <tr><td>Aim / shoot</td><td>Mouse / hold left click</td></tr>
+            <tr><td>Grenade</td><td>Right click or G</td></tr>
+            <tr><td>Reload</td><td>R</td></tr>
+            <tr><td>Get in / out</td><td>E next to a jeep or any friendly vehicle</td></tr>
+            <tr><td>Drive</td><td>WASD; the turret follows the mouse</td></tr>
+            <tr><td>Vehicle guns</td><td>Left click: main gun · right click: machine gun</td></tr>
+            <tr><td>Class ability</td><td>Q: medkit, AT mine, artillery barrage, FPV drone</td></tr>
+            <tr><td>Fly a drone</td><td>Steer with the mouse, left click to detonate</td></tr>
+            <tr><td>Change class</td><td>Tab</td></tr>
+            <tr><td>Zoom</td><td>Mouse wheel</td></tr>
             <tr><td>Pause / sound</td><td>P or Esc / M</td></tr>
-            <tr><td>Touch</td><td>Tap the ground to move, tap an enemy to attack, hold to fire at a spot, pinch to zoom</td></tr>
+            <tr><td>Touch</td><td>Left thumb moves, right thumb aims and shoots, buttons for the rest</td></tr>
           </table>
         </div>
         <div>
           <h3>How the war works</h3>
           <ul class="rules">
-            <li>Both armies are run by AI generals. You lead one squad of 3 to 8 units; the allied general runs everyone else.</li>
-            <li>Your squad moves at the pace of its slowest member, and every member with a gun that reaches fires when you left-click a spot.</li>
+            <li>Both armies are run by AI generals. You are one soldier in the blue army.</li>
+            <li>Jeeps wait at the HQ. You can also take over any friendly tank or truck: its crew lets you drive. Leave it and a crew takes it back after a while.</li>
+            <li>Drive fast enough and you run enemy soldiers over. If your vehicle blows up, you bail out hurt.</li>
+            <li>Your health comes back when you stay out of the fight for a few seconds.</li>
             <li>Command sends you orders that fit your squad. Finish them for bonus points.</li>
-            <li>Lost soldiers come back while your squad rests out of combat near the HQ, a point you hold or a supply truck. Lost vehicles are replaced at the HQ.</li>
-            <li>When your squad is wiped out, pick a new one: infantry squads deploy at the HQ or on a point you hold, vehicle squads at the HQ.</li>
+            <li>When you die, pick a class and deploy at the HQ or on a point your side holds.</li>
             <li>After the first minute, whoever holds fewer points bleeds tickets every second (0.7 per point behind, up to 4). Losing units costs tickets too. Hit 0 and you lose.</li>
             <li>Destroying the enemy HQ wins outright. It is guarded by two bunker turrets.</li>
             <li>Infantry in forests take less damage and stay hidden until enemies get close. Scouts and snipers also hide while standing still. Radar trucks see through it.</li>
@@ -370,7 +394,7 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
         </div>
       </div>
       <div>
-        <h3>Squads you can lead</h3>
+        <h3>Classes</h3>
         <ul id="roster"></ul>
       </div>
     </div>
@@ -404,7 +428,7 @@ body[data-mode="spectate"] #mid, body[data-mode="spectate"] #mission, body[data-
 <script src="js/draw.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/ai.js"></script>
-<script src="js/squad.js"></script>
+<script src="js/avatar.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
 </body>
