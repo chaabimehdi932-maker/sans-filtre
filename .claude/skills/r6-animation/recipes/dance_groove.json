@@ -1,6 +1,6 @@
 {
   "name": "Dance_Groove",
-  "note": "Side-step groove at 120 BPM, 2s loop = 4 beats (1 beat = 30 frames). Down on the beat (a leg steps out wide, 'ground' drops the body), up on the off-beat. Arms pump alternately, torso twists toward the stepping side, head nods on the beat. Ease 'in' into each beat (accelerate down), 'out' out of it.",
+  "note": "Groove at 120 BPM, 2s loop = 4 beats (1 beat = 30 frames). Feet stay planted in a wide stance; the dance is WEIGHT TRANSFER: on each beat the body drops (plant + negative up: legs sink into the torso) and shifts over one foot (Torso right/tilt toward it), arms pump on the opposite side, head nods on the beat. Ease 'in' into each beat (accelerate down), 'out' out of it.",
   "loop": true,
   "priority": "Action",
   "fps": 60,
@@ -10,157 +10,261 @@
       "f": 0,
       "name": "beat1",
       "ease": "out",
+      "plant": true,
+      "support": "double",
       "Torso": {
-        "twist": 12,
+        "twist": 10,
         "tilt": 5,
-        "lean": 6
+        "lean": 6,
+        "up": -0.4,
+        "right": 0.25
       },
       "Head": {
-        "nod": 10,
-        "tilt": -4
+        "nod": 12,
+        "tilt": -5
       },
       "RightArm": {
-        "forward": 160,
-        "out": 20,
+        "forward": 30,
+        "out": 22,
         "twist": -10
       },
       "LeftArm": {
-        "forward": 30,
-        "out": 25
+        "forward": 160,
+        "out": 22,
+        "twist": -10
       },
       "RightLeg": {
-        "out": 30
+        "out": 14,
+        "twist": 10
       },
       "LeftLeg": {
-        "out": 6
+        "out": 14,
+        "twist": 10
       }
     },
     {
       "f": 15,
       "name": "and1",
       "ease": "in",
+      "plant": true,
+      "support": "double",
       "Torso": {
-        "twist": 4,
-        "tilt": 1,
-        "lean": 2
+        "lean": 2,
+        "up": -0.05
       },
       "Head": {
         "nod": -3
       },
       "RightArm": {
-        "forward": 110,
-        "out": 25
+        "forward": 90,
+        "out": 26
       },
       "LeftArm": {
-        "forward": 70,
-        "out": 25
+        "forward": 90,
+        "out": 26
       },
       "RightLeg": {
-        "out": 8
+        "out": 14,
+        "twist": 10
       },
       "LeftLeg": {
-        "out": 8
+        "out": 14,
+        "twist": 10
       }
     },
     {
       "f": 30,
       "name": "beat2",
       "ease": "out",
+      "plant": true,
+      "support": "double",
       "Torso": {
-        "twist": -12,
+        "twist": -10,
         "tilt": -5,
-        "lean": 6
+        "lean": 6,
+        "up": -0.4,
+        "right": -0.25
       },
       "Head": {
-        "nod": 10,
-        "tilt": 4
+        "nod": 12,
+        "tilt": 5
       },
       "RightArm": {
-        "forward": 30,
-        "out": 25
+        "forward": 160,
+        "out": 22,
+        "twist": -10
       },
       "LeftArm": {
-        "forward": 160,
-        "out": 20,
+        "forward": 30,
+        "out": 22,
         "twist": -10
       },
       "RightLeg": {
-        "out": 6
+        "out": 14,
+        "twist": 10
       },
       "LeftLeg": {
-        "out": 30
+        "out": 14,
+        "twist": 10
       }
     },
     {
       "f": 45,
       "name": "and2",
       "ease": "in",
+      "plant": true,
+      "support": "double",
       "Torso": {
-        "twist": -4,
-        "tilt": -1,
-        "lean": 2
+        "lean": 2,
+        "up": -0.05
       },
       "Head": {
         "nod": -3
       },
       "RightArm": {
-        "forward": 70,
-        "out": 25
+        "forward": 90,
+        "out": 26
       },
       "LeftArm": {
-        "forward": 110,
-        "out": 25
+        "forward": 90,
+        "out": 26
       },
       "RightLeg": {
-        "out": 8
+        "out": 14,
+        "twist": 10
       },
       "LeftLeg": {
-        "out": 8
+        "out": 14,
+        "twist": 10
       }
     },
     {
       "f": 60,
       "name": "beat3",
-      "from": "beat1"
+      "ease": "out",
+      "plant": true,
+      "support": "double",
+      "Torso": {
+        "twist": 10,
+        "tilt": 5,
+        "lean": 6,
+        "up": -0.4,
+        "right": 0.25
+      },
+      "Head": {
+        "nod": 12,
+        "tilt": -5
+      },
+      "RightArm": {
+        "forward": 30,
+        "out": 22,
+        "twist": -10
+      },
+      "LeftArm": {
+        "forward": 160,
+        "out": 22,
+        "twist": -10
+      },
+      "RightLeg": {
+        "out": 14,
+        "twist": 10
+      },
+      "LeftLeg": {
+        "out": 14,
+        "twist": 10
+      }
     },
     {
       "f": 75,
       "name": "and3",
-      "from": "and1"
+      "ease": "in",
+      "plant": true,
+      "support": "double",
+      "Torso": {
+        "lean": 2,
+        "up": -0.05
+      },
+      "Head": {
+        "nod": -3
+      },
+      "RightArm": {
+        "forward": 90,
+        "out": 26
+      },
+      "LeftArm": {
+        "forward": 90,
+        "out": 26
+      },
+      "RightLeg": {
+        "out": 14,
+        "twist": 10
+      },
+      "LeftLeg": {
+        "out": 14,
+        "twist": 10
+      }
     },
     {
       "f": 90,
       "name": "beat4_clap",
       "ease": "out",
+      "plant": true,
+      "support": "double",
       "Torso": {
-        "twist": 0,
-        "tilt": 0,
-        "lean": 10
+        "lean": 10,
+        "up": -0.45
       },
       "Head": {
         "nod": 14
       },
       "RightArm": {
         "forward": 92,
-        "out": -16,
+        "out": -12,
         "twist": -40
       },
       "LeftArm": {
         "forward": 92,
-        "out": -16,
+        "out": -12,
         "twist": -40
       },
       "RightLeg": {
-        "out": 22
+        "out": 14,
+        "twist": 10
       },
       "LeftLeg": {
-        "out": 22
+        "out": 14,
+        "twist": 10
       }
     },
     {
       "f": 105,
       "name": "and4",
-      "from": "and2"
+      "ease": "in",
+      "plant": true,
+      "support": "double",
+      "Torso": {
+        "lean": 2,
+        "up": -0.05
+      },
+      "Head": {
+        "nod": -3
+      },
+      "RightArm": {
+        "forward": 90,
+        "out": 26
+      },
+      "LeftArm": {
+        "forward": 90,
+        "out": 26
+      },
+      "RightLeg": {
+        "out": 14,
+        "twist": 10
+      },
+      "LeftLeg": {
+        "out": 14,
+        "twist": 10
+      }
     },
     {
       "f": 120,
@@ -173,5 +277,6 @@
       "f": 90,
       "name": "Clap"
     }
-  ]
+  ],
+  "balance": true
 }

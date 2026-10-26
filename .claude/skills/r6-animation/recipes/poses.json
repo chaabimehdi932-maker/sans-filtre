@@ -1,0 +1,613 @@
+{
+  "name": "Pose_Library",
+  "note": "R6 key-pose library, built to the R6 specialist rules: every grounded pose has BOTH soles flat on the floor (plant), no leg trailing behind the torso (legs splay out to the sides and/or forward), weight inside the feet (balance), low stances sink the legs into the torso. Copy a pose into your spec's \"poses\" and start keys from it (\"from\": \"power_punch_R\") with the flags shown on its showcase key. Render: python scripts/r6anim.py render recipes/poses.json --views three_quarter,side,game --no-gif",
+  "loop": false,
+  "priority": "Action",
+  "fps": 60,
+  "ground": true,
+  "poses": {
+    "neutral_stance": {
+      "Torso": {
+        "up": -0.05
+      },
+      "Head": {
+        "nod": 2
+      },
+      "RightArm": {
+        "forward": 3,
+        "out": 5
+      },
+      "LeftArm": {
+        "forward": 2,
+        "out": 5,
+        "twist": 3
+      },
+      "RightLeg": {
+        "out": 5,
+        "twist": 4
+      },
+      "LeftLeg": {
+        "out": 5,
+        "forward": 3,
+        "twist": 6
+      }
+    },
+    "contrapposto": {
+      "Torso": {
+        "tilt": -4,
+        "right": 0.2,
+        "twist": 4
+      },
+      "Head": {
+        "tilt": 4,
+        "turn": -6
+      },
+      "RightArm": {
+        "forward": -2,
+        "out": 7
+      },
+      "LeftArm": {
+        "forward": 6,
+        "out": 10,
+        "twist": 5
+      },
+      "RightLeg": {
+        "out": 6
+      },
+      "LeftLeg": {
+        "forward": 10,
+        "out": 12,
+        "twist": 14
+      }
+    },
+    "boxer_guard": {
+      "Torso": {
+        "twist": 25,
+        "lean": 7,
+        "up": -0.35
+      },
+      "Head": {
+        "turn": -20,
+        "nod": 6
+      },
+      "LeftArm": {
+        "forward": 82,
+        "out": -6,
+        "twist": -12
+      },
+      "RightArm": {
+        "forward": 64,
+        "out": -12,
+        "twist": -12
+      },
+      "LeftLeg": {
+        "forward": 16,
+        "out": 12
+      },
+      "RightLeg": {
+        "forward": 0,
+        "out": 20,
+        "twist": 16
+      }
+    },
+    "wide_combat_stance": {
+      "Torso": {
+        "lean": 10,
+        "twist": 12,
+        "up": -0.8
+      },
+      "Head": {
+        "nod": 8,
+        "turn": -8
+      },
+      "RightArm": {
+        "forward": 40,
+        "out": 16,
+        "twist": -10
+      },
+      "LeftArm": {
+        "forward": 20,
+        "out": 30,
+        "twist": 10
+      },
+      "RightLeg": {
+        "forward": 14,
+        "out": 26,
+        "twist": 12
+      },
+      "LeftLeg": {
+        "forward": 4,
+        "out": 26,
+        "twist": 14
+      }
+    },
+    "greatsword_ready": {
+      "Torso": {
+        "lean": 8,
+        "twist": 18,
+        "up": -0.75
+      },
+      "Head": {
+        "nod": 4,
+        "turn": -14
+      },
+      "RightArm": {
+        "forward": 112,
+        "out": 22,
+        "twist": 20
+      },
+      "LeftArm": {
+        "forward": 74,
+        "out": -8,
+        "twist": -20
+      },
+      "RightLeg": {
+        "forward": 2,
+        "out": 26,
+        "twist": 14
+      },
+      "LeftLeg": {
+        "forward": 14,
+        "out": 24,
+        "twist": 10
+      }
+    },
+    "power_punch_R": {
+      "Torso": {
+        "twist": -24,
+        "lean": 10,
+        "up": -0.55
+      },
+      "Head": {
+        "turn": 20,
+        "nod": 4
+      },
+      "RightArm": {
+        "forward": 90,
+        "out": -4,
+        "twist": -20,
+        "reach": 0.25
+      },
+      "LeftArm": {
+        "forward": -18,
+        "out": 28,
+        "twist": 8
+      },
+      "LeftLeg": {
+        "forward": 20,
+        "out": 16
+      },
+      "RightLeg": {
+        "forward": -2,
+        "out": 24,
+        "twist": 18
+      }
+    },
+    "double_fist_forward": {
+      "Torso": {
+        "lean": 8,
+        "up": -0.3
+      },
+      "Head": {
+        "nod": 6
+      },
+      "RightArm": {
+        "forward": 92,
+        "out": -10,
+        "twist": -25,
+        "reach": 0.15
+      },
+      "LeftArm": {
+        "forward": 88,
+        "out": -10,
+        "twist": -25,
+        "reach": 0.15
+      },
+      "RightLeg": {
+        "out": 10,
+        "twist": 8
+      },
+      "LeftLeg": {
+        "out": 10,
+        "twist": 8,
+        "forward": 4
+      }
+    },
+    "low_weapon_guard_R": {
+      "Torso": {
+        "twist": 16,
+        "lean": 6,
+        "up": -0.35
+      },
+      "Head": {
+        "turn": -12,
+        "nod": 6
+      },
+      "RightArm": {
+        "forward": 32,
+        "out": 22,
+        "twist": 25
+      },
+      "LeftArm": {
+        "forward": 12,
+        "out": 24
+      },
+      "RightLeg": {
+        "forward": 22,
+        "out": 16,
+        "twist": 10
+      },
+      "LeftLeg": {
+        "forward": 0,
+        "out": 10,
+        "twist": 6
+      }
+    },
+    "high_block": {
+      "Torso": {
+        "lean": 12,
+        "twist": 8,
+        "up": -0.4
+      },
+      "Head": {
+        "nod": 16,
+        "turn": -6
+      },
+      "LeftArm": {
+        "forward": 118,
+        "out": -10,
+        "twist": -45
+      },
+      "RightArm": {
+        "forward": 104,
+        "out": -12,
+        "twist": -45
+      },
+      "LeftLeg": {
+        "forward": 16,
+        "out": 14
+      },
+      "RightLeg": {
+        "forward": 0,
+        "out": 18,
+        "twist": 12
+      }
+    },
+    "sprint_flight": {
+      "Torso": {
+        "lean": 18,
+        "twist": -8,
+        "up": 0.15
+      },
+      "Head": {
+        "nod": -12,
+        "turn": 6
+      },
+      "LeftArm": {
+        "forward": 78,
+        "out": 6,
+        "twist": -12
+      },
+      "RightArm": {
+        "forward": -50,
+        "out": 10
+      },
+      "RightLeg": {
+        "forward": 62,
+        "out": 4
+      },
+      "LeftLeg": {
+        "forward": -38,
+        "out": 4
+      }
+    },
+    "knee_raise_R": {
+      "Torso": {
+        "lean": -4,
+        "tilt": -5
+      },
+      "Head": {
+        "nod": -4
+      },
+      "RightArm": {
+        "forward": 40,
+        "out": 25
+      },
+      "LeftArm": {
+        "forward": -20,
+        "out": 30
+      },
+      "RightLeg": {
+        "forward": 75,
+        "out": 6
+      },
+      "LeftLeg": {
+        "out": 4
+      }
+    },
+    "kneel_R": {
+      "Torso": {
+        "lean": 6,
+        "up": -0.95
+      },
+      "Head": {
+        "nod": 10
+      },
+      "RightArm": {
+        "forward": 20,
+        "out": 12
+      },
+      "LeftArm": {
+        "forward": 45,
+        "out": 8,
+        "twist": -10
+      },
+      "LeftLeg": {
+        "forward": 60,
+        "out": 8
+      },
+      "RightLeg": {
+        "forward": 2,
+        "out": 10
+      }
+    },
+    "sit_ground": {
+      "Torso": {
+        "lean": -10,
+        "up": -2.0
+      },
+      "Head": {
+        "nod": 6,
+        "turn": -10
+      },
+      "RightArm": {
+        "forward": -35,
+        "out": 16
+      },
+      "LeftArm": {
+        "forward": -30,
+        "out": 20
+      },
+      "RightLeg": {
+        "forward": 90,
+        "out": 8,
+        "offset_up": 0.55
+      },
+      "LeftLeg": {
+        "forward": 86,
+        "out": 12,
+        "twist": 10,
+        "offset_up": 0.55
+      }
+    },
+    "victory_fist_up_R": {
+      "Torso": {
+        "lean": -7,
+        "tilt": -3,
+        "up": -0.1
+      },
+      "Head": {
+        "nod": -16,
+        "tilt": -4
+      },
+      "RightArm": {
+        "forward": 172,
+        "out": 10,
+        "twist": -10
+      },
+      "LeftArm": {
+        "forward": -14,
+        "out": 26
+      },
+      "RightLeg": {
+        "forward": 2,
+        "out": 12
+      },
+      "LeftLeg": {
+        "forward": 8,
+        "out": 12,
+        "twist": 8
+      }
+    },
+    "point_forward_R": {
+      "Torso": {
+        "twist": -16,
+        "lean": 4
+      },
+      "Head": {
+        "turn": 14,
+        "nod": 2
+      },
+      "RightArm": {
+        "forward": 92,
+        "out": 6,
+        "reach": 0.1
+      },
+      "LeftArm": {
+        "forward": -8,
+        "out": 14
+      },
+      "LeftLeg": {
+        "forward": 14,
+        "out": 8
+      },
+      "RightLeg": {
+        "forward": 0,
+        "out": 10
+      }
+    },
+    "hurt_hunched": {
+      "Torso": {
+        "lean": 26,
+        "tilt": 6,
+        "up": -0.4
+      },
+      "Head": {
+        "nod": 18,
+        "tilt": -6
+      },
+      "RightArm": {
+        "forward": 42,
+        "out": -10,
+        "twist": -30
+      },
+      "LeftArm": {
+        "forward": 30,
+        "out": 4
+      },
+      "RightLeg": {
+        "forward": 16,
+        "out": 12
+      },
+      "LeftLeg": {
+        "forward": 2,
+        "out": 12
+      }
+    }
+  },
+  "keyframes": [
+    {
+      "t": 0.0,
+      "name": "neutral_stance",
+      "from": "neutral_stance",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 0.5,
+      "name": "contrapposto",
+      "from": "contrapposto",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 1.0,
+      "name": "boxer_guard",
+      "from": "boxer_guard",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 1.5,
+      "name": "wide_combat_stance",
+      "from": "wide_combat_stance",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 2.0,
+      "name": "greatsword_ready",
+      "from": "greatsword_ready",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 2.5,
+      "name": "power_punch_R",
+      "from": "power_punch_R",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 3.0,
+      "name": "double_fist_forward",
+      "from": "double_fist_forward",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 3.5,
+      "name": "low_weapon_guard_R",
+      "from": "low_weapon_guard_R",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 4.0,
+      "name": "high_block",
+      "from": "high_block",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 4.5,
+      "name": "sprint_flight",
+      "from": "sprint_flight",
+      "ease": "constant",
+      "plant": true,
+      "support": "air"
+    },
+    {
+      "t": 5.0,
+      "name": "knee_raise_R",
+      "from": "knee_raise_R",
+      "ease": "constant",
+      "plant": true,
+      "support": "left",
+      "balance": true
+    },
+    {
+      "t": 5.5,
+      "name": "kneel_R",
+      "from": "kneel_R",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 6.0,
+      "name": "sit_ground",
+      "from": "sit_ground",
+      "ease": "constant",
+      "ground": false,
+      "support": "body"
+    },
+    {
+      "t": 6.5,
+      "name": "victory_fist_up_R",
+      "from": "victory_fist_up_R",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 7.0,
+      "name": "point_forward_R",
+      "from": "point_forward_R",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    },
+    {
+      "t": 7.5,
+      "name": "hurt_hunched",
+      "from": "hurt_hunched",
+      "ease": "constant",
+      "plant": true,
+      "support": "double",
+      "balance": true
+    }
+  ],
+  "grounded": false
+}

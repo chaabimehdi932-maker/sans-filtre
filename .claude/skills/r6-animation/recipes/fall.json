@@ -1,24 +1,74 @@
 {
   "name": "Fall",
-  "note": "Falling loop (0.8s). Arms up and out for balance, legs slowly cycling, small asymmetric flail so it reads as falling rather than a frozen pose.",
+  "note": "Falling loop (0.8s). Arms up and out for balance, legs slowly cycling, small asymmetric flail so it reads as falling rather than a frozen pose. Played while physics carries the character through the air, so there is no floor in this clip (\"grounded\": false).",
   "loop": true,
   "priority": "Movement",
   "fps": 60,
   "keyframes": [
-    {"f": 0, "airborne": true,
-     "Torso": {"lean": -4},
-     "Head": {"nod": -6},
-     "RightArm": {"forward": 150, "out": 35, "twist": -10},
-     "LeftArm": {"forward": 140, "out": 42, "twist": -10},
-     "RightLeg": {"forward": 22, "out": 4},
-     "LeftLeg": {"forward": -10, "out": 6}},
-    {"f": 24, "airborne": true,
-     "Torso": {"lean": -2, "tilt": 2},
-     "Head": {"nod": -3, "tilt": -2},
-     "RightArm": {"forward": 140, "out": 45, "twist": -10},
-     "LeftArm": {"forward": 152, "out": 32, "twist": -10},
-     "RightLeg": {"forward": 8, "out": 5},
-     "LeftLeg": {"forward": 12, "out": 4}},
-    {"f": 48, "from": 0}
-  ]
+    {
+      "f": 0,
+      "airborne": true,
+      "Torso": {
+        "lean": -4
+      },
+      "Head": {
+        "nod": -6
+      },
+      "RightArm": {
+        "forward": 150,
+        "out": 35,
+        "twist": -10
+      },
+      "LeftArm": {
+        "forward": 140,
+        "out": 42,
+        "twist": -10
+      },
+      "RightLeg": {
+        "forward": 22,
+        "out": 4
+      },
+      "LeftLeg": {
+        "forward": -10,
+        "out": 6
+      },
+      "support": "air"
+    },
+    {
+      "f": 24,
+      "airborne": true,
+      "Torso": {
+        "lean": -2,
+        "tilt": 2
+      },
+      "Head": {
+        "nod": -3,
+        "tilt": -2
+      },
+      "RightArm": {
+        "forward": 140,
+        "out": 45,
+        "twist": -10
+      },
+      "LeftArm": {
+        "forward": 152,
+        "out": 32,
+        "twist": -10
+      },
+      "RightLeg": {
+        "forward": 8,
+        "out": 5
+      },
+      "LeftLeg": {
+        "forward": 12,
+        "out": 4
+      },
+      "support": "air"
+    },
+    {
+      "f": 48,
+      "from": 0
+    }
+  ],
+  "grounded": false
 }

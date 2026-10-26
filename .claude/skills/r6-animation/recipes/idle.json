@@ -6,19 +6,91 @@
   "fps": 60,
   "ground": true,
   "keyframes": [
-    {"f": 0, "name": "exhale",
-     "Torso": {"lean": 1, "up": 0},
-     "Head": {"nod": 2},
-     "RightArm": {"forward": 2, "out": 3},
-     "LeftArm": {"forward": 2, "out": 3, "twist": 2},
-     "RightLeg": {"out": 4, "twist": 4},
-     "LeftLeg": {"out": 3, "forward": 2, "twist": 6}},
-    {"f": 24, "RightArm": {"forward": 2, "out": 3}, "LeftArm": {"forward": 2, "out": 3, "twist": 2}},
-    {"f": 30, "Head": {"nod": 2}},
-    {"f": 90, "name": "inhale",
-     "Torso": {"lean": -1, "up": 0.045, "tilt": 0.5}},
-    {"f": 114, "RightArm": {"forward": 4, "out": 6, "twist": 3}, "LeftArm": {"forward": 3, "out": 6, "twist": 4}},
-    {"f": 120, "Head": {"nod": -1, "tilt": 1}},
-    {"f": 192, "name": "exhale_loop", "from": 0}
-  ]
+    {
+      "f": 0,
+      "name": "exhale",
+      "Torso": {
+        "lean": 1,
+        "up": 0
+      },
+      "Head": {
+        "nod": 2
+      },
+      "RightArm": {
+        "forward": 2,
+        "out": 3
+      },
+      "LeftArm": {
+        "forward": 2,
+        "out": 3,
+        "twist": 2
+      },
+      "RightLeg": {
+        "out": 4,
+        "twist": 4
+      },
+      "LeftLeg": {
+        "out": 3,
+        "forward": 2,
+        "twist": 6
+      },
+      "plant": true,
+      "support": "double"
+    },
+    {
+      "f": 24,
+      "RightArm": {
+        "forward": 2,
+        "out": 3
+      },
+      "LeftArm": {
+        "forward": 2,
+        "out": 3,
+        "twist": 2
+      }
+    },
+    {
+      "f": 30,
+      "Head": {
+        "nod": 2
+      }
+    },
+    {
+      "f": 90,
+      "name": "inhale",
+      "Torso": {
+        "lean": -1,
+        "up": 0.045,
+        "tilt": 0.5
+      },
+      "plant": true,
+      "support": "double"
+    },
+    {
+      "f": 114,
+      "RightArm": {
+        "forward": 4,
+        "out": 6,
+        "twist": 3
+      },
+      "LeftArm": {
+        "forward": 3,
+        "out": 6,
+        "twist": 4
+      }
+    },
+    {
+      "f": 120,
+      "Head": {
+        "nod": -1,
+        "tilt": 1
+      }
+    },
+    {
+      "f": 192,
+      "name": "exhale_loop",
+      "from": 0
+    }
+  ],
+  "balance": true
 }

@@ -37,9 +37,10 @@ VIEWS = {  # name: (yaw from the front toward the character's right, elevation) 
     "side": (90, 8),  # camera on the character's right; the character faces screen-right
     "back": (180, 8),
     "three_quarter": (35, 18),
+    "game": (160, 22),  # the Roblox gameplay camera: behind the character, slightly right, above
     "top": (0, 80),
 }
-DEFAULT_VIEWS = ("front", "side", "three_quarter")
+DEFAULT_VIEWS = ("front", "side", "three_quarter", "game")
 
 
 def _font(size):
@@ -90,21 +91,40 @@ def _shade(color, k):
     return tuple(max(0, min(255, int(c * k))) for c in color)
 
 
-def _part_polys(parts: dict, cam: Camera):
-    """Visible faces of every part as (depth, screen poly, colour, part, axis, sign)."""
+def _clip_floor(poly):
+    """Keep the part of a 3D polygon at or above the floor (y >= 0): what the game shows."""
+    out = []
+    for i, a in enumerate(poly):
+        b = poly[(i + 1) % len(poly)]
+        if a[1] >= 0:
+            out.append(a)
+        if (a[1] >= 0) != (b[1] >= 0):
+            u = a[1] / (a[1] - b[1])
+            out.append(tuple(a[j] + (b[j] - a[j]) * u for j in range(3)))
+    return out
+
+
+def _part_polys(parts: dict, cam: Camera, clip=True):
+    """Visible faces of every part as (depth, screen poly, colour, part, axis, sign). With
+    clip, anything below the floor is cut away, as the floor hides it in game."""
     out = []
     for name in DRAW_PARTS:
         cf: CF = parts[name]
         corners = box_corners(cf, RENDER_SIZE[name])
-        proj = [cam.project(p) for p in corners]
         for axis, sign, idx in _FACES:
             col = (cf.r[axis], cf.r[axis + 3], cf.r[axis + 6])
             n = tuple(sign * v for v in col)
             if _dot(n, cam.c) <= 1e-6:
                 continue
-            depth = sum(proj[i][2] for i in idx) / 4
+            poly = [corners[i] for i in idx]
+            if clip:
+                poly = _clip_floor(poly)
+                if len(poly) < 3:
+                    continue
+            proj = [cam.project(p) for p in poly]
+            depth = sum(p[2] for p in proj) / len(proj)
             k = 0.62 + 0.42 * max(0.0, _dot(n, cam.light))
-            out.append((depth, [proj[i][:2] for i in idx], _shade(COLORS[name], k), name, axis, sign))
+            out.append((depth, [p[:2] for p in proj], _shade(COLORS[name], k), name, axis, sign))
     out.sort(key=lambda f: f[0])
     return out
 
@@ -153,7 +173,7 @@ class Frame:
         return (self.ox + p[0] * self.scale, self.oy - p[1] * self.scale)
 
 
-def draw_rig(img: Image.Image, parts: dict, cam: Camera, fr: Frame, ground=True, label=None):
+def draw_rig(img: Image.Image, parts: dict, cam: Camera, fr: Frame, ground=True, label=None, clip=True):
     d = ImageDraw.Draw(img)
     if ground:
         for a, b in _ground_lines(cam):
@@ -164,7 +184,7 @@ def draw_rig(img: Image.Image, parts: dict, cam: Camera, fr: Frame, ground=True,
                for a in (i * math.pi / 12 for i in range(24))]
         d.polygon([fr.px(p) for p in pts], fill=(222, 222, 214))
     decals = _decals(parts, cam)
-    faces = _part_polys(parts, cam)
+    faces = _part_polys(parts, cam, clip=clip and ground)
     for depth, poly, color, name, axis, sign in faces:
         d.polygon([fr.px(p) for p in poly], fill=color, outline=_shade(color, 0.55))
     for poly, color in decals:
@@ -226,7 +246,7 @@ def contact_sheet(anim: Anim, path: str, views=DEFAULT_VIEWS, times=None, cell=(
                 if ci == 0:
                     d.text((8, cy + ch / 2 - 6), cam.name.replace("_", " "), fill=INK, font=f_small)
                 fr = Frame((x0, cy, x0 + cw, cy + ch), all_bounds[ri], scale)
-                draw_rig(img, parts, cam, fr)
+                draw_rig(img, parts, cam, fr, clip=anim.grounded)
                 d.rectangle([x0, cy, x0 + cw, cy + ch], outline=(225, 225, 218))
     d.text((10, H - 20), "Right limbs = darker. Eyes = face. Grid = 1 stud.", fill=(110, 110, 110), font=f_small)
     img.save(path)
@@ -250,7 +270,7 @@ def gif(anim: Anim, path: str, views=DEFAULT_VIEWS, fps=30, cell=(220, 260), rep
         parts = forward_kinematics(sample(anim, t, tracks))
         for i, cam in enumerate(cams):
             fr = Frame((i * cw, 0, (i + 1) * cw, ch), bounds[i], scale)
-            draw_rig(img, parts, cam, fr)
+            draw_rig(img, parts, cam, fr, clip=anim.grounded)
         d = ImageDraw.Draw(img)
         # timeline with key ticks, markers and playhead
         x0, x1, y = 10, W - 10, ch + 12
@@ -345,4 +365,65 @@ def pose_image(transforms: dict, path: str, views=DEFAULT_VIEWS, cell=(220, 260)
         s = min((cell[0] - 10) / (b[2] - b[0]), (cell[1] - 10) / (b[3] - b[1]))
         draw_rig(img, parts, cam, Frame((i * cell[0], 0, (i + 1) * cell[0], cell[1]), b, s))
     img.save(path)
+    return path
+
+
+def compare_sheet(a: Anim, b: Anim, path: str, times_a, times_b, views=("side", "three_quarter", "game"),
+                  cell=(170, 210)):
+    """Before/after at the same camera angles and matching times: for each view a row for A
+    and a row for B. Shared scale, so size differences are real."""
+    cams = [Camera(v) for v in views]
+    ba = [_bounds_for(a, cam, sample_times(a, 20)) for cam in cams]
+    bb = [_bounds_for(b, cam, sample_times(b, 20)) for cam in cams]
+    bounds = [(min(x[0], y[0]), min(x[1], y[1]), max(x[2], y[2]), max(x[3], y[3])) for x, y in zip(ba, bb)]
+    cw, ch = cell
+    label_w, title_h = 120, 30
+    scale = min(min((cw - 10) / (bd[2] - bd[0]), (ch - 8) / (bd[3] - bd[1])) for bd in bounds)
+    ncol = len(times_a)
+    W, H = label_w + ncol * cw, title_h + 20 + 2 * len(cams) * ch
+    img = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(img)
+    d.text((10, 8), f"BEFORE: {a.name} ({a.length:.2f}s)   vs   AFTER: {b.name} ({b.length:.2f}s)",
+           fill=INK, font=_font(15))
+    ta, tb = a.tracks(), b.tracks()
+    for ci in range(ncol):
+        x0 = label_w + ci * cw
+        d.text((x0 + 4, title_h), f"{times_a[ci]:.2f}s | {times_b[ci]:.2f}s", fill=INK, font=_font(11))
+        pa = forward_kinematics(sample(a, times_a[ci], ta))
+        pb = forward_kinematics(sample(b, times_b[ci], tb))
+        for vi, cam in enumerate(cams):
+            for k, (parts, tag) in enumerate(((pa, "before"), (pb, "after"))):
+                y0 = title_h + 20 + (vi * 2 + k) * ch
+                if ci == 0:
+                    d.text((6, y0 + ch / 2 - 6), f"{cam.name.replace('_', ' ')}\n{tag}", fill=INK, font=_font(12))
+                fr = Frame((x0, y0, x0 + cw, y0 + ch), bounds[vi], scale)
+                draw_rig(img, parts, cam, fr, clip=(a if k == 0 else b).grounded)
+                d.rectangle([x0, y0, x0 + cw, y0 + ch], outline=(200, 200, 190) if k else (225, 225, 218))
+    img.save(path)
+    return path
+
+
+def compare_gif(a: Anim, b: Anim, path: str, view="three_quarter", fps=30, cell=(260, 300)):
+    """Before | after playing side by side at the same speed (the shorter one holds its end)."""
+    cam = Camera(view)
+    L = max(a.length, b.length)
+    n = max(1, int(round(L * fps)))
+    ts = [L * i / n for i in range(n + 1)]
+    bd = [_bounds_for(x, cam, sample_times(x, 20)) for x in (a, b)]
+    bounds = (min(bd[0][0], bd[1][0]), min(bd[0][1], bd[1][1]), max(bd[0][2], bd[1][2]), max(bd[0][3], bd[1][3]))
+    cw, ch = cell
+    scale = min((cw - 10) / (bounds[2] - bounds[0]), (ch - 40) / (bounds[3] - bounds[1]))
+    ta, tb = a.tracks(), b.tracks()
+    frames = []
+    for t in ts:
+        img = Image.new("RGB", (cw * 2, ch), BG)
+        for i, (x, tr, tag) in enumerate(((a, ta, "before"), (b, tb, "after"))):
+            parts = forward_kinematics(sample(x, min(t, x.length), tr))
+            draw_rig(img, parts, cam, Frame((i * cw, 24, (i + 1) * cw, ch), bounds, scale), clip=x.grounded)
+            ImageDraw.Draw(img).text((i * cw + 8, 6), f"{tag}: {x.name}  {min(t, x.length):.2f}s", fill=INK,
+                                     font=_font(12))
+        frames.append(img)
+    durations = [round(1000 / fps)] * len(frames)
+    durations[-1] = 600
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=durations, loop=0, disposal=2)
     return path

@@ -9,29 +9,31 @@
     "guard": {
       "Torso": {
         "twist": 25,
-        "lean": 6
+        "lean": 7,
+        "up": -0.35
       },
       "Head": {
         "turn": -20,
-        "nod": 4
+        "nod": 6
       },
       "LeftArm": {
-        "forward": 80,
-        "out": -8,
-        "twist": -10
+        "forward": 82,
+        "out": -6,
+        "twist": -12
       },
       "RightArm": {
-        "forward": 62,
-        "out": -14,
-        "twist": -10
+        "forward": 64,
+        "out": -12,
+        "twist": -12
       },
       "LeftLeg": {
-        "forward": 18,
-        "out": 4
+        "forward": 16,
+        "out": 12
       },
       "RightLeg": {
-        "forward": -14,
-        "out": 6
+        "forward": 0,
+        "out": 20,
+        "twist": 16
       }
     }
   },
@@ -41,7 +43,8 @@
       "name": "guard",
       "from": "guard",
       "plant": true,
-      "ease": "out"
+      "ease": "out",
+      "support": "double"
     },
     {
       "f": 4,
@@ -63,7 +66,8 @@
         "forward": 84,
         "out": 50,
         "twist": -30
-      }
+      },
+      "support": "double"
     },
     {
       "f": 8,
@@ -76,7 +80,7 @@
         "lean": 10,
         "tilt": 4,
         "forward": 0.15,
-        "up": -0.1
+        "up": -0.42
       },
       "Head": {
         "turn": -36,
@@ -91,7 +95,8 @@
         "forward": 68,
         "out": -18,
         "twist": -10
-      }
+      },
+      "support": "double"
     },
     {
       "f": 12,
@@ -115,7 +120,8 @@
       "f": 24,
       "name": "recover",
       "from": "guard",
-      "plant": true
+      "plant": true,
+      "support": "double"
     }
   ],
   "markers": [
@@ -123,5 +129,6 @@
       "f": 8,
       "name": "Hit"
     }
-  ]
+  ],
+  "balance": true
 }

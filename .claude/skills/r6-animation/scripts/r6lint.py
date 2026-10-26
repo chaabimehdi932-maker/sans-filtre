@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from r6core import (CF, JOINT_KEYS, PART_SIZE, Anim, angle_between, box_corners,
+from r6core import (CF, JOINT_KEYS, PART_SIZE, Anim, angle_between, box_corners, sole_top,
                     forward_kinematics, limb_tip, range_for, sample, sample_times)
 
 CLIP_PAIRS = (
@@ -195,7 +195,7 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
 
     if anim.grounded:
         # Every frame between two non-airborne keys should have a foot on the floor.
-        air = [k.airborne for k in anim.keys]
+        air = [k.airborne or k.support in ("fall", "body", "air") for k in anim.keys]
         kt = [k.time for k in anim.keys]
         floats, sinks = [], []
         for t, parts in zip(times, frames):
@@ -204,10 +204,10 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
             on_key = abs(kt[i] - t) < 1e-6
             if air[i] or (not on_key and air[nxt]):
                 continue
-            low = min(p[1] for leg in ("Right Leg", "Left Leg") for p in box_corners(parts[leg], PART_SIZE[leg]))
+            low = min(sole_top(parts[leg]) for leg in ("Right Leg", "Left Leg"))  # air under the lower foot
             if low > 0.12:
                 floats.append((t, low))
-            elif low < -0.2:
+            elif low < -0.15:
                 sinks.append((t, -low))
         if floats:
             worst = max(floats, key=lambda x: x[1])
@@ -216,9 +216,70 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
                         "add an in-between key, or mark in-air keys \"airborne\": true")
         if sinks:
             worst = max(sinks, key=lambda x: x[1])
-            add("WARN", f"a leg sinks into the ground (worst {worst[1]:.2f} studs at {worst[0]:.2f}s; "
-                        f"{_ranges([t for t, _ in sinks])}). Use \"ground\": true, or an in-between key: a leg "
-                        "swung A degrees lifts its foot 2*(1-cos A) studs")
+            add("WARN", f"a whole foot sinks under the floor (worst {worst[1]:.2f} studs at {worst[0]:.2f}s; "
+                        f"{_ranges([t for t, _ in sinks])}). Use \"plant\": true / \"ground\": true, or an "
+                        "in-between key: a leg swung A degrees lifts its foot 2*(1-cos A) studs")
+
+    # ---- support points, sole heights and balance at every key pose
+    from r6pose import analyze_at
+    reports = [(k, analyze_at(anim, k.time, tracks)) for k in anim.keys]
+    for i, (k, a) in enumerate(reports):
+        where = f"key #{i} @{k.time:.3f}s{' ' + k.name if k.name else ''}"
+        actual = a["support"]
+        label = k.support
+        if label in ("double", "left", "right") and not k.airborne:
+            need = ["left", "right"] if label == "double" else [label]
+            for side in need:
+                if a["sole"][side] > 0.12:
+                    add("WARN", f"{where}: labelled support '{label}' but the {side} sole is {a['sole'][side]:.2f} "
+                                f"studs above the floor (measure the sole, not the hip). Plant it or relabel the key")
+            if label in ("left", "right"):
+                free = "right" if label == "left" else "left"
+                if a["sole"][free] < -0.12:
+                    add("WARN", f"{where}: support '{label}' but the free {free} leg sinks {-a['sole'][free]:.2f} "
+                                "studs into the floor")
+        elif label == "air" and actual not in ("air",) and anim.grounded:
+            add("WARN", f"{where}: labelled 'air' but the {actual} support touches the floor")
+        if label == "double" and abs(a["gap"]["left"] - a["gap"]["right"]) > 0.08 and \
+                max(a["sole"].values()) <= 0.12:
+            add("WARN", f"{where}: both feet should share the floor plane but the soles differ by "
+                        f"{abs(a['sole']['left'] - a['sole']['right']):.2f} studs")
+        grounded_pose = not k.airborne and actual != "air"
+        # locomotion carries momentum: the body is meant to lead the feet
+        exempt = k.unbalanced or label in ("fall", "transition", "air") or bool(anim.speed)
+        if grounded_pose and not exempt and a["balance"] is not None and a["balance"] < -0.15:
+            add("WARN", f"{where}: centre of mass is {-a['balance']:.2f} studs outside the area the feet cover "
+                        f"(support {actual}, stance {a['stance_width']} x {a['stance_length']}). Widen/lengthen "
+                        "the stance toward the lean, shift the Torso back over the feet, or mark the key "
+                        "\"unbalanced\": true if it is a deliberate lunge/fall")
+    if not anim.speed:
+        for i, (k, a) in enumerate(reports):
+            if k.airborne or k.support in ("air", "fall", "body"):
+                continue
+            where = f"key #{i} @{k.time:.3f}s{' ' + k.name if k.name else ''}"
+            planted = {"left": ("left",), "right": ("right",)}.get(k.support, ("left", "right"))
+            for side in planted:
+                if a["sole"][side] <= 0.12 < a["gap"][side]:
+                    add("WARN", f"{where}: the {side} foot is not fully on the ground - it stands on an edge with "
+                                f"{a['gap'][side]:.2f} studs of air under the sole. Put \"plant\": true on the key "
+                                "(the whole sole goes flat on the floor; a tilted leg's lower edge sinks, hidden)")
+            for side in ("left", "right"):
+                behind = a["hip_to_foot"][side]
+                if behind > 0.6 and (k.support in (None, "double") or side in planted):
+                    add("WARN", f"{where}: the {side} leg sits behind the torso (foot {behind:.2f} studs behind the "
+                                "hips). R6 stances read badly with a leg trailing back: splay it out to the side "
+                                "(out 15-30) and/or bring it under or in front of the body")
+
+    # weight transfer: going from two feet to one, the body must move over the new support foot
+    for (k0, a0), (k1, a1) in zip(reports, reports[1:]):
+        if k1.support in ("left", "right") and k0.support in ("double", None, "transition") and not k1.airborne:
+            foot = a1["feet"][k1.support]
+            d0 = math.hypot(a0["com"][0] - foot[0], a0["com"][2] - foot[1])
+            d1 = math.hypot(a1["com"][0] - foot[0], a1["com"][2] - foot[1])
+            if d1 > d0 - 0.1:
+                add("INFO", f"@{k1.time:.3f}s: weight goes onto the {k1.support} leg but the body doesn't shift over "
+                            f"it (centre of mass {d0:.2f} -> {d1:.2f} studs from that foot). Show the transfer: "
+                            "Torso right/tilt toward the support leg before the other leg lifts")
 
     # ---- planted feet must not skate (one-shots / anything without a locomotion speed)
     if anim.grounded and not anim.speed:
@@ -285,11 +346,13 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
 
 
 def _in_air(anim: Anim, t: float) -> bool:
-    """True inside a segment that starts or ends on an airborne key."""
+    """True inside a segment that starts or ends on an airborne key - or on a key where the feet
+    are not what holds the body (falling, sitting, lying)."""
     kt = [k.time for k in anim.keys]
     i = max(n for n, x in enumerate(kt) if x <= t + 1e-9)
     nxt = min(i + 1, len(kt) - 1)
-    return anim.keys[i].airborne or (abs(kt[i] - t) > 1e-6 and anim.keys[nxt].airborne)
+    off = lambda k: k.airborne or k.support in ("fall", "body", "air")
+    return off(anim.keys[i]) or (abs(kt[i] - t) > 1e-6 and off(anim.keys[nxt]))
 
 
 def _same(a: dict, b: dict) -> bool:

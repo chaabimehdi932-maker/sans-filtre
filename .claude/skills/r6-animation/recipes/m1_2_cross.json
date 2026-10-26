@@ -5,22 +5,120 @@
   "priority": "Action",
   "fps": 60,
   "ground": true,
-  "poses": {"guard": {"Torso": {"twist": 25, "lean": 6}, "Head": {"turn": -20, "nod": 4}, "LeftArm": {"forward": 80, "out": -8, "twist": -10}, "RightArm": {"forward": 62, "out": -14, "twist": -10}, "LeftLeg": {"forward": 18, "out": 4}, "RightLeg": {"forward": -14, "out": 6}}},
+  "poses": {
+    "guard": {
+      "Torso": {
+        "twist": 25,
+        "lean": 7,
+        "up": -0.35
+      },
+      "Head": {
+        "turn": -20,
+        "nod": 6
+      },
+      "LeftArm": {
+        "forward": 82,
+        "out": -6,
+        "twist": -12
+      },
+      "RightArm": {
+        "forward": 64,
+        "out": -12,
+        "twist": -12
+      },
+      "LeftLeg": {
+        "forward": 16,
+        "out": 12
+      },
+      "RightLeg": {
+        "forward": 0,
+        "out": 20,
+        "twist": 16
+      }
+    }
+  },
   "keyframes": [
-    {"f": 0, "name": "guard", "from": "guard", "plant": true, "ease": "out"},
-    {"f": 4, "name": "anticipation", "from": "guard", "plant": true, "ease": "in",
-     "Torso": {"twist": 40, "lean": 3, "forward": -0.1},
-     "Head": {"turn": -26},
-     "RightArm": {"forward": 52, "out": 12, "twist": 0}},
-    {"f": 7, "name": "contact", "from": "guard", "plant": true, "ease": "linear",
-     "Torso": {"twist": -18, "lean": 13, "forward": 0.3},
-     "Head": {"turn": 12, "nod": 6},
-     "RightArm": {"forward": 93, "out": -8, "twist": -25},
-     "LeftArm": {"forward": 58, "out": 10, "twist": -5},
-     "RightLeg": {"forward": -20, "out": 6, "twist": 10}},
-    {"f": 11, "name": "hold", "from": "contact", "ease": "inout",
-     "RightArm": {"forward": 91, "out": -7, "twist": -25}},
-    {"f": 24, "name": "recover", "from": "guard", "plant": true}
+    {
+      "f": 0,
+      "name": "guard",
+      "from": "guard",
+      "plant": true,
+      "ease": "out",
+      "support": "double"
+    },
+    {
+      "f": 4,
+      "name": "anticipation",
+      "from": "guard",
+      "plant": true,
+      "ease": "in",
+      "Torso": {
+        "twist": 40,
+        "lean": 3,
+        "forward": -0.1
+      },
+      "Head": {
+        "turn": -26
+      },
+      "RightArm": {
+        "forward": 52,
+        "out": 12,
+        "twist": 0
+      },
+      "support": "double"
+    },
+    {
+      "f": 7,
+      "name": "contact",
+      "from": "guard",
+      "plant": true,
+      "ease": "linear",
+      "Torso": {
+        "twist": -18,
+        "lean": 13,
+        "forward": 0.3,
+        "up": -0.42
+      },
+      "Head": {
+        "turn": 12,
+        "nod": 6
+      },
+      "RightArm": {
+        "forward": 93,
+        "out": -8,
+        "twist": -25
+      },
+      "LeftArm": {
+        "forward": 58,
+        "out": 10,
+        "twist": -5
+      },
+      "support": "double"
+    },
+    {
+      "f": 11,
+      "name": "hold",
+      "from": "contact",
+      "ease": "inout",
+      "RightArm": {
+        "forward": 91,
+        "out": -7,
+        "twist": -25
+      }
+    },
+    {
+      "f": 24,
+      "name": "recover",
+      "from": "guard",
+      "plant": true,
+      "support": "double"
+    }
   ],
-  "markers": [{"f": 7, "name": "Hit"}]
+  "markers": [
+    {
+      "f": 7,
+      "name": "Hit"
+    }
+  ],
+  "balance": true
 }

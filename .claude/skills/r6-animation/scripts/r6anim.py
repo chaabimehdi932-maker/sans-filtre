@@ -5,6 +5,9 @@ r6anim - one CLI for the whole R6 keyframe workflow.
   python r6anim.py build  spec.json [more.json …] [-o outdir]   lint + previews + .rbxmx + .luau
                                                   (several specs also write InstallAll.luau)
   python r6anim.py lint   spec.json               findings only
+  python r6anim.py report spec.json               per-key support / sole heights / balance / stance table
+  python r6anim.py exaggerate spec.json --amount 1.15 -o v2.json   push every pose 15% further
+  python r6anim.py compare before.json after.json -o out/          side-by-side sheet + gif + diff
   python r6anim.py render spec.json [-o outdir] [--views front,side] [--every 0.05] [--no-gif]
   python r6anim.py export spec.json [-o outdir]   .rbxmx + .luau only
   python r6anim.py mirror spec.json -o out.json   swap left/right (right punch -> left punch)
@@ -56,7 +59,7 @@ def cmd_lint(args):
 def _render(anim, d, args):
     import r6render
     base = os.path.join(d, _slug(anim.name))
-    views = tuple(v.strip() for v in (args.views or "front,side,three_quarter").split(","))
+    views = tuple(v.strip() for v in (args.views or "front,side,three_quarter,game").split(","))
     times = None
     if getattr(args, "every", None):
         n = max(1, round(anim.length / args.every))
@@ -66,6 +69,15 @@ def _render(anim, d, args):
     if not getattr(args, "no_gif", False):
         made.append(r6render.gif(anim, base + ".gif", views=views))
     return made
+
+
+def _write_report(anim, d):
+    from r6lint import report
+    from r6pose import report_table
+    path = os.path.join(d, _slug(anim.name) + "_report.md")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(f"# {anim.name}\n\n## Lint\n\n```\n{report(anim)}\n```\n\n## Key poses\n\n{report_table(anim)}\n")
+    return path
 
 
 def _export(anim, d):
@@ -113,7 +125,7 @@ def cmd_build(args):
     for anim in anims:
         print(report(anim))
         print()
-        made = _export(anim, d)
+        made = _export(anim, d) + [_write_report(anim, d)]
         if not args.no_render:
             made += _render(anim, d, args)
         for p in made:
@@ -124,6 +136,48 @@ def cmd_build(args):
         print("wrote", _bundle(anims, d, args.bundle), f"(installs all {len(anims)} in one paste)")
     print("Look at the *_sheet.png and *_onion.png before calling it done.")
     return 1 if errors else 0
+
+
+def cmd_report(args):
+    from r6pose import report_table
+    anim = _load(args.spec)
+    print(report_table(anim))
+    return 0
+
+
+def cmd_exaggerate(args):
+    from r6tools import exaggerate
+    anim = _load(args.spec)
+    raw = exaggerate(anim, args.amount, about=args.about,
+                     joints=[j.strip() for j in args.joints.split(",")] if args.joints else None,
+                     translations=not args.no_translations)
+    path = args.out or args.spec.replace(".json", f"_x{args.amount:g}.json".replace(".", "_", 1).replace("_json", ".json"))
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(raw, fh, indent=2)
+    print("wrote", path)
+    print("Next: build it, then `compare` it with the original and keep it only if it reads better "
+          "without new WARNs.")
+    return 0
+
+
+def cmd_compare(args):
+    import r6render
+    from r6tools import compare_text, compare_times
+    a, b = _load(args.before), _load(args.after)
+    d = args.out or os.path.join(os.path.dirname(os.path.abspath(args.after)), "out")
+    os.makedirs(d, exist_ok=True)
+    base = os.path.join(d, f"compare_{_slug(a.name)}__{_slug(b.name)}")
+    ta, tb = compare_times(a, b)
+    text = compare_text(a, b)
+    print(text)
+    with open(base + ".md", "w", encoding="utf-8") as fh:
+        fh.write(text + "\n")
+    made = [base + ".md", r6render.compare_sheet(a, b, base + "_sheet.png", ta, tb)]
+    if not args.no_gif:
+        made.append(r6render.compare_gif(a, b, base + ".gif"))
+    for p in made:
+        print("wrote", p)
+    return 0
 
 
 def cmd_mirror(args):
@@ -193,6 +247,18 @@ def main(argv=None):
         p.add_argument("--every", type=float, help="contact sheet every N seconds instead of every key")
         p.add_argument("--no-gif", action="store_true")
     add("mirror", cmd_mirror)
+    add("report", cmd_report)
+    p = add("exaggerate", cmd_exaggerate)
+    p.add_argument("--amount", type=float, default=1.15, help="1.15 = poses 15%% further from the base pose")
+    p.add_argument("--about", choices=("first", "rest"), default="first")
+    p.add_argument("--joints", help="comma list of joints to push (default: all)")
+    p.add_argument("--no-translations", action="store_true")
+    p = sub.add_parser("compare")
+    p.add_argument("before")
+    p.add_argument("after")
+    p.add_argument("-o", "--out")
+    p.add_argument("--no-gif", action="store_true")
+    p.set_defaults(fn=cmd_compare)
     p = add("import", cmd_import, spec_arg="file")
     p.add_argument("--fps", type=float, default=60)
     add("pose", cmd_pose, spec_arg="pose")

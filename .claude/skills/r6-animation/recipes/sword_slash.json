@@ -18,12 +18,13 @@
         "out": 6
       },
       "RightLeg": {
-        "forward": -8,
-        "out": 3
+        "forward": 0,
+        "out": 12,
+        "twist": 8
       },
       "LeftLeg": {
-        "forward": 10,
-        "out": 3
+        "forward": 14,
+        "out": 10
       }
     }
   },
@@ -33,7 +34,8 @@
       "name": "toolhold",
       "from": "toolhold",
       "plant": true,
-      "ease": "out"
+      "ease": "out",
+      "support": "double"
     },
     {
       "f": 7,
@@ -58,7 +60,8 @@
       "LeftArm": {
         "forward": 40,
         "out": 20
-      }
+      },
+      "support": "double"
     },
     {
       "f": 10,
@@ -83,7 +86,8 @@
       "LeftArm": {
         "forward": 15,
         "out": 30
-      }
+      },
+      "support": "double"
     },
     {
       "f": 13,
@@ -109,7 +113,8 @@
       "LeftArm": {
         "forward": -10,
         "out": 28
-      }
+      },
+      "support": "double"
     },
     {
       "f": 18,
@@ -137,13 +142,15 @@
         "forward": 70,
         "out": -6,
         "twist": -8
-      }
+      },
+      "support": "double"
     },
     {
       "f": 30,
       "name": "recover",
       "from": "toolhold",
-      "plant": true
+      "plant": true,
+      "support": "double"
     }
   ],
   "markers": [
@@ -151,5 +158,6 @@
       "f": 10,
       "name": "Hit"
     }
-  ]
+  ],
+  "balance": true
 }

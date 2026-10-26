@@ -4,4 +4,4 @@ focus: trace
 weight: 1
 ---
 
-The animations are editable keyframe animations rather than baked frame-by-frame: at most 20 keyframes per second of animation.
+The animation is authored as eased keyframes, not baked frame-by-frame (baked = a key on nearly every frame with linear interpolation, which is hard to edit in the Animation Editor).

@@ -29,13 +29,15 @@
         "twist": -45
       },
       "LeftLeg": {
-        "forward": 22,
-        "out": 8
+        "forward": 16,
+        "out": 14
       },
       "RightLeg": {
-        "forward": -18,
-        "out": 8
-      }
+        "forward": 0,
+        "out": 18,
+        "twist": 12
+      },
+      "support": "double"
     },
     {
       "f": 45,
@@ -60,17 +62,20 @@
         "twist": -45
       },
       "LeftLeg": {
-        "forward": 22,
-        "out": 8
+        "forward": 16,
+        "out": 14
       },
       "RightLeg": {
-        "forward": -18,
-        "out": 8
-      }
+        "forward": 0,
+        "out": 18,
+        "twist": 12
+      },
+      "support": "double"
     },
     {
       "f": 90,
       "from": 0
     }
-  ]
+  ],
+  "balance": true
 }

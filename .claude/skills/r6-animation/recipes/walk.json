@@ -7,29 +7,113 @@
   "speed": 8,
   "ground": true,
   "keyframes": [
-    {"f": 0, "name": "contact_R", "plant": true,
-     "Torso": {"lean": 4, "twist": 6, "tilt": -1},
-     "Head": {"turn": -5, "nod": -2},
-     "RightLeg": {"forward": 37, "ease": "linear"},
-     "RightArm": {"forward": -24, "out": 4},
-     "LeftArm": {"forward": 26, "out": 4}},
-    {"f": 9, "name": "passing_R_stance", "plant": true,
-     "Torso": {"lean": 4, "twist": 0, "tilt": 2, "right": 0.06},
-     "Head": {"turn": 0, "nod": 1},
-     "RightLeg": {"forward": 0, "ease": "linear"}},
-    {"f": 18, "name": "contact_L", "plant": true,
-     "Torso": {"lean": 4, "twist": -6, "tilt": 1},
-     "Head": {"turn": 5, "nod": -2},
-     "RightLeg": {"forward": -37, "ease": "in"},
-     "RightArm": {"forward": 26, "out": 4},
-     "LeftArm": {"forward": -24, "out": 4}},
-    {"f": 27, "name": "passing_L_stance", "plant": true,
-     "Torso": {"lean": 4, "twist": 0, "tilt": -2, "right": -0.06},
-     "Head": {"turn": 0, "nod": 1},
-     "RightLeg": {"forward": 0, "ease": "out"}},
-    {"f": 36, "name": "contact_R_loop", "from": 0}
+    {
+      "f": 0,
+      "name": "contact_R",
+      "plant": true,
+      "Torso": {
+        "lean": 4,
+        "twist": 6,
+        "tilt": -1
+      },
+      "Head": {
+        "turn": -5,
+        "nod": -2
+      },
+      "RightLeg": {
+        "forward": 37,
+        "ease": "linear"
+      },
+      "RightArm": {
+        "forward": -24,
+        "out": 4
+      },
+      "LeftArm": {
+        "forward": 26,
+        "out": 4
+      },
+      "support": "double"
+    },
+    {
+      "f": 9,
+      "name": "passing_R_stance",
+      "plant": true,
+      "Torso": {
+        "lean": 4,
+        "twist": 0,
+        "tilt": 2,
+        "right": 0.06
+      },
+      "Head": {
+        "turn": 0,
+        "nod": 1
+      },
+      "RightLeg": {
+        "forward": 0,
+        "ease": "linear"
+      },
+      "support": "right"
+    },
+    {
+      "f": 18,
+      "name": "contact_L",
+      "plant": true,
+      "Torso": {
+        "lean": 4,
+        "twist": -6,
+        "tilt": 1
+      },
+      "Head": {
+        "turn": 5,
+        "nod": -2
+      },
+      "RightLeg": {
+        "forward": -37,
+        "ease": "in"
+      },
+      "RightArm": {
+        "forward": 26,
+        "out": 4
+      },
+      "LeftArm": {
+        "forward": -24,
+        "out": 4
+      },
+      "support": "double"
+    },
+    {
+      "f": 27,
+      "name": "passing_L_stance",
+      "plant": true,
+      "Torso": {
+        "lean": 4,
+        "twist": 0,
+        "tilt": -2,
+        "right": -0.06
+      },
+      "Head": {
+        "turn": 0,
+        "nod": 1
+      },
+      "RightLeg": {
+        "forward": 0,
+        "out": 8,
+        "ease": "out"
+      },
+      "support": "left"
+    },
+    {
+      "f": 36,
+      "name": "contact_R_loop",
+      "from": 0,
+      "support": "double"
+    }
   ],
   "derive": [
-    {"joint": "LeftLeg", "from": "RightLeg", "phase": 0.5}
+    {
+      "joint": "LeftLeg",
+      "from": "RightLeg",
+      "phase": 0.5
+    }
   ]
 }

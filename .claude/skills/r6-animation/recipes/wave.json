@@ -28,12 +28,14 @@
         "out": 4
       },
       "RightLeg": {
-        "out": 4
+        "out": 7
       },
       "LeftLeg": {
-        "out": 3
+        "out": 6
       },
-      "ease": "inout"
+      "ease": "inout",
+      "plant": true,
+      "support": "double"
     },
     {
       "f": 14,
@@ -52,7 +54,9 @@
         "out": 6,
         "twist": 15
       },
-      "ease": "out"
+      "ease": "out",
+      "plant": true,
+      "support": "double"
     },
     {
       "f": 36,
@@ -71,7 +75,9 @@
         "out": 40,
         "twist": -20
       },
-      "ease": "inout"
+      "ease": "inout",
+      "plant": true,
+      "support": "double"
     },
     {
       "f": 50,
@@ -90,11 +96,14 @@
         "out": 6,
         "twist": 15
       },
-      "ease": "out"
+      "ease": "out",
+      "plant": true,
+      "support": "double"
     },
     {
       "f": 72,
       "from": 0
     }
-  ]
+  ],
+  "balance": true
 }
