@@ -11,10 +11,10 @@ Get it wrong and the feet skate. `[S]` sourced, `[D]` derived, `[R]` recommended
    character's speed v: stance time = s / v. With two feet and a symmetric walk (each foot
    on the ground half the cycle), **cycle T = 2·s / v**. Runs have a flight phase: each foot
    is down only a fraction β (≈ 0.3–0.4) of the cycle, so **T = s / (β·v)**. [D]
-2. **Bob**: a leg at A° from vertical has its foot `2·(1 − cos A)` studs higher, so the body
-   must drop that much at contact to keep the foot on the floor: 0.12 studs at 20°, 0.27 at
-   30°, 0.36 at 35°, 0.59 at 45°. Lowest at contact, highest at passing (the opposite of a
-   knee-bending human walk — that's the R6 look). `ground: true` computes it. [D]
+2. **Bob**: with both feet touching (lowest corner on the floor, never below) the body height at
+   contact for legs at ±A: 10-20° → +0.05 (the sole corner swings lower first), 30° → 0,
+   37° → −0.10, 45° → −0.23. `plant`/`ground` compute it; the visible bob of an R6 walk comes
+   mostly from the free leg lifting into the hip and the torso `up` you key. [D]
 
 The linter's foot-slide check (`"speed": v` in the spec) measures the speed the planted
 foot actually sweeps and prints the `AdjustSpeed` factor that would fix a mismatch.
@@ -55,13 +55,18 @@ procedural walk swung legs ±57° on a 0.70 s cycle (≈ 9.6 studs/s), toleratin
 3. Arms oppose the legs: right arm back when right leg forward. Amplitude ±20–30° walk,
    ±45–60° run; `out` 4–8° so they clear the body; `inout`.
 4. Torso: lean 3–5° (walk) / 12–18° (run) forward; twist ±5–8° toward the forward arm
-   (shoulders counter-rotate); slight tilt/shift over the stance leg. **`plant: true` on
-   every key** so torso motion doesn't swing the legs.
-5. Body height: `ground: true` on stance keys. In a run, keep the body low through
-   stance (feet dipping ≤ 0.2 studs at mid-stance stands in for the missing knee bend)
-   and higher in flight (`airborne` keys, `up` +0.1–0.15, `out`→`in` eases = ballistic).
-   One bob per step; avoid the "double bump" you'd get from strict ground contact at
-   mid-stance.
+   (shoulders counter-rotate); shift the body over the stance foot (Torso `right` ±0.1 at
+   passing, ±0.09 on the breakdown after contact) before the other foot lifts. **`plant: true`
+   on every key** so torso motion doesn't swing the legs.
+5. Body height and contact: label every key's support (`double` at contact, the stance foot
+   on single-support keys, `air` in flight). Planted keys lock the stance foot; the free leg is
+   pulled up into the hip so it never scrapes or sinks (`"clearance"`: 0.3 for walks). Where
+   interpolation between two planted keys dips the stance foot into the floor, add a
+   `"breakdown": true` key mid-stance with `"ease": "linear"` (walk.json has four). In a run,
+   the body is higher in flight (`airborne` keys, `up` +0.1–0.15, `out`→`in` eases =
+   ballistic); mark every key inside the flight phase `"support": "air"`. Check the report's
+   contact-phase strip: plant → release → swing → contact for each leg, no "contact" blips
+   in the middle of a swing.
 6. Head: counter-turn about 80% of the torso twist so the eyes stay forward; small nod.
 7. Close the loop with `{"f": END, "from": 0}`. Build; the lint must show no seam pop and
    "cycle matches ~v studs/s".
@@ -78,6 +83,7 @@ height. [D]
 - **Fall** (loop ~0.8 s): arms up and out (forward ~140–150, out 35–45) with a slow
   asymmetric flail; legs slowly cycling. Not a frozen pose.
 - **Land** (0.3–0.45 s, Action priority, played on Landed): impact pose is the squash —
-  `plant` with Torso `up` −0.45..−0.6 (legs slide into the torso) or splayed legs + `ground`,
+  `plant` with Torso `up` −0.45..−0.6 (legs slide into the torso, soles flat; legs within ~10°
+  of vertical),
   torso lean 15–22 with the head following through (nod +10–15), arms out for balance;
   deepest 3–5 frames after impact; recover with `inout`, feet never moving.

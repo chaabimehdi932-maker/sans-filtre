@@ -68,7 +68,9 @@ These are geometry facts of the default rig, and every R6 animator works around 
 
 1. **No waist.** RootJoint rotates the torso *and* everything attached (head, arms, legs)
    around the torso centre. Leaning forward swings the legs backward and lifts a foot.
-   → Counter-rotate the hips (the spec's `plant: true` does it exactly and pivots at the hips).
+   → Counter-rotate the hips (the spec's `plant: true` does it exactly and pivots at the hips,
+   or at one hip with `"pivot"`). Torso twist still moves the hip pivots (25° → 0.43 studs), so
+   locked feet tilt their legs: stand the feet under the stance's hips (`r6anim.py stance`).
 2. **Shoulder pivot is at the arm's inner edge, 0.5 studs below its top.** Any sideways
    raise (`out`) rotates the top 0.5 studs of the arm *into* the torso — unavoidable and
    accepted in R6. Worse: raising an arm overhead with `out` (~150–180) swings it **into
@@ -81,16 +83,20 @@ These are geometry facts of the default rig, and every R6 animator works around 
 4. **Hip pivot is at the leg's outer top corner** (x = ±1, y = −1). Forward/back swings are
    clean; spreading (`out`) rotates around the outer edge. Raising a leg ~90° sinks its top
    into the torso slightly — normal.
-5. **Rigid legs can't bend.** A leg at angle A from vertical has its foot 2·(1−cos A)
-   studs higher. To keep feet on the floor the body must drop at contact (0.12 studs at
-   ±20°, 0.27 at ±30°, 0.59 at ±45°). This is the R6 walk "bob". Two ways to crouch: **splay
-   the legs and drop the body** (`ground: true`), or **slide the legs up into the torso**
-   (Pose translation along the leg — spec `reach` < 0, which `plant` + negative Torso `up`
-   does for you). The torso hides the top of the legs, so retraction reads as bent knees;
-   modern R6 combat uses it a lot.
-6. **The swing leg can't clear the floor.** At passing, a straight swinging leg reaches
-   below the floor when the stance leg is angled. Accept it (floors hide it) or add
-   5–10° of `out` to the swing leg around passing.
+5. **Rigid legs can't bend, and feet have no ankle.** A tilted leg tilts its sole: it touches
+   the floor with one edge (its lowest world-space corner — measure the 8 rotated corners,
+   never "centre minus half height") and lifts the other. Standing/crouching legs stay within
+   ~15° of vertical so most of the sole touches (table in `posing.md` §3). Body height with both
+   feet planted at ±A (walk/run contact): 10-20° → the body RISES ~0.05 (the sole corner swings
+   lower first), 30° → 0, 37° → −0.10, 45° → −0.23; `plant`/`ground` compute it. To crouch,
+   **slide the legs up into the torso** (Pose translation along the leg — spec `reach` < 0,
+   which `plant` + negative Torso `up` does for you). The torso hides the top of the legs, so
+   retraction reads as bent knees; modern R6 combat uses it a lot. Never crouch by splaying or
+   tilting the legs into the floor.
+6. **The swing leg can't bend to clear the floor.** A straight swinging leg passing under the
+   body would reach below the floor. R6 animators pull it up into the hip instead (negative
+   `reach`): the solver does it for every free leg of a planted key (spec `"clearance"`,
+   default 0.2 studs; 0.3 for walks), and breakdown keys keep it clear between keys.
 7. **A fully raised arm only reaches the top of the head** (hand at shoulder + 1.5 = 5.0 studs, head top
    ≈ 5.1 with the mesh). "Punch the sky" poses read through arm angle, chin up and body rise, not
    through the hand clearing the head.

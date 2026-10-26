@@ -11,6 +11,7 @@ produces the exact `Pose.CFrame` (= `Motor6D.Transform`) for R6's rotated joint 
 - Joints and channels (the table you'll use most)
 - Easing
 - Helpers: `from`, `hold`, `poses`, `plant`, `ground`, `airborne`, `derive`, markers
+- Contact and weight: `support`, `pivot`, `breakdown`, `balance`, `unbalanced`, `clearance`
 - Worked example
 - CLI
 
@@ -25,6 +26,9 @@ produces the exact `Pose.CFrame` (= `Motor6D.Transform`) for R6's rotated joint 
 | `ease` | `"inout"` | Default easing for every keyframe that doesn't set one. |
 | `speed` | none | Locomotion speed in studs/s the cycle must match. Enables the foot-sliding check. |
 | `ground` | `false` | Snap every non-airborne keyframe so the lowest foot touches the floor (see below). |
+| `balance` | `false` | Every planted key nudges the hips until the centre of mass is ≥ 0.15 studs inside the feet. |
+| `clearance` | `0.2` | Studs a free (non-supporting) leg's lowest corner stays above the floor on planted keys. 0.3 for walks. |
+| `rig` | default R6 | Joint overrides from `studio/inspect_rig.luau` when the user's rig has non-default C0/C1. |
 | `grounded` | `true` | Lint expects feet on the floor between non-airborne keys. Set `false` for swimming/flying. |
 | `poses` | `{}` | Named pose library, referenced by `"from"`. |
 | `derive` | `[]` | Copy one joint's keys onto another with a time shift (cycles). |
@@ -128,12 +132,30 @@ Avoid `bounce.inout` (Roblox's runtime curve differs from the standard one).
   a tilt would make a leg stretch. Put it on every grounded key of anything that isn't
   locomotion; feet then only move where you change the leg angles (a step). On `airborne`
   keys plant just keeps the legs' world angles.
+  Contact = the leg's lowest world-space corner exactly on the floor: feet touch, never sink.
+  Joints a planted key doesn't list (Torso, legs) continue their curve; they don't reset.
 - **`"ground": true`** on a keyframe (or the whole spec): slide the body up/down so the
   lowest point of either leg touches the floor (plant keys already do this). Use it on
-  locomotion keys and anything not planted. Rigid legs swung by A° lift the foot
-  2·(1−cos A) studs — ground does that math, so splayed legs drop the body.
+  keys that aren't planted.
 - **`"airborne": true`**: this key is in the air (jumps, flight phase of a run, bounces);
   ground snapping and the floor lint skip it. `from` copies it.
+- **`"support"`**: what holds the body up at this key — `double`, `left`, `right`,
+  `transition` (weight moving between the feet: both touch, only the weight foot must be
+  flat), `air`, `hands`, `body` (sitting/lying), `fall` (deliberately off balance). On planted
+  keys `left`/`right` lock only that foot; the other leg is free (keeps its angle, lifted clear
+  of the floor by `clearance` — pulled into the hip like R6's knee). `air` = `airborne`. The
+  lint checks every label against the geometry. `from` copies it.
+- **`"pivot": "left" | "right" | "hips"`** (planted keys): where torso rotations pivot. Default:
+  the support hip on one-foot keys, the hips' middle otherwise. Use the front hip on strike
+  keys with big twist (`"support": "transition", "pivot": "left"`): the weight leg stays
+  straight under the body while the other hip swings and its foot pivots.
+- **`"breakdown": true`**: an in-between key that starts as the pose the curves already pass
+  through at its time (override any channel on it). Its contact flags default to what both
+  neighbours share (a foot planted on both sides stays planted), so `plant` re-locks the feet
+  where plain interpolation would let them dip or slide. An eased segment it splits keeps its
+  feel (inout → in + out) unless you give it an `ease`. Can't be the first key or use `from`.
+- **`"balance": true`** (key or spec): nudge the hips over the feet. **`"unbalanced": true`**:
+  a deliberate lunge/fall key — exempt from balance and flat-foot checks.
 - **`"derive"`** (cycles): `{"joint": "LeftLeg", "from": "RightLeg", "phase": 0.5}` copies
   the right leg's keys onto the left leg half a loop later — a perfect, mirror-symmetric
   gait from one leg's keys. Also `"shift"` (seconds) or `"shiftFrames"`. For Torso/Head
@@ -145,19 +167,22 @@ Avoid `bounce.inout` (Roblox's runtime curve differs from the standard one).
 
 ## Worked example (jab)
 
+(The recipes/m1_1_jab.json version adds `support` labels, a guard fitted with `stance` and
+`"balance": true`; this is the minimal shape.)
+
 ```json
 {
   "name": "Jab_L", "priority": "Action", "fps": 60, "ground": true,
-  "poses": {"guard": {"Torso": {"twist": 25, "lean": 6}, "Head": {"turn": -20, "nod": 4},
-            "LeftArm": {"forward": 80, "out": -8, "twist": -10}, "RightArm": {"forward": 62, "out": -14, "twist": -10},
-            "LeftLeg": {"forward": 18, "out": 4}, "RightLeg": {"forward": -14, "out": 6}}},
+  "poses": {"guard": {"Torso": {"twist": 25, "lean": 7, "up": -0.35}, "Head": {"turn": -20, "nod": 6},
+            "LeftArm": {"forward": 82, "out": -6, "twist": -12}, "RightArm": {"forward": 64, "out": -12, "twist": -12},
+            "LeftLeg": {"forward": 13, "out": 3}, "RightLeg": {"forward": -13, "out": 3, "twist": 5}}},
   "keyframes": [
     {"f": 0,  "name": "guard", "from": "guard", "plant": true, "ease": "out"},
     {"f": 3,  "name": "anticipation", "from": "guard", "plant": true, "ease": "in",
-     "Torso": {"twist": 20, "lean": 5}, "LeftArm": {"forward": 80, "out": 0, "reach": -0.35}},
+     "Torso": {"twist": 18, "lean": 5, "up": -0.38}, "LeftArm": {"forward": 80, "out": 0, "reach": -0.45}},
     {"f": 6,  "name": "contact", "from": "guard", "plant": true, "ease": "linear",
-     "Torso": {"twist": 32, "lean": 10, "forward": 0.2}, "LeftArm": {"forward": 90, "out": -6, "twist": -25, "reach": 0.2}},
-    {"f": 10, "name": "hold", "from": "contact", "LeftArm": {"forward": 89, "out": -6, "twist": -25, "reach": 0.22}},
+     "Torso": {"twist": 34, "lean": 12, "forward": 0.1, "up": -0.32}, "LeftArm": {"forward": 90, "out": -6, "twist": -25, "reach": 0.42}},
+    {"f": 10, "name": "hold", "from": "contact", "LeftArm": {"forward": 89, "out": -6, "twist": -25, "reach": 0.44}},
     {"f": 21, "name": "recover", "from": "guard", "plant": true}
   ],
   "markers": [{"f": 6, "name": "Hit"}]
@@ -170,6 +195,10 @@ Avoid `bounce.inout` (Roblox's runtime curve differs from the standard one).
 python scripts/r6anim.py build spec.json -o out/     # lint + previews + .rbxmx + .luau (use this)
 python scripts/r6anim.py build a.json b.json c.json -o out/   # a set: also InstallAll.luau (one paste)
 python scripts/r6anim.py lint spec.json              # findings only
+python scripts/r6anim.py report spec.json            # per-key support / foot low / sole on floor / balance + contact phases
+python scripts/r6anim.py stance spec.json -o fixed.json   # stand planted legs under the hips across each stance
+python scripts/r6anim.py exaggerate spec.json --amount 1.15 --joints Torso,LeftArm -o v2.json
+python scripts/r6anim.py compare spec.json v2.json -o out/   # same views/times side by side + what changed
 python scripts/r6anim.py render spec.json --every 0.05 --views side,front   # denser contact sheet
 python scripts/r6anim.py mirror punch_R.json -o punch_L.json
 python scripts/r6anim.py import Existing.rbxmx -o existing.json             # edit/critique an existing anim
@@ -177,6 +206,8 @@ python scripts/r6anim.py pose '{"RightArm":{"forward":90,"out":20}}' -o pose.png
 ```
 
 Outputs of `build` (named after `name`): `<Name>.rbxmx`, `<Name>.luau`, `<Name>_sheet.png`
-(rows = front/side/three-quarter, columns = keyframes), `<Name>_onion.png` (key-pose ghosts +
-hand/foot trails, one dot per 1/30 s), `<Name>.gif`. Rendering needs Pillow
+(rows = front/side/three-quarter/game camera, columns = keyframes), `<Name>_onion.png` (key-pose
+ghosts + hand/foot trails, one dot per 1/30 s), `<Name>.gif`, `<Name>_slow.gif` (quarter speed,
+every frame) and `<Name>_report.md` (lint + per-key table + contact phases). Nothing under the
+floor is hidden in the renders. Rendering needs Pillow
 (`pip install pillow`); `--no-render` skips it.

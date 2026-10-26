@@ -34,13 +34,15 @@ recommended starting value (no single authoritative source).
   the opposite way first. Twisting the wrong way drags the fist backward. Check it: the
   lint prints where the hand travels into every marker ("forward +0.9 …").
 - **Feet stay planted** unless the character steps: `plant: true` on grounded keys, and keep
-  the leg angles the same across keys (changing them moves the feet).
+  the leg angles the same across keys (changing them moves the feet). Feet touch the floor and
+  never sink; standing/crouching soles stay mostly flat (legs within ~15° of vertical, under the
+  hips). Support-first posing, contact phases and the numbers: `posing.md`.
 - **Snappy beats smooth** for action: fast acceleration/deceleration, few strong keys,
   holds. The battlegrounds look is effectively *limited animation*. [community]
 - **Arcs come for free on limbs** (rigid limbs about fixed pivots move on circles of
   radius 1.5/2 studs). Add body translation so the *whole body* path arcs too. [derived]
 - **Squash & stretch has no scale** on R6. Substitute: squash = body dip 0.2–0.6 studs
-  (plant + negative `up`: legs slide into the torso; or splayed legs + ground) + torso
+  (plant + negative `up`: legs slide into the torso — never splay/tilt the legs into the floor) + torso
   pitched + arms in; stretch = body rise + legs straight + arms overhead + limbs `reach`ing
   0.1–0.3 out of their sockets for 1–3 frames. Exaggerate the speed contrast. [derived][default]
 
@@ -108,11 +110,14 @@ Never leave everything `linear` — it reads robotic. [community, widely repeate
   symmetry by 5–15° and offset timing 1–3 frames. Mirroring a move creates twinning; vary
   it afterward. [community]
 - **Don't fight the rig** (see `rig.md` pivot quirks): raise arms overhead with `forward`,
-  not `out`; keep inward `out` ≥ −15°; crouch by splaying legs + `ground`.
-- **Fighting stance (right-handed, "orthodox")** [default]: Torso twist +20..30, lean 5–8;
+  not `out`; keep inward `out` ≥ −15°; crouch by sinking the legs into the torso (plant +
+  Torso `up` < 0), never by splaying them.
+- **Fighting stance (right-handed, "orthodox")** [default]: Torso twist +25, lean 7, up −0.35;
   lead (left) arm forward 75–85, rear arm forward 55–65 with small inward `out`; lead leg
-  forward 15–20, rear leg −12..−16, both `out` 4–8; head `turn` ≈ −twist so the eyes stay
-  on target. All grounded keys `plant: true`, spec `ground: true`.
+  forward 13 out 3, rear leg forward −13 out 3 twist 5 (each foot under its twisted hip, soles
+  flat); head `turn` ≈ −twist so the eyes stay on target. All grounded keys `plant: true`, spec
+  `ground: true`. Keep the twist range of a strike inside ~40°; for bigger rotations pivot at
+  the front hip (`"support": "transition", "pivot": "left"`) and let the back foot pivot.
 
 ## 5. Combat
 
@@ -145,7 +150,7 @@ Type-specific notes [default]:
   on the load while the chest turns left (+10), then the chest whips right (+48..+54) and the
   arm sweeps to `out` ≈ −8. A right hook mirrors this (twist goes down). Don't push the arm
   more inward — the torso rotation does the "across".
-- **Uppercut / launcher**: deep crouch (splayed legs + `ground`), explosive rise (body
+- **Uppercut / launcher**: crouch (legs sunk into the torso, `up` −0.6), explosive rise (body
   `up` +0.3–0.4, key `airborne`), arm forward 160–175, lean back −10, head up. Hang at the
   top briefly so the knockback reads.
 - **Weapon slash (right-hand tool)**: start/end in the tool-hold pose (right arm forward
@@ -184,7 +189,7 @@ long wind-ups.
 
 - Frames per beat = fps × 60 / BPM (120 BPM @60 fps = 30 frames = 0.5 s). Put keys at
   exact beat times; non-integer frame intervals drift if rounded.
-- Down on the beat (body dip via splayed legs + `ground`), up on the off-beat; ease `in`
+- Down on the beat (body dip: plant + Torso `up` −0.3..−0.45, legs sink into the torso), up on the off-beat; ease `in`
   into the beat, `out` out of it. Head nods on the beat. Arms alternate.
 - Seam on a strong beat; match *speed* (not just pose) across the seam.
 - Loops 2–8 s. Waves/gestures: raise the arm with `forward` (not `out`) and wave with
@@ -213,7 +218,9 @@ long wind-ups.
 | Punch feels like a tap | Bigger anticipation contrast, snap strike, effortful recovery |
 | Walk legs too wide / lifted above waist | Keep legs under the body, ±25–45° |
 | Same-side arm and leg swinging together | Arm opposes the same-side leg |
-| Feet sink or float | `ground: true`, `plant: true` when leaning |
+| Feet sink or float | `plant: true` on grounded keys; breakdown keys where interpolation dips; free legs lift (`clearance`) |
+| Standing feet on their edges | Legs within ~15° of vertical, under the hips (`r6anim.py stance`); crouch by sinking the legs |
+| Leg trailing behind the torso in a stance | Back foot under the back hip; shift weight with the torso |
 | Foot sliding in locomotion | Set `speed` and match stride (see `locomotion.md`) |
 | Torso lean drags the legs | `plant: true` |
 | Arm overhead clips the head | Raise with `forward`, not `out` |

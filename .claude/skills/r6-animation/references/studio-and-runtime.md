@@ -12,6 +12,7 @@ replacing default animations, or debugging "my animation doesn't play".
 6. Markers: hitboxes, SFX, VFX
 7. Replacing the default R6 animations
 8. Debug checklist
+9. Studio helper scripts (inspect the rig, fetch an animation, check contact, preview)
 
 ## 1. Into Studio
 
@@ -191,3 +192,18 @@ must be set to R6 (File → Avatar Settings → R6).
 9. A right-arm-only animation still moves the torso → the Animate `toolnone` track; raise
    your priority or key only what you need.
 10. Snapping between moves → fadeTime 0; use ~0.1 s.
+11. Feet sink into or float above the floor in game, or slide → run `check_contact.luau` (section 9)
+    on the real rig and floor; a rig whose rest pose isn't on the floor in Edit mode is reported
+    and compensated (in game the Humanoid places the root).
+
+## 9. Studio helper scripts
+
+All in `scripts/studio/`; the user pastes them into the Command Bar (View → Command Bar).
+
+| Script | Select first | What it does |
+|---|---|---|
+| `inspect_rig.luau` | the rig Model | Prints parts, sizes and every Motor6D (C0/C1); flags non-R6 rigs, renamed root ("Root Hip"), custom joints, AnimationConstraints, anchored limbs; prints the `"rig"` block for the spec when joints differ from default |
+| `fetch_animation.luau` | — (edit the `ID` line) | Loads an animation the user can access by ID (`KeyframeSequenceProvider:GetKeyframeSequenceAsync`) into ServerStorage, lists its markers, warns if it is R15. Right-click → Save to File → `.rbxmx` → `r6anim.py import` |
+| `check_contact.luau` | the rig Model + the KeyframeSequence (Ctrl-click) | Edit mode. Steps the animation frame by frame (`Animator:StepAnimations`), takes the 8 world-space corners of each leg, raycasts the floor actually under it (stairs, slopes, platforms; the rig excluded) and reports feet pushed into the floor, both feet off the floor, and planted-foot sliding measured on the ground (set `SPEED` to the WalkSpeed for walk/run cycles) |
+| `preview_in_play.luau` | the KeyframeSequence (during Play) | Registers it temporarily and plays it on the player's character at Action4, LOOPS times: check blending, interruption, loops and markers before publishing |
+
