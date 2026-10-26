@@ -254,9 +254,12 @@ def contact_sheet(anim: Anim, path: str, views=DEFAULT_VIEWS, times=None, cell=(
     return path
 
 
-def gif(anim: Anim, path: str, views=DEFAULT_VIEWS, fps=30, cell=(220, 260), repeats=1):
+def gif(anim: Anim, path: str, views=DEFAULT_VIEWS, fps=30, cell=(220, 260), repeats=1, slow=1.0):
+    """Animated preview. slow=0.25 plays at quarter speed (every 60 fps frame shown) to inspect
+    contacts, pops and in-betweens."""
     cams = [Camera(v) for v in views]
-    times = sample_times(anim, fps)
+    sample_fps = min(60.0, fps / slow)
+    times = sample_times(anim, sample_fps)
     bounds = [_bounds_for(anim, cam, times) for cam in cams]
     cw, ch = cell
     bar_h = 34
@@ -285,13 +288,13 @@ def gif(anim: Anim, path: str, views=DEFAULT_VIEWS, fps=30, cell=(220, 260), rep
             d.polygon([(x - 4, y - 9), (x + 4, y - 9), (x, y - 3)], fill=(200, 60, 60))
         px = x0 + (x1 - x0) * t / L
         d.ellipse([px - 4, y - 4, px + 4, y + 4], fill=(30, 110, 220))
-        txt = f"{anim.name}  {t:.2f}s / {anim.length:.2f}s"
-        hits = [m.name for m in anim.markers if abs(m.time - t) <= 0.5 / fps + 1e-9]
+        txt = f"{anim.name}  {t:.2f}s / {anim.length:.2f}s" + (f"   (x{slow:g} speed)" if slow != 1 else "")
+        hits = [m.name for m in anim.markers if abs(m.time - t) <= 0.5 / sample_fps + 1e-9]
         if hits:
             txt += "   >> " + ", ".join(hits)
         d.text((10, ch + 18), txt, fill=INK, font=f_small)
         frames.append(img)
-    durations = [round(1000 / fps)] * len(frames)
+    durations = [round(1000 / (sample_fps * slow))] * len(frames)
     if not anim.loop:
         durations[-1] = 600
         durations[0] = 300
@@ -424,7 +427,7 @@ def compare_gif(a: Anim, b: Anim, path: str, view="three_quarter", fps=30, cell=
             ImageDraw.Draw(img).text((i * cw + 8, 6), f"{tag}: {x.name}  {min(t, x.length):.2f}s", fill=INK,
                                      font=_font(12))
         frames.append(img)
-    durations = [round(1000 / fps)] * len(frames)
+    durations = [round(1000 / (sample_fps * slow))] * len(frames)
     durations[-1] = 600
     frames[0].save(path, save_all=True, append_images=frames[1:], duration=durations, loop=0, disposal=2)
     return path

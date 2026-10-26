@@ -53,15 +53,15 @@
       "plant": true,
       "ease": "in",
       "Torso": {
-        "twist": 20,
+        "twist": 18,
         "lean": 5,
-        "up": -0.04
+        "up": -0.38
       },
       "LeftArm": {
         "forward": 80,
         "out": 0,
         "twist": -10,
-        "reach": -0.35
+        "reach": -0.45
       },
       "support": "double"
     },
@@ -72,8 +72,8 @@
       "plant": true,
       "ease": "linear",
       "Torso": {
-        "twist": 32,
-        "lean": 10,
+        "twist": 34,
+        "lean": 12,
         "forward": 0.1,
         "up": -0.32
       },
@@ -85,7 +85,7 @@
         "forward": 90,
         "out": -6,
         "twist": -25,
-        "reach": 0.3
+        "reach": 0.42
       },
       "RightArm": {
         "forward": 66,
@@ -100,16 +100,16 @@
       "from": "contact",
       "ease": "inout",
       "Torso": {
-        "twist": 33,
-        "lean": 10,
+        "twist": 35,
+        "lean": 12,
         "forward": 0.11,
-        "up": -0.08
+        "up": -0.34
       },
       "LeftArm": {
         "forward": 89,
         "out": -6,
         "twist": -25,
-        "reach": 0.32
+        "reach": 0.44
       }
     },
     {

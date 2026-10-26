@@ -97,11 +97,13 @@
       },
       "RightLeg": {
         "forward": 38,
-        "out": 6
+        "out": 6,
+        "ease": "out"
       },
       "LeftLeg": {
         "forward": -24,
-        "out": 6
+        "out": 6,
+        "ease": "out"
       },
       "plant": true
     },

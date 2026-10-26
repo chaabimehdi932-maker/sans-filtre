@@ -196,6 +196,33 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
     if anim.grounded:
         _ground_contact(anim, times, frames, add)
 
+    # ---- sudden body-height pops (a launch into the air, a fall or a deliberate snap are fine)
+    pops = []
+    for i in range(1, len(times)):
+        dy = frames[i]["Torso"].y - frames[i - 1]["Torso"].y
+        a, b, _ = _segment(anim, times[i - 1] + 1e-6)
+        ka, kb = anim.keys[a], anim.keys[b]
+        deliberate = ka.ease.style == "constant" or any(
+            k.airborne or k.support in ("air", "fall", "body") for k in (ka, kb))
+        if abs(dy) > 0.12 and not deliberate:
+            pops.append((times[i], dy))
+    if pops:
+        t, dy = max(pops, key=lambda p: abs(p[1]))
+        add("WARN", f"the body height jumps {dy:+.2f} studs in one frame at {t:.2f}s ({_ranges([p[0] for p in pops])}): "
+                    "check the Torso 'up' on the keys around it (a key that resets 'up' between two crouched keys "
+                    "pops the body), or give the move more frames")
+
+    # ---- contrast: a one-shot whose silhouette barely changes reads as nothing at game speed
+    if not anim.loop and L >= 0.3 and len(anim.keys) >= 3:
+        f0 = frames[0]
+        travel = max(math.dist(limb_tip(p, part), limb_tip(f0, part)) for p in frames
+                     for part in ("Right Arm", "Left Arm", "Right Leg", "Left Leg"))
+        turn = max(angle_between(f0["Torso"], p["Torso"]) for p in frames)
+        if travel < 0.8 and turn < 10:
+            add("INFO", f"low contrast: no hand or foot travels more than {travel:.2f} studs and the torso turns at most "
+                        f"{turn:.0f} deg. Pick the main direction of the action and push the key pose further along "
+                        "it (anticipation opposite, contact past the target)")
+
     # ---- support points, sole contact and balance at every key pose
     from r6pose import analyze_at
     reports = [(k, analyze_at(anim, k.time, tracks)) for k in anim.keys]
@@ -276,26 +303,31 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
                             f"it (centre of mass {d0:.2f} -> {d1:.2f} studs from that foot). Show the transfer: "
                             "Torso right/tilt toward the support leg before the other leg lifts")
 
-    # ---- planted feet must not skate (one-shots / anything without a locomotion speed)
+    # ---- planted feet must not skate (one-shots / anything without a locomotion speed). Every frame
+    # counts, air segments included: a foot that touches down before its landing key skids into place.
     if anim.grounded and not anim.speed:
-        worst = (0.0, None, None)
+        lying = lambda t: anim.keys[_segment(anim, t)[0]].support in ("fall", "body")
         for leg in ("Right Leg", "Left Leg"):
-            start = None
+            start, worst = None, (0.0, None)
             for t, parts in zip(times, frames):
-                tip = limb_tip(parts, leg)
-                if tip[1] < 0.12 and not _in_air(anim, t):
+                if foot_low(parts[leg]) <= 0.05 and not lying(t):
+                    tip = limb_tip(parts, leg)
                     if start is None:
                         start = (t, tip)
                     d = math.hypot(tip[0] - start[1][0], tip[2] - start[1][2])
                     if d > worst[0]:
-                        worst = (d, leg, (start[0], t))
+                        worst = (d, (start[0], t))
                 else:
                     start = None
-        if worst[0] > 0.25:
-            d, leg, (t0, t1) = worst
-            add("WARN", f"{leg}'s foot skates {d:.2f} studs while on the floor ({t0:.2f}-{t1:.2f}s). "
-                        "Put \"plant\": true on the grounded keys (it locks the feet and re-aims the legs), "
-                        "or move the foot deliberately with a step (lift it: airborne leg key)")
+            if worst[0] > 0.25:
+                d, (t0, t1) = worst
+                early = _in_air(anim, t0) and not _in_air(anim, t1)
+                why = (" It touches down before the landing key and skids into place: give the legs their landing "
+                       "angles earlier (per-joint ease \"out\" on the legs of the key before the landing) or land "
+                       "the body later" if early else
+                       " Put \"plant\": true on the grounded keys with the same leg values (it locks the feet), or "
+                       "lift the foot for a deliberate step")
+                add("WARN", f"{leg}'s foot skates {d:.2f} studs while on the floor ({t0:.2f}-{t1:.2f}s).{why}")
 
     # ---- strikes: where does the hitting hand travel into each marker?
     for m in anim.markers:
@@ -374,7 +406,9 @@ def _ground_contact(anim: Anim, times, frames, add):
         add("WARN", f"{leg}'s foot goes {worst[1]:.2f} studs into the floor at {worst[0]:.2f}s "
                     f"({_ranges([h[0] for h in hits])}). Cause: {cause}")
 
-    # planted feet that drift sideways (any animation) or skate (anything that isn't locomotion)
+    # locomotion: the planted foot sweeps back with the speed, but it must not drift sideways
+    if not anim.speed:
+        return
     phases = contact_phases(anim, times=times, frames=frames)
     idx = {t: n for n, t in enumerate(times)}
     for leg, segs in phases.items():

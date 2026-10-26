@@ -43,7 +43,7 @@
       "name": "guard",
       "from": "guard",
       "plant": true,
-      "ease": "out",
+      "ease": "inout",
       "support": "double"
     },
     {
@@ -56,7 +56,7 @@
         "twist": 30,
         "lean": 18,
         "tilt": 4,
-        "up": -0.8
+        "up": -0.6
       },
       "Head": {
         "turn": -18,

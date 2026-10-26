@@ -56,7 +56,7 @@
         "twist": 15,
         "lean": 6,
         "tilt": -4,
-        "up": -0.06
+        "up": -0.38
       },
       "Head": {
         "turn": -10,
@@ -109,7 +109,7 @@
         "lean": 11,
         "tilt": 3,
         "forward": 0.05,
-        "up": -0.1
+        "up": -0.34
       },
       "LeftArm": {
         "forward": 86,
@@ -118,6 +118,15 @@
       },
       "support": "transition",
       "pivot": "left"
+    },
+    {
+      "f": 19,
+      "name": "recover_breakdown",
+      "breakdown": true,
+      "support": "double",
+      "Torso": {
+        "twist": 36
+      }
     },
     {
       "f": 24,

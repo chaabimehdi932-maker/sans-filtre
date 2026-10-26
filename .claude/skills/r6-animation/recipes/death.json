@@ -30,7 +30,8 @@
       },
       "LeftLeg": {
         "forward": 2
-      }
+      },
+      "support": "fall"
     },
     {
       "f": 10,

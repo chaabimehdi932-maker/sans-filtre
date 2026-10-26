@@ -198,6 +198,107 @@ def test_frames_and_from():
     assert a.keys[1].channels["LeftArm"] == {"forward": 60}
 
 
+def _feet_at(anim, t):
+    parts = forward_kinematics(sample(anim, t))
+    return {leg: limb_tip(parts, leg) for leg in ("Right Leg", "Left Leg")}, parts
+
+
+def test_planted_key_continues_leg_curve():
+    # a planted key that doesn't list the legs keeps their curve (no snap to the rest pose)
+    a = load_spec({"name": "t", "keyframes": [
+        {"t": 0, "plant": True, "RightLeg": {"out": 8}, "LeftLeg": {"out": 8}, "Torso": {"tilt": -4}},
+        {"t": 0.5, "plant": True, "Torso": {"tilt": -2}},
+        {"t": 1, "plant": True, "Torso": {"tilt": -4}}]})
+    f0, _ = _feet_at(a, 0)
+    for t in (0.25, 0.5, 0.75):
+        ft, _ = _feet_at(a, t)
+        for leg in f0:
+            assert math.dist(f0[leg][::2], ft[leg][::2]) < 0.05, (t, leg, f0[leg], ft[leg])
+
+
+def test_breakdown_fills_from_curve_and_plants():
+    spec = {"name": "t", "keyframes": [
+        {"t": 0, "plant": True, "support": "double", "Torso": {"twist": 30, "up": -0.4},
+         "RightLeg": {"forward": -8}, "LeftLeg": {"forward": 8}},
+        {"t": 0.2, "breakdown": True},
+        {"t": 0.4, "plant": True, "support": "right", "Torso": {"twist": -10, "up": 0}}]}
+    a = load_spec(spec)
+    bd = a.keys[1]
+    assert bd.plant and bd.support == "right", (bd.plant, bd.support)  # what both neighbours share
+    assert 0 < bd.channels["Torso"]["twist"] < 30  # starts as the in-between
+    assert str(a.keys[0].joint_ease["Torso"]) == "in" and str(bd.joint_ease["Torso"]) == "out"  # inout split
+    _, parts = _feet_at(a, 0.2)
+    assert abs(foot_low(parts["Right Leg"])) < 0.01  # the planted foot is on the floor at the breakdown
+
+
+def test_free_leg_lifts_clear_of_floor():
+    # one-foot support while crouched: the free leg would go through the floor; it is pulled up into the hip
+    a = load_spec({"name": "t", "clearance": 0.2, "keyframes": [
+        {"t": 0, "plant": True, "support": "left", "Torso": {"up": -0.5}, "RightLeg": {"forward": -20}},
+        {"t": 1, "plant": True, "support": "left", "Torso": {"up": -0.5}, "RightLeg": {"forward": -20}}]})
+    _, parts = _feet_at(a, 0)
+    assert abs(foot_low(parts["Left Leg"])) < 0.01
+    assert foot_low(parts["Right Leg"]) >= 0.19, foot_low(parts["Right Leg"])
+
+
+def test_pivot_keeps_weight_leg_straight():
+    from r6pose import leg_tilt
+    spec = {"name": "t", "keyframes": [
+        {"t": 0, "plant": True, "support": "transition", "pivot": "left", "Torso": {"twist": 35}},
+        {"t": 1, "plant": True, "support": "transition", "pivot": "left", "Torso": {"twist": 35}}]}
+    _, parts = _feet_at(load_spec(spec), 0)
+    assert leg_tilt(parts, "Left Leg") < 1.0, leg_tilt(parts, "Left Leg")  # the left hip stays over its foot
+    spec["keyframes"][0].pop("pivot"); spec["keyframes"][1].pop("pivot")
+    _, parts = _feet_at(load_spec(spec), 0)
+    assert leg_tilt(parts, "Left Leg") > 5  # pivoting at the hips' middle swings that hip away
+
+
+def test_stance_fit_flattens_feet():
+    from r6pose import key_reports
+    from r6tools import apply_stance, fit_stance
+    raw = {"name": "t", "keyframes": [
+        {"t": 0, "plant": True, "Torso": {"twist": 25, "up": -0.4}, "RightLeg": {"out": 22}, "LeftLeg": {"forward": 20, "out": 15}},
+        {"t": 0.2, "plant": True, "Torso": {"twist": 40, "up": -0.4}},
+        {"t": 0.4, "plant": True, "Torso": {"twist": 25, "up": -0.4}}]}
+    a = load_spec(raw)
+    before = min(min(r["contact"].values()) for _, r in key_reports(a))
+    fixed = load_spec(apply_stance(raw, a, fit_stance(a)))
+    after = min(min(r["contact"].values()) for _, r in key_reports(fixed))
+    assert before < 0.5 <= after, (before, after)
+
+
+def test_contact_phases_of_walk():
+    from r6pose import contact_phases
+    walk = load_spec(os.path.join(os.path.dirname(__file__), "..", "recipes", "walk.json"))
+    for leg, segs in contact_phases(walk).items():
+        names = [p for p, _, _ in segs]
+        for phase in ("plant", "release", "swing", "contact"):
+            assert phase in names, (leg, names)
+
+
+def test_lint_names_the_cause_of_floor_penetration():
+    from r6lint import lint
+    # key pose itself under the floor: crouch without plant
+    at_key = lint(load_spec({"name": "t", "keyframes": [{"t": 0}, {"t": 0.5, "Torso": {"up": -0.5}}, {"t": 1}]}))
+    assert any("into the floor" in m and "key pose itself" in m for _, m in at_key), at_key
+    # standing on splayed legs: soles mostly off the floor
+    splay = lint(load_spec({"name": "t", "keyframes": [
+        {"t": 0, "plant": True, "RightLeg": {"out": 25}, "LeftLeg": {"out": 25}},
+        {"t": 1, "plant": True, "RightLeg": {"out": 25}, "LeftLeg": {"out": 25}}]}))
+    assert any("of the right sole touches the floor" in m for _, m in splay), splay
+
+
+def test_feet_touch_never_sink_when_planted():
+    from r6pose import sole_contact
+    a = load_spec({"name": "t", "keyframes": [
+        {"t": 0, "plant": True, "RightLeg": {"out": 12}, "LeftLeg": {"forward": 12}, "Torso": {"up": -0.3}},
+        {"t": 1, "plant": True, "RightLeg": {"out": 12}, "LeftLeg": {"forward": 12}, "Torso": {"up": -0.3}}]})
+    _, parts = _feet_at(a, 0)
+    for leg in ("Right Leg", "Left Leg"):
+        assert abs(foot_low(parts[leg])) < 0.01  # lowest corner exactly on the floor
+        assert sole_contact(parts, leg) > 0.6  # a 12 deg leg still has most of its sole down
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

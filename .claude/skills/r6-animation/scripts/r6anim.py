@@ -69,6 +69,8 @@ def _render(anim, d, args):
     made.append(r6render.onion(anim, base + "_onion.png"))
     if not getattr(args, "no_gif", False):
         made.append(r6render.gif(anim, base + ".gif", views=views))
+        # quarter speed, two views: where feet touch, slide or pop between keys
+        made.append(r6render.gif(anim, base + "_slow.gif", views=("side", "three_quarter"), slow=0.25))
     return made
 
 
