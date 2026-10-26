@@ -24,6 +24,8 @@ does the math, checks the result, draws it so you can *see* it, and exports Stud
    - delivering to Studio, playing in game, priorities, Animate replacement → `references/studio-and-runtime.md`
    - why a pose looks odd / raw CFrame work / rig debugging → `references/rig.md`
    - editing `.rbxmx`, easing that differs in game, other tools → `references/formats.md`
+   - need the sources, confidence levels or a deeper explanation of anything above →
+     `references/research-report.md` (the full sourced research; long, search it with grep)
 3. **Start from a recipe** in `recipes/` when one is close (list below) — copy it next to
    your output and modify. They are lint-clean and visually checked; reusing their
    proportions beats starting from zero.

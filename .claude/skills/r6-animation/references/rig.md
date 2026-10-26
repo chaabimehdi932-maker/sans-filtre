@@ -36,7 +36,7 @@ the other five in Torso (Part0 = Torso).
 | Right Hip | Torso → Right Leg | `1,-1,0, 0,0,1, 0,1,0, -1,0,0` | `0.5,1,0, 0,0,1, 0,1,0, -1,0,0` |
 | Left Hip | Torso → Left Leg | `-1,-1,0, 0,0,-1, 0,1,0, 1,0,0` | `-0.5,1,0, 0,0,-1, 0,1,0, 1,0,0` |
 
-(Format: `CFrame.new(x,y,z, R00,R01,R02, R10,R11,R12, R20,R21,R22)`.) Readable forms:
+(Format: `CFrame.new(x,y,z, R00,R01,R02, R10,R11,R12, R20,R21,R22)`.) Naming wrinkle: rigs built by Studio's importer may call the root motor `Root Hip` instead of `RootJoint`. Animations don't care (poses match joints by *part* names), but scripts that look joints up by name do. Readable forms:
 shoulders/hips = translation × `CFrame.Angles(0, ±π/2, 0)`; Neck/RootJoint = translation ×
 `CFrame.Angles(-π/2, 0, π)`.
 
