@@ -71,7 +71,9 @@
       "RightLeg": {
         "forward": -65,
         "ease": "inout"
-      }
+      },
+      "airborne": true,
+      "support": "air"
     },
     {
       "f": 15,
@@ -117,7 +119,9 @@
       "RightLeg": {
         "forward": 55,
         "ease": "in"
-      }
+      },
+      "airborne": true,
+      "support": "air"
     },
     {
       "f": 25,

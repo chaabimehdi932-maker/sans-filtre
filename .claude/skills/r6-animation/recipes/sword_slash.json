@@ -8,7 +8,8 @@
   "poses": {
     "toolhold": {
       "Torso": {
-        "twist": 5
+        "twist": 5,
+        "up": -0.3
       },
       "RightArm": {
         "forward": 90
@@ -19,12 +20,12 @@
       },
       "RightLeg": {
         "forward": 0,
-        "out": 12,
-        "twist": 8
+        "out": 6,
+        "twist": 3
       },
       "LeftLeg": {
-        "forward": 14,
-        "out": 10
+        "forward": -4,
+        "out": 4
       }
     }
   },
@@ -44,9 +45,9 @@
       "plant": true,
       "ease": "in",
       "Torso": {
-        "twist": 32,
+        "twist": 20,
         "lean": -4,
-        "tilt": -4
+        "tilt": -3
       },
       "Head": {
         "turn": -12,
@@ -61,7 +62,8 @@
         "forward": 40,
         "out": 20
       },
-      "support": "double"
+      "support": "transition",
+      "pivot": "right"
     },
     {
       "f": 10,
@@ -70,9 +72,10 @@
       "plant": true,
       "ease": "linear",
       "Torso": {
-        "twist": -10,
+        "twist": -4,
         "lean": 8,
-        "tilt": 2
+        "tilt": 2,
+        "up": -0.1
       },
       "Head": {
         "turn": 4,
@@ -96,10 +99,11 @@
       "plant": true,
       "ease": "out",
       "Torso": {
-        "twist": -40,
-        "lean": 16,
-        "tilt": 5,
-        "forward": 0.2
+        "twist": -22,
+        "lean": 18,
+        "tilt": 3,
+        "forward": 0.04,
+        "up": -0.15
       },
       "Head": {
         "turn": 14,
@@ -114,7 +118,8 @@
         "forward": -10,
         "out": 28
       },
-      "support": "double"
+      "support": "transition",
+      "pivot": "left"
     },
     {
       "f": 18,
@@ -122,11 +127,14 @@
       "from": "followthrough",
       "ease": "inout",
       "Torso": {
-        "twist": -42,
-        "lean": 17,
-        "tilt": 5,
-        "forward": 0.2
-      }
+        "twist": -23,
+        "lean": 19,
+        "tilt": 3,
+        "forward": 0.04,
+        "up": -0.15
+      },
+      "support": "transition",
+      "pivot": "left"
     },
     {
       "f": 24,
@@ -134,7 +142,7 @@
       "from": "toolhold",
       "plant": true,
       "Torso": {
-        "twist": -12,
+        "twist": -8,
         "lean": 7,
         "tilt": 2
       },

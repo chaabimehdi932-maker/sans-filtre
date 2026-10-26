@@ -30,12 +30,12 @@
         "out": 26
       },
       "RightLeg": {
-        "forward": 6,
-        "out": 9
+        "forward": -6,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 0,
-        "out": 9
+        "forward": -2,
+        "out": 6
       },
       "unbalanced": true,
       "support": "double"
@@ -65,12 +65,12 @@
         "out": 32
       },
       "RightLeg": {
-        "forward": 6,
-        "out": 9
+        "forward": -6,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 0,
-        "out": 9
+        "forward": -2,
+        "out": 6
       },
       "unbalanced": true,
       "support": "double"
@@ -100,12 +100,12 @@
         "out": 14
       },
       "RightLeg": {
-        "forward": 6,
-        "out": 9
+        "forward": -6,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 0,
-        "out": 9
+        "forward": -2,
+        "out": 6
       },
       "support": "double"
     },
@@ -118,12 +118,12 @@
       "RightArm": {},
       "LeftArm": {},
       "RightLeg": {
-        "forward": 6,
-        "out": 9
+        "forward": -6,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 0,
-        "out": 9
+        "forward": -2,
+        "out": 6
       },
       "support": "double"
     }

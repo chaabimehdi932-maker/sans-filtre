@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from r6core import (CF, JOINT_KEYS, PART_SIZE, Anim, angle_between, box_corners, sole_top,
+from r6core import (CF, JOINT_KEYS, PART_SIZE, Anim, angle_between, box_corners, foot_low,
                     forward_kinematics, limb_tip, range_for, sample, sample_times)
 
 CLIP_PAIRS = (
@@ -194,33 +194,9 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
         add(lvl, f"{a_} clips into {b_} by up to {worst:.2f} studs at {_ranges([t for t, _ in hits])}")
 
     if anim.grounded:
-        # Every frame between two non-airborne keys should have a foot on the floor.
-        air = [k.airborne or k.support in ("fall", "body", "air") for k in anim.keys]
-        kt = [k.time for k in anim.keys]
-        floats, sinks = [], []
-        for t, parts in zip(times, frames):
-            i = max(0, max(n for n, x in enumerate(kt) if x <= t + 1e-9))
-            nxt = min(i + 1, len(kt) - 1)
-            on_key = abs(kt[i] - t) < 1e-6
-            if air[i] or (not on_key and air[nxt]):
-                continue
-            low = min(sole_top(parts[leg]) for leg in ("Right Leg", "Left Leg"))  # air under the lower foot
-            if low > 0.12:
-                floats.append((t, low))
-            elif low < -0.15:
-                sinks.append((t, -low))
-        if floats:
-            worst = max(floats, key=lambda x: x[1])
-            add("WARN", f"feet float above the ground (worst {worst[1]:.2f} studs at {worst[0]:.2f}s; "
-                        f"{_ranges([t for t, _ in floats])}). Add \"ground\": true to the keys (or the spec), "
-                        "add an in-between key, or mark in-air keys \"airborne\": true")
-        if sinks:
-            worst = max(sinks, key=lambda x: x[1])
-            add("WARN", f"a whole foot sinks under the floor (worst {worst[1]:.2f} studs at {worst[0]:.2f}s; "
-                        f"{_ranges([t for t, _ in sinks])}). Use \"plant\": true / \"ground\": true, or an "
-                        "in-between key: a leg swung A degrees lifts its foot 2*(1-cos A) studs")
+        _ground_contact(anim, times, frames, add)
 
-    # ---- support points, sole heights and balance at every key pose
+    # ---- support points, sole contact and balance at every key pose
     from r6pose import analyze_at
     reports = [(k, analyze_at(anim, k.time, tracks)) for k in anim.keys]
     for i, (k, a) in enumerate(reports):
@@ -231,18 +207,18 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
             need = ["left", "right"] if label == "double" else [label]
             for side in need:
                 if a["sole"][side] > 0.12:
-                    add("WARN", f"{where}: labelled support '{label}' but the {side} sole is {a['sole'][side]:.2f} "
-                                f"studs above the floor (measure the sole, not the hip). Plant it or relabel the key")
+                    add("WARN", f"{where}: labelled support '{label}' but the {side} foot floats {a['sole'][side]:.2f} "
+                                f"studs above the floor (measured at the leg's lowest corner). Plant it or relabel the key")
             if label in ("left", "right"):
                 free = "right" if label == "left" else "left"
-                if a["sole"][free] < -0.12:
-                    add("WARN", f"{where}: support '{label}' but the free {free} leg sinks {-a['sole'][free]:.2f} "
-                                "studs into the floor")
+                if a["sole"][free] < -0.06:
+                    add("WARN", f"{where}: support '{label}' but the free {free} leg goes {-a['sole'][free]:.2f} "
+                                "studs into the floor. Lift it: swing it further, or retract it (reach < 0)")
         elif label == "air" and actual not in ("air",) and anim.grounded:
             add("WARN", f"{where}: labelled 'air' but the {actual} support touches the floor")
-        if label == "double" and abs(a["gap"]["left"] - a["gap"]["right"]) > 0.08 and \
+        if label == "double" and abs(a["sole"]["left"] - a["sole"]["right"]) > 0.08 and \
                 max(a["sole"].values()) <= 0.12:
-            add("WARN", f"{where}: both feet should share the floor plane but the soles differ by "
+            add("WARN", f"{where}: both feet stand on the same floor but their lowest points differ by "
                         f"{abs(a['sole']['left'] - a['sole']['right']):.2f} studs")
         grounded_pose = not k.airborne and actual != "air"
         # locomotion carries momentum: the body is meant to lead the feet
@@ -258,24 +234,43 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
                 continue
             where = f"key #{i} @{k.time:.3f}s{' ' + k.name if k.name else ''}"
             planted = {"left": ("left",), "right": ("right",)}.get(k.support, ("left", "right"))
+            # standing or crouching on one or both feet (not stepping, falling or lunging off balance)
+            standing = not k.unbalanced and k.support in (None, "double", "left", "right") and \
+                a["support"] in ("double", "left", "right")
             for side in planted:
-                if a["sole"][side] <= 0.12 < a["gap"][side]:
-                    add("WARN", f"{where}: the {side} foot is not fully on the ground - it stands on an edge with "
-                                f"{a['gap'][side]:.2f} studs of air under the sole. Put \"plant\": true on the key "
-                                "(the whole sole goes flat on the floor; a tilted leg's lower edge sinks, hidden)")
+                if a["sole"][side] < -0.06:
+                    add("WARN", f"{where}: the {side} foot is pushed {-a['sole'][side]:.2f} studs into the floor. "
+                                "Feet touch the floor, they don't sink: put \"plant\": true on the key")
+                elif standing and a["sole"][side] <= 0.12 and a["contact"][side] < 0.5:
+                    leg = "RightLeg" if side == "right" else "LeftLeg"
+                    fwd, out = a["under_hip"][side]
+                    add("WARN", f"{where}: standing/crouching but only {a['contact'][side]:.0%} of the {side} sole "
+                                f"touches the floor (leg tilted {a['tilt'][side]:.0f} deg; R6 has no ankle). Stand the "
+                                f"leg nearer its hip: {leg} forward ~{fwd}, out ~{out} puts it straight under the hip in "
+                                "this pose (use the same leg values on every planted key of the stance; keep "
+                                "|forward| + |out| <= ~15 and twist <= ~10). Torso twist/shift moves the hips while "
+                                "planted feet stay, which tilts the legs. Lower the body by sinking the legs into the "
+                                "torso (Torso up < 0 + plant), not by splaying them")
+            if k.plant and k.support == "transition" and a["support"] == "double" and max(a["contact"].values()) < 0.5:
+                add("WARN", f"{where}: weight transfer, but neither foot is mostly on the floor (sole on floor "
+                            f"L {a['contact']['left']:.0%} / R {a['contact']['right']:.0%}). The foot taking the weight "
+                            "must stand flat; only the other one pivots on an edge")
             for side in ("left", "right"):
                 behind = a["hip_to_foot"][side]
                 if behind > 0.6 and (k.support in (None, "double") or side in planted):
                     add("WARN", f"{where}: the {side} leg sits behind the torso (foot {behind:.2f} studs behind the "
-                                "hips). R6 stances read badly with a leg trailing back: splay it out to the side "
-                                "(out 15-30) and/or bring it under or in front of the body")
+                                "hips). R6 stances read badly with a leg trailing back: bring it under or in front of "
+                                "the body and shift the weight with the torso instead")
 
     # weight transfer: going from two feet to one, the body must move over the new support foot
     for (k0, a0), (k1, a1) in zip(reports, reports[1:]):
         if k1.support in ("left", "right") and k0.support in ("double", None, "transition") and not k1.airborne:
             foot = a1["feet"][k1.support]
-            d0 = math.hypot(a0["com"][0] - foot[0], a0["com"][2] - foot[1])
-            d1 = math.hypot(a1["com"][0] - foot[0], a1["com"][2] - foot[1])
+            if anim.speed:  # locomotion: the planted foot sweeps back under the body; judge the side shift
+                d0, d1 = abs(a0["com"][0] - foot[0]), abs(a1["com"][0] - foot[0])
+            else:
+                d0 = math.hypot(a0["com"][0] - foot[0], a0["com"][2] - foot[1])
+                d1 = math.hypot(a1["com"][0] - foot[0], a1["com"][2] - foot[1])
             if d1 > d0 - 0.1:
                 add("INFO", f"@{k1.time:.3f}s: weight goes onto the {k1.support} leg but the body doesn't shift over "
                             f"it (centre of mass {d0:.2f} -> {d1:.2f} studs from that foot). Show the transfer: "
@@ -326,23 +321,71 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
         else:
             add("INFO", msg)
 
-    if anim.loop and anim.grounded:
-        scrapes = []
-        for i in range(1, len(times)):
-            dt = times[i] - times[i - 1]
-            for leg in ("Right Leg", "Left Leg"):
-                a, b = limb_tip(frames[i - 1], leg), limb_tip(frames[i], leg)
-                if b[1] < -0.06 and (a[2] - b[2]) / dt > 2:  # under the floor while swinging forward
-                    scrapes.append((times[i], -b[1]))
-        if scrapes:
-            worst = max(d for _, d in scrapes)
-            add("INFO", f"the swinging foot passes {worst:.2f} studs under the floor ({_ranges([t for t, _ in scrapes])}). "
-                        "Rigid R6 legs can't bend to clear the ground: add 'out' (~5-10 deg) to the swing leg "
-                        "around passing, or accept it (common in R6; the floor hides it)")
-
     if anim.speed and anim.loop:
         f.extend(_foot_slide(anim, times, frames))
     return f
+
+
+def _segment(anim: Anim, t: float):
+    kt = [k.time for k in anim.keys]
+    i = max(n for n, x in enumerate(kt) if x <= t + 1e-9)
+    return i, min(i + 1, len(kt) - 1), abs(kt[i] - t) < 1e-6
+
+
+def _ground_contact(anim: Anim, times, frames, add):
+    """Feet vs floor on EVERY sampled frame (not just keys), with the likely cause named."""
+    from r6pose import contact_phases
+    off = [k.airborne or k.support in ("fall", "body", "air") for k in anim.keys]
+    lying = [k.support in ("fall", "body") for k in anim.keys]
+    floats, sinks = [], {}
+    for t, parts in zip(times, frames):
+        i, nxt, on_key = _segment(anim, t)
+        if lying[i] or (not on_key and lying[nxt]):
+            continue
+        for leg in ("Right Leg", "Left Leg"):
+            low = foot_low(parts[leg])
+            if low < -0.1:
+                sinks.setdefault(leg, []).append((t, -low, on_key, i, nxt))
+        if off[i] or (not on_key and off[nxt]):
+            continue
+        low = min(foot_low(parts[leg]) for leg in ("Right Leg", "Left Leg"))
+        if low > 0.12:
+            floats.append((t, low))
+    if floats:
+        worst = max(floats, key=lambda x: x[1])
+        add("WARN", f"both feet float above the ground while the character should be standing (worst {worst[1]:.2f} "
+                    f"studs at {worst[0]:.2f}s; {_ranges([t for t, _ in floats])}). Plant the keys (\"plant\": true) "
+                    "or mark the in-air keys \"airborne\": true / support \"air\"")
+    for leg, hits in sinks.items():
+        worst = max(hits, key=lambda x: x[1])
+        at_keys = [h for h in hits if h[2]]
+        if at_keys:
+            k = anim.keys[at_keys[0][3]]
+            cause = (f"the key pose itself is wrong at {k.time:.3f}s{' (' + k.name + ')' if k.name else ''}: the leg's "
+                     "tilt or the Torso height/position puts the foot under the floor. Plant the key, or lift that leg "
+                     "if it is the free one")
+        else:
+            segs = sorted({(h[3], h[4]) for h in hits})
+            a, b = anim.keys[segs[0][0]], anim.keys[segs[0][1]]
+            mid = (a.time + b.time) / 2
+            cause = (f"the keys are fine but the interpolation between {a.time:.3f}s and {b.time:.3f}s dips the foot "
+                     f"(two solved poses blend through a lower one). Add a breakdown key with plant around {mid:.3f}s "
+                     "(\"breakdown\": true), respace the keys, or change the segment's easing")
+        add("WARN", f"{leg}'s foot goes {worst[1]:.2f} studs into the floor at {worst[0]:.2f}s "
+                    f"({_ranges([h[0] for h in hits])}). Cause: {cause}")
+
+    # planted feet that drift sideways (any animation) or skate (anything that isn't locomotion)
+    phases = contact_phases(anim, times=times, frames=frames)
+    idx = {t: n for n, t in enumerate(times)}
+    for leg, segs in phases.items():
+        for phase, t0, t1 in segs:
+            if phase != "plant" or t1 - t0 < 0.05 or _in_air(anim, (t0 + t1) / 2):
+                continue
+            pts = [limb_tip(frames[n], leg) for n in range(idx[t0], idx[t1] + 1)]
+            side = max(p[0] for p in pts) - min(p[0] for p in pts)
+            if side > 0.2:
+                add("WARN", f"{leg}'s planted foot slides sideways {side:.2f} studs ({t0:.2f}-{t1:.2f}s). Keep the "
+                            "support foot still: same leg angles on the planted keys, or \"plant\": true")
 
 
 def _in_air(anim: Anim, t: float) -> bool:

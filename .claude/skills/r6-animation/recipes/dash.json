@@ -1,6 +1,6 @@
 {
   "name": "Dash_Forward",
-  "note": "Forward dash, 0.6s. Animations can't move the character (no root motion on R6): your script applies the velocity between the 'DashStart' and 'DashEnd' markers. Crouch -> launch into a long leaning stride with arms swept back (moving hold while gliding) -> brake by leaning back on the front leg -> recover.",
+  "note": "Forward dash, 0.6s. Animations can't move the character (no root motion on R6): your script applies the velocity between the 'DashStart' and 'DashEnd' markers. Contact phases: crouch with both soles flat (legs sink into the torso) -> release into a low airborne glide (front leg reaching, back leg trailing, arms swept back) -> landing that compresses the body over flat feet -> recover.",
   "loop": false,
   "priority": "Action",
   "fps": 60,
@@ -10,43 +10,46 @@
       "f": 0,
       "name": "crouch",
       "plant": true,
+      "support": "double",
       "ease": "out",
       "Torso": {
-        "lean": 16
+        "lean": 16,
+        "up": -0.45
       },
       "Head": {
         "nod": -8
       },
       "RightArm": {
-        "forward": -15,
+        "forward": -20,
         "out": 12
       },
       "LeftArm": {
-        "forward": 20,
-        "out": 12
+        "forward": 24,
+        "out": 12,
+        "twist": -8
       },
       "RightLeg": {
-        "forward": 18,
-        "out": 14
+        "forward": 0,
+        "out": 6
       },
       "LeftLeg": {
         "forward": 0,
-        "out": 16
-      },
-      "support": "double"
+        "out": 6
+      }
     },
     {
       "f": 4,
       "name": "launch",
-      "plant": true,
+      "airborne": true,
+      "support": "air",
       "ground": false,
       "ease": "out",
       "Torso": {
-        "lean": 36,
-        "up": -0.15
+        "lean": 34,
+        "up": 0.35
       },
       "Head": {
-        "nod": -28
+        "nod": -26
       },
       "RightArm": {
         "forward": -70,
@@ -59,25 +62,25 @@
         "twist": 20
       },
       "RightLeg": {
-        "forward": 26,
-        "out": 10
+        "forward": 34,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 2,
-        "out": 14
+        "forward": -26,
+        "out": 6
       },
-      "support": "double",
-      "unbalanced": true
+      "plant": true
     },
     {
       "f": 20,
       "name": "glide",
-      "plant": true,
+      "airborne": true,
+      "support": "air",
       "ground": false,
       "ease": "in",
       "Torso": {
-        "lean": 38,
-        "up": -0.18
+        "lean": 37,
+        "up": 0.35
       },
       "Head": {
         "nod": -30
@@ -93,52 +96,54 @@
         "twist": 20
       },
       "RightLeg": {
-        "forward": 26,
-        "out": 10
+        "forward": 38,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 2,
-        "out": 14
+        "forward": -24,
+        "out": 6
       },
-      "support": "double",
-      "unbalanced": true
+      "plant": true
     },
     {
       "f": 25,
-      "name": "brake",
+      "name": "brake_landing",
       "plant": true,
+      "support": "double",
       "ease": "out",
       "Torso": {
-        "lean": -10,
-        "forward": -0.2
+        "lean": -6,
+        "forward": -0.08,
+        "up": -0.5
       },
       "Head": {
-        "nod": 6
+        "nod": 8
       },
       "RightArm": {
-        "forward": 30,
-        "out": 32
+        "forward": 34,
+        "out": 30
       },
       "LeftArm": {
-        "forward": 40,
-        "out": 28
+        "forward": 42,
+        "out": 26
       },
       "RightLeg": {
-        "forward": 32,
-        "out": 10
+        "forward": 2,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 0,
-        "out": 14
-      },
-      "support": "double"
+        "forward": -3,
+        "out": 6
+      }
     },
     {
       "f": 36,
       "name": "recover",
       "plant": true,
+      "support": "double",
       "Torso": {
-        "lean": 3
+        "lean": 3,
+        "up": -0.05
       },
       "Head": {
         "nod": 0
@@ -152,14 +157,13 @@
         "out": 5
       },
       "RightLeg": {
-        "forward": 32,
-        "out": 10
+        "forward": 2,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 0,
-        "out": 14
-      },
-      "support": "double"
+        "forward": -3,
+        "out": 6
+      }
     }
   ],
   "markers": [

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from r6core import (CF, HRP_HEIGHT, JOINT, OFFSETS, PART_SIZE, body_cf, body_to_channels, body_to_transform,  # noqa: E402
                     box_corners, channels_to_transform, ease_alpha, forward_kinematics, limb_tip,
-                    load_spec, mirror_raw, parse_ease, rz, sample, sole_top, transform_to_body)
+                    foot_low, load_spec, mirror_raw, parse_ease, rz, sample, transform_to_body)
 
 
 def close(a, b, eps=1e-4):
@@ -135,7 +135,7 @@ def test_plant_locks_feet_under_lean_twist_shift_and_crouch():
         parts = forward_kinematics(sample(a, 0.0))
         for leg, f in _feet(parts).items():  # feet stay put, whole sole flat on the floor
             assert math.hypot(f[0] - rest_feet[leg][0], f[2] - rest_feet[leg][2]) < 0.15, (torso, leg, f)
-            assert abs(sole_top(parts[leg])) < 0.01, (torso, leg, sole_top(parts[leg]))
+            assert abs(foot_low(parts[leg])) < 0.01, (torso, leg, foot_low(parts[leg]))
     # crouching with planted feet retracts the legs (R6 "fake knee")
     a = load_spec({"keyframes": [{"t": 0, "plant": True, "Torso": {"up": -0.5}}]})
     ch = body_to_channels("RightLeg", a.keys[0].bodies["RightLeg"])
@@ -147,7 +147,7 @@ def test_plant_on_splayed_legs_stands_on_floor():
     a = load_spec({"keyframes": [{"t": 0, "plant": True, "RightLeg": {"forward": 30}, "LeftLeg": {"forward": -25}}]})
     parts = forward_kinematics(sample(a, 0))
     for leg in ("Right Leg", "Left Leg"):  # no air under either sole (the lower edge sinks, hidden)
-        assert abs(sole_top(parts[leg])) < 0.01, (leg, sole_top(parts[leg]))
+        assert abs(foot_low(parts[leg])) < 0.01, (leg, foot_low(parts[leg]))
 
 
 def test_plant_airborne_keeps_leg_angles():

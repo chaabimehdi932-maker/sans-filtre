@@ -27,13 +27,13 @@
         "twist": -12
       },
       "LeftLeg": {
-        "forward": 16,
-        "out": 12
+        "forward": 13,
+        "out": 3
       },
       "RightLeg": {
-        "forward": 0,
-        "out": 20,
-        "twist": 16
+        "forward": -13,
+        "out": 3,
+        "twist": 5
       }
     }
   },
@@ -53,10 +53,10 @@
       "plant": true,
       "ease": "in",
       "Torso": {
-        "twist": 36,
+        "twist": 30,
         "lean": 18,
-        "tilt": 6,
-        "up": -0.75
+        "tilt": 4,
+        "up": -0.8
       },
       "Head": {
         "turn": -18,
@@ -145,9 +145,9 @@
       "plant": true,
       "ease": "out",
       "Torso": {
-        "twist": 8,
+        "twist": 18,
         "lean": 12,
-        "up": -0.55
+        "up": -0.5
       },
       "Head": {
         "turn": -8,

@@ -18,7 +18,6 @@ from r6core import (PART_SIZE, RENDER_SIZE, Anim, body_to_channels, box_corners,
 # Relative masses ~ visible volume (the Head mesh is ~1.2 studs cubed).
 MASS = {"Torso": 4.0, "Head": 1.7, "Right Arm": 2.0, "Left Arm": 2.0, "Right Leg": 2.0, "Left Leg": 2.0}
 CONTACT = 0.12  # a corner within this height of the floor is touching it
-FLUSH = 0.05  # a sole whose highest corner is this close to the floor is fully planted
 LEGS = (("Left Leg", "left"), ("Right Leg", "right"))
 
 
@@ -37,9 +36,62 @@ def contacts(parts, part):
     return [(c[0], c[2]) for c in box_corners(parts[part], PART_SIZE[part]) if c[1] <= CONTACT]
 
 
-def sole_gap(parts, part):
-    """Air under the highest corner of the sole (0 = fully on the floor)."""
+def edge_lift(parts, part):
+    """How high the lifted edge of a tilted sole sits (its highest corner). 0 = the sole is
+    level; a leg splayed out A degrees lifts it about sin(A) studs while the other edge touches."""
     return sole_top(parts[part])
+
+
+TOUCH = 0.15  # sole points within this height of the floor count as touching it
+
+
+def sole_contact(parts, part, n=11):
+    """Fraction of the sole (0..1) within TOUCH of the floor. A rigid R6 leg has no ankle, so the
+    more it tilts the less of its sole touches: standing/crouching feet should be >= 0.5."""
+    cf = parts[part]
+    ys = [cf.point((i / (n - 1) - 0.5, -1.0, j / (n - 1) - 0.5))[1] for i in range(n) for j in range(n)]
+    return sum(1 for y in ys if y <= TOUCH) / len(ys)
+
+
+def leg_tilt(parts, part):
+    """Angle (deg) between a leg's length and straight down."""
+    return math.degrees(math.acos(max(-1.0, min(1.0, parts[part].r[4]))))  # part's up axis vs world up
+
+
+def foot_channels(leg: str, target_xz, twist: float = 0.0, reach: float = 0.0):
+    """(forward, out) for a leg whose sole centre should land at target (x, z) when the body
+    stands at rest height - the reference 'plant' uses to lock a foot. Solved numerically so the
+    leg's own twist (which swings the foot around the off-centre hip pivot) is accounted for."""
+    from r6core import channels_to_transform
+    s = 1 if leg == "RightLeg" else -1
+    part = "Right Leg" if s == 1 else "Left Leg"
+    tx, tz = target_xz
+    o = math.asin(max(-1.0, min(1.0, (s * tx - 0.5) / 2.0)))
+    f = math.asin(max(-1.0, min(1.0, -tz / 2.0)))
+    for _ in range(12):
+        ch = {"forward": math.degrees(f), "out": math.degrees(o), "twist": twist, "reach": reach}
+        tip = limb_tip(forward_kinematics({leg: channels_to_transform(leg, ch)}), part)
+        ex, ez = tx - tip[0], tz - tip[2]
+        if abs(ex) < 1e-4 and abs(ez) < 1e-4:
+            break
+        o += s * ex / 2.0
+        f += -ez / 2.0
+    return round(math.degrees(f)), round(math.degrees(o))
+
+
+def hip_target(parts, part):
+    """Where a vertical leg's sole centre would be under this pose's hip pivot (x, z)."""
+    from r6core import BY_PART
+    s = 1 if part.startswith("Right") else -1
+    hip = parts["Torso"].point(BY_PART[part].c0.pos)
+    return hip[0] - s * 0.5, hip[2]  # a vertical leg's foot sits 0.5 inside its pivot
+
+
+def under_hip(parts, part, twist: float = 0.0):
+    """Leg channels (forward, out) that would stand this leg straight under its hip pivot, given
+    where the hips are in this pose (torso twist/shift/lean move them while planted feet stay).
+    Use the same values on every planted key of the stance so the foot doesn't slide."""
+    return foot_channels("RightLeg" if part.startswith("Right") else "LeftLeg", hip_target(parts, part), twist)
 
 
 def detect_support(parts):
@@ -126,7 +178,10 @@ def analyze(parts, transforms=None):
     info = {
         "support": support,
         "sole": {label: round(lowest(parts, part), 3) for part, label in LEGS},
-        "gap": {label: round(sole_gap(parts, part), 3) for part, label in LEGS},
+        "edge": {label: round(edge_lift(parts, part), 3) for part, label in LEGS},
+        "contact": {label: round(sole_contact(parts, part), 2) for part, label in LEGS},
+        "tilt": {label: round(leg_tilt(parts, part), 1) for part, label in LEGS},
+        "under_hip": {label: under_hip(parts, part) for part, label in LEGS},
         "hip_to_foot": {label: round(limb_tip(parts, part)[2] - parts["Torso"].point((0, -1, 0))[2], 2)
                         for part, label in LEGS},  # + = the foot is BEHIND the hips
         "feet": {label: (round(f[0], 2), round(-f[2], 2)) for label, f in feet.items()},  # (right, forward)
@@ -159,26 +214,74 @@ def key_reports(anim: Anim):
     return [(k, analyze_at(anim, k.time, tracks)) for k in anim.keys]
 
 
+def contact_phases(anim: Anim, fps: float = 60.0, times=None, frames=None):
+    """Per leg, the ground-contact phases sampled frame by frame:
+    contact (touches down) -> plant (carries weight) -> release (leaves the floor) -> swing (moves
+    while the other leg supports) or air (neither touches); landing = touch-down after air.
+    Returns {"Right Leg": [(phase, t0, t1), ...], "Left Leg": [...]}."""
+    from r6core import sample_times
+    if frames is None:
+        tracks = anim.tracks()
+        times = sample_times(anim, fps)
+        frames = [forward_kinematics(sample(anim, t, tracks)) for t in times]
+    touch = {leg: [lowest(p, leg) <= CONTACT for p in frames] for leg, _ in LEGS}
+    out = {}
+    for leg, _ in LEGS:
+        other = "Right Leg" if leg == "Left Leg" else "Left Leg"
+        segs, i, n = [], 0, len(times)
+        while i < n:
+            j = i
+            while j + 1 < n and touch[leg][j + 1] == touch[leg][i]:
+                j += 1
+            if touch[leg][i]:
+                if i > 0:
+                    airborne_before = not any(touch[other][max(0, i - 3):i])
+                    segs.append(("landing" if airborne_before else "contact", times[i], times[i]))
+                segs.append(("plant", times[i], times[j]))
+                if j < n - 1:
+                    segs.append(("release", times[j], times[j]))
+            else:
+                supported = sum(touch[other][i:j + 1]) > (j + 1 - i) / 2
+                segs.append(("swing" if supported else "air", times[i], times[j]))
+            i = j + 1
+        out[leg] = segs
+    return out
+
+
+def phases_text(anim: Anim, **kw) -> str:
+    lines = []
+    for leg, segs in contact_phases(anim, **kw).items():
+        parts = [f"{p} {a:.2f}" if abs(b - a) < 1e-9 else f"{p} {a:.2f}-{b:.2f}" for p, a, b in segs]
+        lines.append(f"{leg}: " + " | ".join(parts))
+    return "\n".join(lines)
+
+
 def report_table(anim: Anim) -> str:
     """Per-key pose table (markdown) - the numbers behind 'does this pose stand up and read'."""
-    rows = ["| # | t (s) | key | support label / actual | sole gap L / R | feet L (r,f) / R (r,f) | stance w x l "
-            "| balance | body drop | lean | twist / head |",
-            "|---|---|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| # | t (s) | key | support label / actual | foot low L / R | sole on floor L / R | feet L (r,f) / R (r,f) "
+            "| stance w x l | balance | body drop | lean | twist / head |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for i, (k, a) in enumerate(key_reports(anim)):
         label = k.support or "-"
         if k.airborne and label == "-":
             label = "(airborne)"
         bal = "n/a" if a["balance"] is None else (f"{a['balance']:+.2f}" + (" OUT" if a["balance"] < 0 else ""))
         rows.append(
-            f"| {i} | {k.time:.3f} | {k.name or ''} | {label} / {a['support']} | {a['gap']['left']:+.2f} / "
-            f"{a['gap']['right']:+.2f} | {a['feet']['left']} / {a['feet']['right']} | "
+            f"| {i} | {k.time:.3f} | {k.name or ''} | {label} / {a['support']} | {a['sole']['left']:+.2f} / "
+            f"{a['sole']['right']:+.2f} | {a['contact']['left']:.0%} / {a['contact']['right']:.0%} | "
+            f"{a['feet']['left']} / {a['feet']['right']} | "
             f"{a['stance_width']} x {a['stance_length']} | {bal} | {a['body_drop']:+.2f} | {a['torso_lean']} | "
             f"{a.get('torso_twist', 0):+.0f} / {a.get('head_turn', 0):+.0f} |")
     rows.append("")
-    rows.append("sole gap = air under the highest corner of each sole (0 = foot fully on the floor; a tilted "
-                "leg's lower edge goes into the floor, hidden). feet = sole centre (right, forward) "
+    rows.append("foot low = height of each leg's lowest corner (0 = touching the floor; + = floating; "
+                "- = pushed into the floor, never wanted). sole on floor = how much of each sole is within "
+                f"{TOUCH} studs of the floor (no ankle: the more a leg tilts, the less of its sole touches; standing "
+                "and crouching feet need >= 50%). feet = sole centre (right, forward) "
                 "in studs. balance = how far the centre of mass sits inside (+) or outside (-) the area the "
                 "touching soles cover. body drop = torso height change (negative = crouched).")
+    rows.append("")
+    rows.append("contact phases (sampled every frame):")
+    rows.append(phases_text(anim))
     if anim.markers:
         rows.append("markers: " + ", ".join(f"{m.name}@{m.time:.3f}s" + (f"={m.value}" if m.value else "")
                                               for m in anim.markers))

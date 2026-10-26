@@ -6,6 +6,7 @@ r6anim - one CLI for the whole R6 keyframe workflow.
                                                   (several specs also write InstallAll.luau)
   python r6anim.py lint   spec.json               findings only
   python r6anim.py report spec.json               per-key support / sole heights / balance / stance table
+  python r6anim.py stance spec.json [-o fixed.json] fit planted legs under the hips (flat feet)
   python r6anim.py exaggerate spec.json --amount 1.15 -o v2.json   push every pose 15% further
   python r6anim.py compare before.json after.json -o out/          side-by-side sheet + gif + diff
   python r6anim.py render spec.json [-o outdir] [--views front,side] [--every 0.05] [--no-gif]
@@ -160,6 +161,35 @@ def cmd_exaggerate(args):
     return 0
 
 
+def cmd_stance(args):
+    from r6pose import key_reports
+    from r6tools import apply_stance, fit_stance
+    anim = _load(args.spec)
+    fits = fit_stance(anim, spread=args.spread)
+    if not fits:
+        print("no planted two-foot stance (keys with \"plant\": true and support double)")
+        return 0
+    for fit in fits:
+        ks = [anim.keys[i] for i in fit["keys"]]
+        names = ", ".join(k.name or f"{k.time:.3f}s" for k in ks)
+        legs = " | ".join(f"{leg} forward {f} out {o}" + (f" (twist {t:g} kept)" if t else "")
+                          for leg, (f, o, t) in fit["legs"].items())
+        print(f"stance keys #{fit['keys'][0]}-#{fit['keys'][-1]} ({names}): {legs}  "
+              f"[worst sole on floor now {fit['before']:.0%}]")
+    if args.out:
+        with open(args.spec, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        new = apply_stance(raw, anim, fits)
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(new, fh, indent=2)
+        after = load_spec(new)
+        worst = min(min(r["contact"].values()) for k, r in key_reports(after)
+                    if k.plant and not k.airborne and k.support in (None, "double"))
+        print(f"wrote {args.out}: worst standing sole on floor {worst:.0%}. Build it and look at it: the legs "
+              "now stand under the hips; put the dynamism back with the torso, arms and head if needed.")
+    return 0
+
+
 def cmd_compare(args):
     import r6render
     from r6tools import compare_text, compare_times
@@ -247,6 +277,8 @@ def main(argv=None):
         p.add_argument("--every", type=float, help="contact sheet every N seconds instead of every key")
         p.add_argument("--no-gif", action="store_true")
     add("mirror", cmd_mirror)
+    p = add("stance", cmd_stance)
+    p.add_argument("--spread", type=float, default=6.0, help="outward splay of each leg in degrees (default 6)")
     add("report", cmd_report)
     p = add("exaggerate", cmd_exaggerate)
     p.add_argument("--amount", type=float, default=1.15, help="1.15 = poses 15%% further from the base pose")

@@ -1,6 +1,6 @@
 {
   "name": "Pose_Library",
-  "note": "R6 key-pose library, built to the R6 specialist rules: every grounded pose has BOTH soles flat on the floor (plant), no leg trailing behind the torso (legs splay out to the sides and/or forward), weight inside the feet (balance), low stances sink the legs into the torso. Copy a pose into your spec's \"poses\" and start keys from it (\"from\": \"power_punch_R\") with the flags shown on its showcase key. Render: python scripts/r6anim.py render recipes/poses.json --views three_quarter,side,game --no-gif",
+  "note": "R6 key-pose library, built to the R6 specialist rules: standing and crouching poses keep most of each sole on the floor (legs within ~15 deg of vertical, standing under the hips), no leg trails behind the torso, the weight sits inside the feet, low stances sink the legs into the torso, and the dynamism comes from the torso, arms and head. One-leg poses roll the torso over the support hip. Copy a pose into your spec's \"poses\" and start keys from it (\"from\": \"power_punch_R\") with the flags shown on its showcase key. Render: python scripts/r6anim.py render recipes/poses.json --views three_quarter,front,game --no-gif",
   "loop": false,
   "priority": "Action",
   "fps": 60,
@@ -23,12 +23,13 @@
         "twist": 3
       },
       "RightLeg": {
-        "out": 5,
-        "twist": 4
+        "out": 6,
+        "twist": 4,
+        "forward": -1
       },
       "LeftLeg": {
-        "out": 5,
-        "forward": 3,
+        "out": 6,
+        "forward": -1,
         "twist": 6
       }
     },
@@ -52,12 +53,13 @@
         "twist": 5
       },
       "RightLeg": {
-        "out": 6
+        "out": 9,
+        "forward": -2
       },
       "LeftLeg": {
-        "forward": 10,
-        "out": 12,
-        "twist": 14
+        "forward": 0,
+        "out": -2,
+        "twist": 8
       }
     },
     "boxer_guard": {
@@ -81,13 +83,13 @@
         "twist": -12
       },
       "LeftLeg": {
-        "forward": 16,
-        "out": 12
+        "forward": 12,
+        "out": 3
       },
       "RightLeg": {
-        "forward": 0,
-        "out": 20,
-        "twist": 16
+        "forward": -14,
+        "out": 3,
+        "twist": 8
       }
     },
     "wide_combat_stance": {
@@ -111,14 +113,14 @@
         "twist": 10
       },
       "RightLeg": {
-        "forward": 14,
-        "out": 26,
-        "twist": 12
+        "forward": -7,
+        "out": 8,
+        "twist": 4
       },
       "LeftLeg": {
         "forward": 4,
-        "out": 26,
-        "twist": 14
+        "out": 8,
+        "twist": 4
       }
     },
     "greatsword_ready": {
@@ -142,14 +144,14 @@
         "twist": -20
       },
       "RightLeg": {
-        "forward": 2,
-        "out": 26,
-        "twist": 14
+        "forward": -11,
+        "out": 8,
+        "twist": 8
       },
       "LeftLeg": {
-        "forward": 14,
-        "out": 24,
-        "twist": 10
+        "forward": 7,
+        "out": 8,
+        "twist": 8
       }
     },
     "power_punch_R": {
@@ -174,13 +176,13 @@
         "twist": 8
       },
       "LeftLeg": {
-        "forward": 20,
-        "out": 16
+        "forward": -12,
+        "out": 3
       },
       "RightLeg": {
-        "forward": -2,
-        "out": 24,
-        "twist": 18
+        "forward": 10,
+        "out": 3,
+        "twist": 8
       }
     },
     "double_fist_forward": {
@@ -204,13 +206,14 @@
         "reach": 0.15
       },
       "RightLeg": {
-        "out": 10,
-        "twist": 8
+        "out": 6,
+        "twist": 8,
+        "forward": -2
       },
       "LeftLeg": {
-        "out": 10,
+        "out": 6,
         "twist": 8,
-        "forward": 4
+        "forward": -2
       }
     },
     "low_weapon_guard_R": {
@@ -233,13 +236,13 @@
         "out": 24
       },
       "RightLeg": {
-        "forward": 22,
-        "out": 16,
-        "twist": 10
+        "forward": -10,
+        "out": 5,
+        "twist": 8
       },
       "LeftLeg": {
-        "forward": 0,
-        "out": 10,
+        "forward": 6,
+        "out": 5,
         "twist": 6
       }
     },
@@ -264,13 +267,13 @@
         "twist": -45
       },
       "LeftLeg": {
-        "forward": 16,
-        "out": 14
+        "forward": 4,
+        "out": 6
       },
       "RightLeg": {
-        "forward": 0,
-        "out": 18,
-        "twist": 12
+        "forward": -6,
+        "out": 6,
+        "twist": 8
       }
     },
     "sprint_flight": {
@@ -304,7 +307,7 @@
     "knee_raise_R": {
       "Torso": {
         "lean": -4,
-        "tilt": -5
+        "tilt": -10
       },
       "Head": {
         "nod": -4
@@ -322,33 +325,33 @@
         "out": 6
       },
       "LeftLeg": {
-        "out": 4
+        "out": -6
       }
     },
-    "kneel_R": {
+    "low_crouch": {
       "Torso": {
-        "lean": 6,
+        "lean": 8,
         "up": -0.95
       },
       "Head": {
         "nod": 10
       },
       "RightArm": {
-        "forward": 20,
-        "out": 12
+        "forward": 24,
+        "out": 14
       },
       "LeftArm": {
-        "forward": 45,
+        "forward": 48,
         "out": 8,
         "twist": -10
       },
       "LeftLeg": {
-        "forward": 60,
-        "out": 8
+        "forward": 0,
+        "out": 4
       },
       "RightLeg": {
-        "forward": 2,
-        "out": 10
+        "forward": 0,
+        "out": 4
       }
     },
     "sit_ground": {
@@ -400,12 +403,12 @@
         "out": 26
       },
       "RightLeg": {
-        "forward": 2,
-        "out": 12
+        "forward": 0,
+        "out": 6
       },
       "LeftLeg": {
-        "forward": 8,
-        "out": 12,
+        "forward": -2,
+        "out": 6,
         "twist": 8
       }
     },
@@ -428,12 +431,12 @@
         "out": 14
       },
       "LeftLeg": {
-        "forward": 14,
-        "out": 8
+        "forward": -8,
+        "out": 5
       },
       "RightLeg": {
-        "forward": 0,
-        "out": 10
+        "forward": 8,
+        "out": 5
       }
     },
     "hurt_hunched": {
@@ -456,12 +459,12 @@
         "out": 4
       },
       "RightLeg": {
-        "forward": 16,
-        "out": 12
+        "forward": -11,
+        "out": 5
       },
       "LeftLeg": {
-        "forward": 2,
-        "out": 12
+        "forward": -9,
+        "out": 7
       }
     }
   },
@@ -566,8 +569,8 @@
     },
     {
       "t": 5.5,
-      "name": "kneel_R",
-      "from": "kneel_R",
+      "name": "low_crouch",
+      "from": "low_crouch",
       "ease": "constant",
       "plant": true,
       "support": "double",

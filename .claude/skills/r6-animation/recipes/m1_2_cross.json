@@ -27,13 +27,13 @@
         "twist": -12
       },
       "LeftLeg": {
-        "forward": 16,
-        "out": 12
+        "forward": 13,
+        "out": 3
       },
       "RightLeg": {
-        "forward": 0,
-        "out": 20,
-        "twist": 16
+        "forward": -13,
+        "out": 3,
+        "twist": 5
       }
     }
   },
@@ -53,9 +53,9 @@
       "plant": true,
       "ease": "in",
       "Torso": {
-        "twist": 40,
-        "lean": 3,
-        "forward": -0.1
+        "twist": 36,
+        "lean": 4,
+        "forward": -0.05
       },
       "Head": {
         "turn": -26
@@ -74,10 +74,10 @@
       "plant": true,
       "ease": "linear",
       "Torso": {
-        "twist": -18,
-        "lean": 13,
-        "forward": 0.3,
-        "up": -0.42
+        "twist": 8,
+        "lean": 15,
+        "forward": 0.06,
+        "up": -0.3
       },
       "Head": {
         "turn": 12,
@@ -86,7 +86,8 @@
       "RightArm": {
         "forward": 93,
         "out": -8,
-        "twist": -25
+        "twist": -25,
+        "reach": 0.3
       },
       "LeftArm": {
         "forward": 58,
@@ -103,7 +104,8 @@
       "RightArm": {
         "forward": 91,
         "out": -7,
-        "twist": -25
+        "twist": -25,
+        "reach": 0.32
       }
     },
     {

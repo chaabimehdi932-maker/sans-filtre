@@ -485,8 +485,8 @@ class SpecError(ValueError):
     pass
 
 
-RESERVED_KEY_FIELDS = {"t", "f", "time", "frame", "name", "ease", "from", "plant",
-                       "airborne", "ground", "hold", "note", "comment", "support", "unbalanced", "balance"}
+RESERVED_KEY_FIELDS = {"t", "f", "time", "frame", "name", "ease", "from", "plant", "airborne", "ground", "hold",
+                       "note", "comment", "support", "unbalanced", "balance", "breakdown", "pivot"}
 
 # What holds the body up at a key pose. "transition" = weight moving between supports,
 # "fall" = deliberately off balance. Labels are checked against the geometry by the linter.
@@ -520,6 +520,8 @@ class Key:
     support: str | None = None
     unbalanced: bool = False
     balance: bool = False
+    breakdown: bool = False  # channels not given are filled from the curve at this time
+    pivot: str | None = None  # planted keys: torso rotations pivot at this hip ("left"/"right") or "hips"
     bodies: dict = field(default_factory=dict)  # joint -> body CF (after plant)
     transforms: dict = field(default_factory=dict)  # joint -> Transform CF
 
@@ -612,6 +614,8 @@ def parse_spec(raw: dict) -> Anim:
     default_ease = parse_ease(raw.get("ease", "inout"))
     auto_ground = bool(raw.get("ground", False))
     auto_balance = bool(raw.get("balance", False))
+    global FREE_LEG_CLEARANCE
+    FREE_LEG_CLEARANCE = float(raw.get("clearance", 0.2))
 
     library = {}
     for pname, pobj in (raw.get("poses") or {}).items():
@@ -672,11 +676,22 @@ def parse_spec(raw: dict) -> Anim:
         support = normalize_support(kobj.get("support", src_key.support if src_key else None))
         if support == "air":
             airborne = True
+        pivot = kobj.get("pivot", src_key.pivot if src_key else None)
+        if pivot is not None:
+            pivot = str(pivot).strip().lower()
+            if pivot not in ("left", "right", "hips"):
+                raise SpecError(f"{where}: pivot must be 'left', 'right' or 'hips'")
         key = Key(time=t, name=str(kobj.get("name", "")), ease=ease, channels=chans,
                   joint_ease=jeases, plant=plant, airborne=airborne,
                   ground=bool(kobj.get("ground", auto_ground and not airborne)),
                   support=support, unbalanced=bool(kobj.get("unbalanced", False)) or support == "fall",
-                  balance=bool(kobj.get("balance", auto_balance)))
+                  balance=bool(kobj.get("balance", auto_balance)), breakdown=bool(kobj.get("breakdown")),
+                  pivot=pivot)
+        if key.breakdown:
+            if base is not None or i == 0:
+                raise SpecError(f"{where}: a breakdown takes its pose from the curve; drop 'from'/'hold' "
+                                "(and it can't be the first keyframe)")
+            key._given = {f for f in ("plant", "airborne", "ground", "support", "ease", "balance") if f in kobj}
         keys.append(key)
         if key.name:
             by_name[key.name] = key
@@ -689,6 +704,7 @@ def parse_spec(raw: dict) -> Anim:
 
     for i, d in enumerate(raw.get("derive") or []):
         keys = _derive(keys, d, loop, f"derive[{i}]", fps)
+    _fill_breakdowns(keys)
 
     for key in keys:
         _solve_key(key)
@@ -762,8 +778,10 @@ def _derive(keys, d, loop, where, fps):
         hit = next((k for k in out if abs(k.time - nt) < 1e-6), None)
         if hit is None:
             prev = max((k for k in out if k.time < nt), key=lambda k: k.time, default=out[0])
+            nxt = min((k for k in out if k.time > nt), key=lambda k: k.time, default=prev)
+            # between a grounded key and an airborne one the body is already leaving the floor
             hit = Key(time=nt, name="", ease=e, channels={}, joint_ease={}, plant=False,
-                      airborne=prev.airborne, ground=False)
+                      airborne=prev.airborne or nxt.airborne, ground=False)
             out.append(hit)
             out.sort(key=lambda k: k.time)
         hit.channels[dst] = dict(ch)
@@ -771,7 +789,72 @@ def _derive(keys, d, loop, where, fps):
     return out
 
 
+def _split_ease(e: Ease):
+    """Ease for the two halves of a segment cut by a breakdown, keeping its overall feel:
+    inout -> in + out, in -> in + linear, out -> linear + out."""
+    if e.style != "cubic":
+        return e, e
+    lin = Ease("linear", "in")
+    first = Ease("cubic", "in") if e.direction in ("in", "inout") else lin
+    second = Ease("cubic", "out") if e.direction in ("out", "inout") else lin
+    return first, second
+
+
+def _fill_breakdowns(keys):
+    """Planted keys get any Torso/leg channels they don't list from the curve at their time.
+    A breakdown key ("breakdown": true) starts as the in-between pose the curves already pass
+    through at its time; channels written on it override that. Contact flags default to what
+    both neighbours share (a foot planted on both sides stays planted), so 'plant' can lock the
+    feet mid-segment where plain interpolation would let them sink or slide."""
+    snapshot = {j: [(k.time, k.channels[j], k.joint_ease.get(j, k.ease), k) for k in keys if j in k.channels]
+                for j in JOINT_KEYS}
+    for idx, key in enumerate(keys):
+        if key.plant and not key.breakdown:
+            # Planting needs the whole lower body: joints this key doesn't list continue their
+            # curve (they must not snap back to the rest pose).
+            for j in ("Torso", "RightLeg", "LeftLeg"):
+                track = [(t, ch, e) for t, ch, e, k in snapshot[j] if k is not key]
+                if j not in key.channels and track:
+                    key.channels[j] = {c: v for c, v in _channel_at(track, key.time)[0].items() if abs(v) > 1e-9}
+        if not key.breakdown:
+            continue
+        given = getattr(key, "_given", set())
+        prev = max((k for k in keys if k.time < key.time), key=lambda k: k.time)
+        nxt = min((k for k in keys if k.time > key.time), key=lambda k: k.time, default=prev)
+        for j in JOINT_KEYS:
+            track = [(t, ch, e) for t, ch, e, k in snapshot[j] if k is not key]
+            if not track:
+                continue
+            ch, _ = _channel_at(track, key.time)
+            ch.update(key.channels.get(j, {}))
+            key.channels[j] = {c: v for c, v in ch.items() if abs(v) > 1e-9}
+            before = [x for x in snapshot[j] if x[0] < key.time and x[3] is not key]
+            after = [x for x in snapshot[j] if x[0] > key.time]
+            if before and after and "ease" not in given and j not in key.joint_ease:
+                pk = before[-1][3]
+                first, second = _split_ease(before[-1][2])
+                pk.joint_ease[j] = first
+                key.joint_ease[j] = second
+        if "ease" not in given:
+            key.ease = _split_ease(prev.ease)[1]
+        if "plant" not in given:
+            key.plant = prev.plant and nxt.plant
+        if "airborne" not in given:
+            key.airborne = prev.airborne and nxt.airborne
+        if "ground" not in given:
+            key.ground = prev.ground and nxt.ground
+        if "balance" not in given:
+            key.balance = prev.balance and nxt.balance
+        if "support" not in given:
+            feet = lambda k: {"double": {"left", "right"}, "left": {"left"}, "right": {"right"}}.get(
+                k.support or ("double" if k.plant and not k.airborne else ""), set())
+            both = feet(prev) & feet(nxt)
+            key.support = ("double" if len(both) == 2 else next(iter(both))) if both else \
+                ("air" if key.airborne else None)
+
+
 HIP_MID = (0.0, -1.0, 0.0)  # midpoint between the two hip pivots, in Torso space
+FREE_LEG_CLEARANCE = 0.2  # a lifted leg's lowest corner stays at least this far above the floor
 
 
 LEGS = ("RightLeg", "LeftLeg")
@@ -840,9 +923,13 @@ def _solve_key_once(key: Key, extra=(0.0, 0.0)):
         tb = CF(tb.x + extra[0], tb.y, tb.z + extra[1], tb.r)
         rot = tb.rotation()
         legs_user = {leg: body_cf(leg, key.channels.setdefault(leg, {})) for leg in LEGS}
-        # The torso pivots at the hips (bending "at the waist"), not at its own centre.
-        mid_rot = rot.vector(HIP_MID)
-        shift = tuple(m - mr for m, mr in zip(HIP_MID, mid_rot))
+        # The torso pivots at the hips (bending "at the waist"), not at its own centre - at the
+        # hip of the leg carrying the weight when one does ("pivot", or a one-foot support), so
+        # that leg stays straight under the body while the other hip swings around it.
+        pivot = key.pivot or (key.support if key.support in ("left", "right") and not key.airborne else "hips")
+        anchor = HIP_MID if pivot == "hips" else JOINT["LeftLeg" if pivot == "left" else "RightLeg"].c0.pos
+        mid_rot = rot.vector(anchor)
+        shift = tuple(m - mr for m, mr in zip(anchor, mid_rot))
         if key.airborne:
             # In the air: legs just keep their world angles.
             bodies["Torso"] = CF(tb.x + shift[0], tb.y + shift[1], tb.z + shift[2], rot.r)
@@ -851,15 +938,16 @@ def _solve_key_once(key: Key, extra=(0.0, 0.0)):
         else:
             # On the ground: lock the feet where these leg angles would stand with an upright
             # torso, then aim each leg at its foot and slide it along its length to reach it.
-            # Contact is the leg block's LOWEST CORNER on the floor (a tilted rigid leg stands
-            # on an edge), so the aim height is refined until that corner sits at y = 0.
+            # Contact is the leg block's LOWEST CORNER on the floor (a tilted rigid leg touches
+            # with an edge), so the aim height is refined until that corner sits at y = 0:
+            # the foot touches, nothing goes under the floor.
             # The support label says which feet carry the body; the other leg is free.
             planted = {"left": ("LeftLeg",), "right": ("RightLeg",)}.get(key.support, LEGS)
             for leg in LEGS:
                 if leg not in planted:
                     bodies[leg] = rot.inverse() * legs_user[leg]
             ref = forward_kinematics({leg: body_to_transform(leg, legs_user[leg]) for leg in LEGS})
-            low = min(sole_top(ref[JOINT[leg].part1]) for leg in planted)
+            low = min(foot_low(ref[JOINT[leg].part1]) for leg in planted)
             feet = {leg: limb_tip(ref, JOINT[leg].part1) for leg in planted}
             feet = {leg: [f[0], f[1] - low, f[2]] for leg, f in feet.items()}
             y = tb.y + shift[1] - low
@@ -888,18 +976,45 @@ def _solve_key_once(key: Key, extra=(0.0, 0.0)):
                     bodies[leg] = CF(d[0], d[1], d[2], rel.r)
                     part = forward_kinematics({"Torso": body_to_transform("Torso", torso),
                                                leg: body_to_transform(leg, bodies[leg])})[JOINT[leg].part1]
-                    dips[leg] = sole_top(part)  # whole sole flat on the floor, no air under it
+                    dips[leg] = foot_low(part)  # foot touches the floor: no air, nothing under it
                 if all(abs(v) < 0.004 for v in dips.values()):
                     break
                 for leg, v in dips.items():
                     feet[leg][1] -= v  # corner below the floor -> aim higher; floating -> aim lower
             bodies["Torso"] = torso
+            for leg in LEGS:
+                if leg not in planted:  # the lifted leg: pull it up into the hip (R6's knee bend)
+                    bodies[leg] = _clear_floor(torso, leg, bodies[leg])
     key.bodies = bodies
     key.transforms = {j: body_to_transform(j, b) for j, b in bodies.items()}
 
 
+def _clear_floor(torso: CF, leg: str, body: CF) -> CF:
+    """Retract a free leg along its length until its lowest corner clears the floor. R6 has no
+    knee, so animators sink a lifted leg into the torso instead of letting it dip under the floor."""
+    size = PART_SIZE[JOINT[leg].part1]
+    for _ in range(8):
+        part = forward_kinematics({"Torso": body_to_transform("Torso", torso),
+                                   leg: body_to_transform(leg, body)})[JOINT[leg].part1]
+        low = min(c[1] for c in box_corners(part, size))
+        if low >= FREE_LEG_CLEARANCE - 0.005:
+            break
+        axis_up = part.r[4]  # how much of the leg's length points up/down in the world
+        if axis_up < 0.3:
+            break  # a near-horizontal leg can't be lifted by retracting it; re-angle it instead
+        reach = sum(p * q for p, q in zip(body.pos, (-body.r[1], -body.r[4], -body.r[7])))
+        step = (FREE_LEG_CLEARANCE - low) / axis_up
+        if reach - step < -1.4:
+            step = reach + 1.4
+            if step <= 1e-4:
+                break
+        d = body.vector((0, step, 0))
+        body = CF(body.x + d[0], body.y + d[1], body.z + d[2], body.r)
+    return body
+
+
 def _apply_ground(keys):
-    """'ground': slide the body up/down so the lower foot's whole sole sits on y=0.
+    """'ground': slide the body up/down so the lower foot touches y=0.
     Legs not keyed on that keyframe use the value their curve has at that time."""
     probe = Anim("probe", False, "Action", keys, [], 60, None, True, {})
     tracks = probe.tracks()
@@ -911,7 +1026,7 @@ def _apply_ground(keys):
         tfs.update({j: key.transforms[j] for j in key.transforms})
         tfs["Torso"] = body_to_transform("Torso", tb)
         parts = forward_kinematics(tfs)
-        low = min(sole_top(parts[leg]) for leg in ("Right Leg", "Left Leg"))
+        low = min(foot_low(parts[leg]) for leg in ("Right Leg", "Left Leg"))
         key.bodies["Torso"] = CF(tb.x, tb.y - low, tb.z, tb.r)
         key.transforms["Torso"] = body_to_transform("Torso", key.bodies["Torso"])
 
@@ -953,10 +1068,15 @@ def box_corners(cf: CF, size):
     return [cf.point((sx * hx, sy * hy, sz * hz)) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
 
 
+def foot_low(cf: CF) -> float:
+    """Height of the LOWEST corner of a leg block. A planted R6 foot has this at exactly 0:
+    touching the floor, nothing under it. (A tilted rigid leg then touches with one edge.)"""
+    return min(c[1] for c in box_corners(cf, (1.0, 2.0, 1.0)))
+
+
 def sole_top(cf: CF) -> float:
-    """Height of the HIGHEST corner of a limb block's sole (its far end face). 0 = the whole
-    sole is on/into the floor with no air under any of it - a fully planted R6 foot. (A tilted
-    rigid leg then sinks its lower edge into the floor, which the floor hides.)"""
+    """Height of the HIGHEST corner of a limb block's sole (its far end face): how far the
+    lifted edge of a tilted foot sits above the floor when its low edge touches."""
     return max(cf.point((sx * 0.5, -1.0, sz * 0.5))[1] for sx in (-1, 1) for sz in (-1, 1))
 
 

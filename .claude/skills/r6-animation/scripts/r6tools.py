@@ -29,6 +29,8 @@ def flatten(anim: Anim) -> dict:
                 d[flag] = True
         if k.support:
             d["support"] = k.support
+        if k.pivot:
+            d["pivot"] = k.pivot
         for j in JOINT_KEYS:
             if j in k.channels:
                 ch = {c: round(v, 4) for c, v in k.channels[j].items()}
@@ -133,3 +135,71 @@ def compare_times(a: Anim, b: Anim, n: int = 8):
             return times, times
     fr = [i / (n - 1) for i in range(n)]
     return [a.length * f for f in fr], [b.length * f for f in fr]
+
+
+def stance_groups(anim: Anim):
+    """Runs of consecutive planted keys (on one or both feet): planted feet stay locked through each run."""
+    groups, cur = [], []
+    for i, k in enumerate(anim.keys):
+        if k.plant and not k.airborne and k.support in (None, "double", "left", "right", "transition"):
+            cur.append(i)
+        else:
+            if cur:
+                groups.append(cur)
+            cur = []
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def fit_stance(anim: Anim, spread: float = 6.0):
+    """For each planted stance, the leg (forward, out) that keeps both feet as close as possible
+    to straight under the hips across ALL its keys (the hips move with torso twist/shift while
+    the feet stay), plus `spread` degrees of outward splay. Returns a list of dicts."""
+    from r6core import forward_kinematics
+    from r6pose import LEGS as POSE_LEGS, analyze, foot_channels, hip_target
+    tracks = anim.tracks()
+    out = []
+    for g in stance_groups(anim):
+        res = {"keys": g, "legs": {}}
+        frames = [forward_kinematics(sample(anim, anim.keys[i].time, tracks)) for i in g]
+        before = [analyze(p) for p in frames]
+        res["before"] = min(min(a["contact"].values()) for a in before)
+        for part, side in POSE_LEGS:
+            leg = "RightLeg" if side == "right" else "LeftLeg"
+            s = 1 if side == "right" else -1
+            def bears(k):
+                sup = k.support or "double"
+                return sup in ("double", side) or (sup == "transition" and k.pivot in (None, "hips", side))
+            on = [n for n, i in enumerate(g) if bears(anim.keys[i])]
+            if not on:
+                continue  # the free leg of a one-foot stance stays as animated
+            pts = [hip_target(frames[n], part) for n in on]
+            cx = (min(p[0] for p in pts) + max(p[0] for p in pts)) / 2
+            cz = (min(p[1] for p in pts) + max(p[1] for p in pts)) / 2
+            cx += s * 2 * math.sin(math.radians(spread))
+            first = anim.keys[g[0]].channels.get(leg, {})
+            twist = first.get("twist", 0.0)
+            res["legs"][leg] = foot_channels(leg, (cx, cz), twist) + (twist,)
+        out.append(res)
+    return out
+
+
+def apply_stance(raw: dict, anim: Anim, fits) -> dict:
+    """Copy of the raw spec with the fitted leg forward/out written on every key of each stance."""
+    new = copy.deepcopy(raw)
+    fps = float(raw.get("fps", 60))
+    rk = new["keyframes"]
+
+    def t_of(k):
+        if "t" in k or "time" in k:
+            return float(k.get("t", k.get("time")))
+        return float(k.get("f", k.get("frame", 0))) / fps
+    for fit in fits:
+        times = [anim.keys[i].time for i in fit["keys"]]
+        for k in rk:
+            if any(abs(t_of(k) - t) < 1e-6 for t in times):
+                for leg, (fwd, o, _tw) in fit["legs"].items():
+                    k.setdefault(leg, {})
+                    k[leg]["forward"], k[leg]["out"] = fwd, o
+    return new

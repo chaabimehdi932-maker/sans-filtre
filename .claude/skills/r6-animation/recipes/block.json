@@ -12,7 +12,8 @@
       "plant": true,
       "Torso": {
         "twist": 10,
-        "lean": 12
+        "lean": 12,
+        "up": -0.35
       },
       "Head": {
         "turn": -8,
@@ -29,13 +30,13 @@
         "twist": -45
       },
       "LeftLeg": {
-        "forward": 16,
-        "out": 14
+        "forward": 6,
+        "out": 6
       },
       "RightLeg": {
-        "forward": 0,
-        "out": 18,
-        "twist": 12
+        "forward": -8,
+        "out": 5,
+        "twist": 8
       },
       "support": "double"
     },
@@ -45,7 +46,7 @@
       "Torso": {
         "twist": 9,
         "lean": 13,
-        "up": -0.03
+        "up": -0.38
       },
       "Head": {
         "turn": -6,
@@ -62,13 +63,13 @@
         "twist": -45
       },
       "LeftLeg": {
-        "forward": 16,
-        "out": 14
+        "forward": 6,
+        "out": 6
       },
       "RightLeg": {
-        "forward": 0,
-        "out": 18,
-        "twist": 12
+        "forward": -8,
+        "out": 5,
+        "twist": 8
       },
       "support": "double"
     },

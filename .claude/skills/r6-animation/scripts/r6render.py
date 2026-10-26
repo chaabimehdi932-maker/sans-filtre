@@ -104,9 +104,10 @@ def _clip_floor(poly):
     return out
 
 
-def _part_polys(parts: dict, cam: Camera, clip=True):
-    """Visible faces of every part as (depth, screen poly, colour, part, axis, sign). With
-    clip, anything below the floor is cut away, as the floor hides it in game."""
+def _part_polys(parts: dict, cam: Camera, clip=False):
+    """Visible faces of every part as (depth, screen poly, colour, part, axis, sign). Off by
+    default so a foot pushed into the floor shows up in the preview; clip=True cuts away what
+    is below the floor."""
     out = []
     for name in DRAW_PARTS:
         cf: CF = parts[name]
@@ -173,7 +174,7 @@ class Frame:
         return (self.ox + p[0] * self.scale, self.oy - p[1] * self.scale)
 
 
-def draw_rig(img: Image.Image, parts: dict, cam: Camera, fr: Frame, ground=True, label=None, clip=True):
+def draw_rig(img: Image.Image, parts: dict, cam: Camera, fr: Frame, ground=True, label=None, clip=False):
     d = ImageDraw.Draw(img)
     if ground:
         for a, b in _ground_lines(cam):
@@ -246,7 +247,7 @@ def contact_sheet(anim: Anim, path: str, views=DEFAULT_VIEWS, times=None, cell=(
                 if ci == 0:
                     d.text((8, cy + ch / 2 - 6), cam.name.replace("_", " "), fill=INK, font=f_small)
                 fr = Frame((x0, cy, x0 + cw, cy + ch), all_bounds[ri], scale)
-                draw_rig(img, parts, cam, fr, clip=anim.grounded)
+                draw_rig(img, parts, cam, fr)
                 d.rectangle([x0, cy, x0 + cw, cy + ch], outline=(225, 225, 218))
     d.text((10, H - 20), "Right limbs = darker. Eyes = face. Grid = 1 stud.", fill=(110, 110, 110), font=f_small)
     img.save(path)
@@ -270,7 +271,7 @@ def gif(anim: Anim, path: str, views=DEFAULT_VIEWS, fps=30, cell=(220, 260), rep
         parts = forward_kinematics(sample(anim, t, tracks))
         for i, cam in enumerate(cams):
             fr = Frame((i * cw, 0, (i + 1) * cw, ch), bounds[i], scale)
-            draw_rig(img, parts, cam, fr, clip=anim.grounded)
+            draw_rig(img, parts, cam, fr)
         d = ImageDraw.Draw(img)
         # timeline with key ticks, markers and playhead
         x0, x1, y = 10, W - 10, ch + 12
@@ -397,7 +398,7 @@ def compare_sheet(a: Anim, b: Anim, path: str, times_a, times_b, views=("side", 
                 if ci == 0:
                     d.text((6, y0 + ch / 2 - 6), f"{cam.name.replace('_', ' ')}\n{tag}", fill=INK, font=_font(12))
                 fr = Frame((x0, y0, x0 + cw, y0 + ch), bounds[vi], scale)
-                draw_rig(img, parts, cam, fr, clip=(a if k == 0 else b).grounded)
+                draw_rig(img, parts, cam, fr)
                 d.rectangle([x0, y0, x0 + cw, y0 + ch], outline=(200, 200, 190) if k else (225, 225, 218))
     img.save(path)
     return path
@@ -419,7 +420,7 @@ def compare_gif(a: Anim, b: Anim, path: str, view="three_quarter", fps=30, cell=
         img = Image.new("RGB", (cw * 2, ch), BG)
         for i, (x, tr, tag) in enumerate(((a, ta, "before"), (b, tb, "after"))):
             parts = forward_kinematics(sample(x, min(t, x.length), tr))
-            draw_rig(img, parts, cam, Frame((i * cw, 24, (i + 1) * cw, ch), bounds, scale), clip=x.grounded)
+            draw_rig(img, parts, cam, Frame((i * cw, 24, (i + 1) * cw, ch), bounds, scale))
             ImageDraw.Draw(img).text((i * cw + 8, 6), f"{tag}: {x.name}  {min(t, x.length):.2f}s", fill=INK,
                                      font=_font(12))
         frames.append(img)

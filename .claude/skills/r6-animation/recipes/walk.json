@@ -1,11 +1,12 @@
 {
   "name": "Walk",
-  "note": "Brisk walk matched to WalkSpeed 8 (no foot sliding). For WalkSpeed 16 use run.json, or play this with AdjustSpeed(2) (the lint prints the exact factor). Legs: right leg keyed, left derived half a cycle later. Stance = linear (feet glide back at constant speed), swing = eased.",
+  "note": "Brisk walk matched to WalkSpeed 8 (no foot sliding). For WalkSpeed 16 use run.json, or play this with AdjustSpeed(2) (the lint prints the exact factor). Legs: right leg keyed, left derived half a cycle later. Stance = linear (feet glide back at constant speed), swing = eased. Breakdown keys mid-stance re-plant the support foot where plain interpolation would let it dip into the floor; the free leg lifts clear (no knee: it pulls up into the hip).",
   "loop": true,
   "priority": "Movement",
   "fps": 60,
   "speed": 8,
   "ground": true,
+  "clearance": 0.3,
   "keyframes": [
     {
       "f": 0,
@@ -35,6 +36,15 @@
       "support": "double"
     },
     {
+      "f": 4,
+      "name": "stance_R_settle",
+      "breakdown": true,
+      "ease": "linear",
+      "Torso": {
+        "right": 0.09
+      }
+    },
+    {
       "f": 9,
       "name": "passing_R_stance",
       "plant": true,
@@ -42,7 +52,7 @@
         "lean": 4,
         "twist": 0,
         "tilt": 2,
-        "right": 0.06
+        "right": 0.1
       },
       "Head": {
         "turn": 0,
@@ -53,6 +63,12 @@
         "ease": "linear"
       },
       "support": "right"
+    },
+    {
+      "f": 14,
+      "name": "stance_R_push",
+      "breakdown": true,
+      "ease": "linear"
     },
     {
       "f": 18,
@@ -82,6 +98,15 @@
       "support": "double"
     },
     {
+      "f": 22,
+      "name": "stance_L_settle",
+      "breakdown": true,
+      "ease": "linear",
+      "Torso": {
+        "right": -0.09
+      }
+    },
+    {
       "f": 27,
       "name": "passing_L_stance",
       "plant": true,
@@ -89,7 +114,7 @@
         "lean": 4,
         "twist": 0,
         "tilt": -2,
-        "right": -0.06
+        "right": -0.1
       },
       "Head": {
         "turn": 0,
@@ -101,6 +126,12 @@
         "ease": "out"
       },
       "support": "left"
+    },
+    {
+      "f": 32,
+      "name": "stance_L_push",
+      "breakdown": true,
+      "ease": "linear"
     },
     {
       "f": 36,
