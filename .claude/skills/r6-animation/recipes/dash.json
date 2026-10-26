@@ -6,41 +6,161 @@
   "fps": 60,
   "ground": true,
   "keyframes": [
-    {"f": 0, "name": "crouch", "plant": true, "ease": "out",
-     "Torso": {"lean": 16},
-     "Head": {"nod": -8},
-     "RightArm": {"forward": -15, "out": 12},
-     "LeftArm": {"forward": 20, "out": 12},
-     "RightLeg": {"forward": 24, "out": 6},
-     "LeftLeg": {"forward": -22, "out": 6}},
-    {"f": 4, "name": "launch", "plant": true, "airborne": true, "ground": false, "ease": "out",
-     "Torso": {"lean": 36, "up": -0.15},
-     "Head": {"nod": -28},
-     "RightArm": {"forward": -70, "out": 18, "twist": 20},
-     "LeftArm": {"forward": -64, "out": 20, "twist": 20},
-     "RightLeg": {"forward": 34},
-     "LeftLeg": {"forward": -48}},
-    {"f": 20, "name": "glide", "plant": true, "airborne": true, "ground": false, "ease": "in",
-     "Torso": {"lean": 38, "up": -0.18},
-     "Head": {"nod": -30},
-     "RightArm": {"forward": -76, "out": 20, "twist": 20},
-     "LeftArm": {"forward": -72, "out": 22, "twist": 20},
-     "RightLeg": {"forward": 36},
-     "LeftLeg": {"forward": -50}},
-    {"f": 25, "name": "brake", "plant": true, "ease": "out",
-     "Torso": {"lean": -10, "forward": -0.2},
-     "Head": {"nod": 6},
-     "RightArm": {"forward": 30, "out": 32},
-     "LeftArm": {"forward": 40, "out": 28},
-     "RightLeg": {"forward": 34, "out": 6},
-     "LeftLeg": {"forward": -18, "out": 6}},
-    {"f": 36, "name": "recover", "plant": true,
-     "Torso": {"lean": 3},
-     "Head": {"nod": 0},
-     "RightArm": {"forward": 5, "out": 5},
-     "LeftArm": {"forward": 5, "out": 5},
-     "RightLeg": {"forward": 6, "out": 3},
-     "LeftLeg": {"forward": -4, "out": 3}}
+    {
+      "f": 0,
+      "name": "crouch",
+      "plant": true,
+      "ease": "out",
+      "Torso": {
+        "lean": 16
+      },
+      "Head": {
+        "nod": -8
+      },
+      "RightArm": {
+        "forward": -15,
+        "out": 12
+      },
+      "LeftArm": {
+        "forward": 20,
+        "out": 12
+      },
+      "RightLeg": {
+        "forward": 24,
+        "out": 6
+      },
+      "LeftLeg": {
+        "forward": -22,
+        "out": 6
+      }
+    },
+    {
+      "f": 4,
+      "name": "launch",
+      "plant": true,
+      "airborne": true,
+      "ground": false,
+      "ease": "out",
+      "Torso": {
+        "lean": 36,
+        "up": -0.15
+      },
+      "Head": {
+        "nod": -28
+      },
+      "RightArm": {
+        "forward": -70,
+        "out": 18,
+        "twist": 20
+      },
+      "LeftArm": {
+        "forward": -64,
+        "out": 20,
+        "twist": 20
+      },
+      "RightLeg": {
+        "forward": 34
+      },
+      "LeftLeg": {
+        "forward": -48
+      }
+    },
+    {
+      "f": 20,
+      "name": "glide",
+      "plant": true,
+      "airborne": true,
+      "ground": false,
+      "ease": "in",
+      "Torso": {
+        "lean": 38,
+        "up": -0.18
+      },
+      "Head": {
+        "nod": -30
+      },
+      "RightArm": {
+        "forward": -76,
+        "out": 20,
+        "twist": 20
+      },
+      "LeftArm": {
+        "forward": -72,
+        "out": 22,
+        "twist": 20
+      },
+      "RightLeg": {
+        "forward": 36
+      },
+      "LeftLeg": {
+        "forward": -50
+      }
+    },
+    {
+      "f": 25,
+      "name": "brake",
+      "plant": true,
+      "ease": "out",
+      "Torso": {
+        "lean": -10,
+        "forward": -0.2
+      },
+      "Head": {
+        "nod": 6
+      },
+      "RightArm": {
+        "forward": 30,
+        "out": 32
+      },
+      "LeftArm": {
+        "forward": 40,
+        "out": 28
+      },
+      "RightLeg": {
+        "forward": 34,
+        "out": 6
+      },
+      "LeftLeg": {
+        "forward": -18,
+        "out": 6
+      }
+    },
+    {
+      "f": 36,
+      "name": "recover",
+      "plant": true,
+      "Torso": {
+        "lean": 3
+      },
+      "Head": {
+        "nod": 0
+      },
+      "RightArm": {
+        "forward": 5,
+        "out": 5
+      },
+      "LeftArm": {
+        "forward": 5,
+        "out": 5
+      },
+      "RightLeg": {
+        "forward": 30,
+        "out": 6
+      },
+      "LeftLeg": {
+        "forward": -16,
+        "out": 6
+      }
+    }
   ],
-  "markers": [{"f": 4, "name": "DashStart"}, {"f": 25, "name": "DashEnd"}]
+  "markers": [
+    {
+      "f": 4,
+      "name": "DashStart"
+    },
+    {
+      "f": 25,
+      "name": "DashEnd"
+    }
+  ]
 }

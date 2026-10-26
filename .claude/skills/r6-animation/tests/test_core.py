@@ -10,9 +10,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from r6core import (CF, HRP_HEIGHT, JOINT, body_cf, body_to_channels, body_to_transform,  # noqa: E402
-                    channels_to_transform, ease_alpha, forward_kinematics, limb_tip, load_spec,
-                    mirror_raw, parse_ease, rz, sample, transform_to_body)
+from r6core import (CF, HRP_HEIGHT, JOINT, OFFSETS, PART_SIZE, body_cf, body_to_channels, body_to_transform,  # noqa: E402
+                    box_corners, channels_to_transform, ease_alpha, forward_kinematics, limb_tip,
+                    load_spec, mirror_raw, parse_ease, rz, sample, transform_to_body)
 
 
 def close(a, b, eps=1e-4):
@@ -110,29 +110,69 @@ def test_round_trip_channels():
     for joint in JOINT:
         for _ in range(200):
             ch = {c: rnd.uniform(-60, 60) for c in JOINT[joint].channels}
-            if joint == "Torso":
-                for c in ("right", "up", "forward"):
+            for c in ("right", "up", "forward", "reach", "offset_right", "offset_up", "offset_forward"):
+                if c in ch:
                     ch[c] = rnd.uniform(-1, 1)
-            back = body_to_channels(joint, transform_to_body(joint, channels_to_transform(joint, ch)))
-            for c, v in ch.items():
-                assert abs(back.get(c, 0.0) - v) < 1e-2, (joint, c, v, back)
+            tf = channels_to_transform(joint, ch)
+            back = body_to_channels(joint, transform_to_body(joint, tf))
+            assert channels_to_transform(joint, back).almost(tf, 1e-3), (joint, ch, back)
+            # Angles come back exactly. A limb's reach and offsets may re-split (an offset along
+            # the limb's axis IS reach), so for those only the transform equality above counts.
+            exact = [c for c in ch if joint == "Torso" or c not in ("reach",) + OFFSETS]
+            for c in exact:
+                assert abs(back.get(c, 0.0) - ch[c]) < 1e-2, (joint, c, ch[c], back)
 
 
-def test_plant_keeps_feet_and_legs():
-    base = {"keyframes": [{"t": 0}, {"t": 1, "plant": True, "Torso": {"lean": 30, "twist": 0}}]}
-    a = load_spec(base)
-    planted = forward_kinematics(sample(a, 1.0))
+def _feet(parts):
+    return {leg: limb_tip(parts, leg) for leg in ("Right Leg", "Left Leg")}
+
+
+def test_plant_locks_feet_under_lean_twist_shift_and_crouch():
+    rest_feet = _feet(fk({}))
+    for torso in ({"lean": 30}, {"twist": 35}, {"tilt": 12}, {"forward": 0.4, "right": -0.2},
+                  {"up": -0.5}, {"lean": 15, "twist": -25, "forward": 0.3, "up": -0.3}):
+        a = load_spec({"keyframes": [{"t": 0, "plant": True, "Torso": torso}]})
+        parts = forward_kinematics(sample(a, 0.0))
+        for leg, f in _feet(parts).items():  # feet stay put on the floor (a tilted foot stands on its corner)
+            assert math.hypot(f[0] - rest_feet[leg][0], f[2] - rest_feet[leg][2]) < 0.1, (torso, leg, f)
+            low = min(p[1] for p in box_corners(parts[leg], PART_SIZE[leg]))
+            assert abs(low) < 0.02, (torso, leg, low)
+    # crouching with planted feet retracts the legs (R6 "fake knee")
+    a = load_spec({"keyframes": [{"t": 0, "plant": True, "Torso": {"up": -0.5}}]})
+    ch = body_to_channels("RightLeg", a.keys[0].bodies["RightLeg"])
+    assert abs(ch.get("reach", 0) + 0.5) < 0.02, ch
+    assert up(forward_kinematics(sample(a, 0))["Torso"])[1] > 0.999
+
+
+def test_plant_on_splayed_legs_stands_on_floor():
+    a = load_spec({"keyframes": [{"t": 0, "plant": True, "RightLeg": {"forward": 30}, "LeftLeg": {"forward": -25}}]})
+    parts = forward_kinematics(sample(a, 0))
+    low = min(p[1] for leg in ("Right Leg", "Left Leg") for p in box_corners(parts[leg], PART_SIZE[leg]))
+    assert abs(low) < 1e-6
+
+
+def test_plant_airborne_keeps_leg_angles():
+    a = load_spec({"keyframes": [{"t": 0, "plant": True, "airborne": True, "Torso": {"lean": 30, "up": 1}}]})
+    parts = forward_kinematics(sample(a, 0))
     rest = fk({})
     for leg in ("Right Leg", "Left Leg"):
-        assert close(planted[leg].r, rest[leg].r)
-        assert close(limb_tip(planted, leg), limb_tip(rest, leg))
-    assert up(planted["Torso"])[2] < -0.45  # torso still leans
+        assert close(parts[leg].r, rest[leg].r)
+
+
+def test_reach_and_offsets():
+    p = fk({"RightArm": {"forward": 90, "reach": 0.3}})
+    assert close(limb_tip(p, "Right Arm"), (1.5, 3.5, -1.8))  # 0.3 further along the arm
+    p = fk({"LeftLeg": {"reach": -0.4}})
+    assert close(limb_tip(p, "Left Leg"), (-0.5, 0.4, 0))  # leg slid up into the torso
+    p = fk({"Head": {"offset_up": 0.2, "offset_forward": 0.1}})
+    assert close(p["Head"].pos, (0, 4.7, -0.1))
 
 
 def test_mirror_is_reflection():
     raw = {"name": "Punch_R", "keyframes": [{"t": 0, "RightArm": {"forward": 80, "out": 20, "twist": 10},
                                             "Torso": {"twist": 25, "tilt": 5, "lean": 10, "right": 0.3},
-                                            "Head": {"turn": -15, "nod": 5}, "LeftLeg": {"forward": -20}}]}
+                                            "Head": {"turn": -15, "nod": 5, "offset_right": 0.1},
+                                            "LeftLeg": {"forward": -20, "reach": -0.2, "offset_right": 0.1}}]}
     m = mirror_raw(raw)
     assert m["name"] == "Punch_L"
     p0 = forward_kinematics(sample(load_spec(raw), 0))

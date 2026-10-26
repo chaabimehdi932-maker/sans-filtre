@@ -1,31 +1,95 @@
 {
   "name": "Land",
-  "note": "Landing recovery, 0.4s, play on Humanoid.StateChanged -> Landed. R6 can't bend knees, so the 'squash' is legs splaying (forward/back + out) with ground snapping dropping the body, plus the torso and head following through forward.",
+  "note": "Landing recovery, 0.4s, play on Humanoid.StateChanged -> Landed. R6 has no knees: the squash is the body dropping with 'plant' (legs slide up into the torso - the R6 'fake knee'), the torso pitching forward and the head following through. Feet never move.",
   "loop": false,
   "priority": "Action",
   "fps": 60,
   "ground": true,
   "keyframes": [
-    {"f": 0, "name": "impact", "plant": true, "ease": "out",
-     "Torso": {"lean": 16},
-     "Head": {"nod": 8},
-     "RightArm": {"forward": 35, "out": 30},
-     "LeftArm": {"forward": 20, "out": 35},
-     "RightLeg": {"forward": 34, "out": 12},
-     "LeftLeg": {"forward": -24, "out": 12}},
-    {"f": 5, "name": "deepest", "plant": true,
-     "Torso": {"lean": 22},
-     "Head": {"nod": 14},
-     "RightArm": {"forward": 28, "out": 34},
-     "LeftArm": {"forward": 14, "out": 38},
-     "RightLeg": {"forward": 38, "out": 14},
-     "LeftLeg": {"forward": -28, "out": 14}},
-    {"f": 24, "name": "recover", "plant": true,
-     "Torso": {"lean": 3},
-     "Head": {"nod": 0},
-     "RightArm": {"forward": 4, "out": 5},
-     "LeftArm": {"forward": 2, "out": 5},
-     "RightLeg": {"forward": 6, "out": 3},
-     "LeftLeg": {"forward": -4, "out": 3}}
+    {
+      "f": 0,
+      "name": "impact",
+      "plant": true,
+      "ease": "out",
+      "Torso": {
+        "lean": 16,
+        "up": -0.45
+      },
+      "Head": {
+        "nod": 8
+      },
+      "RightArm": {
+        "forward": 35,
+        "out": 30
+      },
+      "LeftArm": {
+        "forward": 20,
+        "out": 35
+      },
+      "RightLeg": {
+        "forward": 8,
+        "out": 7
+      },
+      "LeftLeg": {
+        "forward": -6,
+        "out": 7
+      }
+    },
+    {
+      "f": 5,
+      "name": "deepest",
+      "plant": true,
+      "Torso": {
+        "lean": 22,
+        "up": -0.6
+      },
+      "Head": {
+        "nod": 14
+      },
+      "RightArm": {
+        "forward": 28,
+        "out": 34
+      },
+      "LeftArm": {
+        "forward": 14,
+        "out": 38
+      },
+      "RightLeg": {
+        "forward": 8,
+        "out": 7
+      },
+      "LeftLeg": {
+        "forward": -6,
+        "out": 7
+      }
+    },
+    {
+      "f": 24,
+      "name": "recover",
+      "plant": true,
+      "Torso": {
+        "lean": 3,
+        "up": 0
+      },
+      "Head": {
+        "nod": 0
+      },
+      "RightArm": {
+        "forward": 4,
+        "out": 5
+      },
+      "LeftArm": {
+        "forward": 2,
+        "out": 5
+      },
+      "RightLeg": {
+        "forward": 8,
+        "out": 7
+      },
+      "LeftLeg": {
+        "forward": -6,
+        "out": 7
+      }
+    }
   ]
 }

@@ -26,14 +26,23 @@ recommended starting value (no single authoritative source).
   well past anatomy — about 1.3–1.5× realistic angles. [community][transfer]
 - **The torso does the acting.** No elbows, knees or spine: reach, power and weight come
   from Torso `twist`/`lean`/`tilt` and body translation (`up`/`forward`), not from the arm.
-  A punch "extends" because the torso rotates through and the body shifts forward. [community]
+  A punch "extends" because the torso rotates through, the body shifts forward and the arm
+  slides out of the shoulder (`reach`). [community][derived]
+- **Strike twist direction (get this right):** the chest turns *away from the punching arm's
+  side* through contact, driving that shoulder forward. **Left-hand strikes: twist goes UP
+  (+, chest turns right). Right-hand strikes: twist goes DOWN (−).** The anticipation loads
+  the opposite way first. Twisting the wrong way drags the fist backward. Check it: the
+  lint prints where the hand travels into every marker ("forward +0.9 …").
+- **Feet stay planted** unless the character steps: `plant: true` on grounded keys, and keep
+  the leg angles the same across keys (changing them moves the feet).
 - **Snappy beats smooth** for action: fast acceleration/deceleration, few strong keys,
   holds. The battlegrounds look is effectively *limited animation*. [community]
 - **Arcs come for free on limbs** (rigid limbs about fixed pivots move on circles of
   radius 1.5/2 studs). Add body translation so the *whole body* path arcs too. [derived]
-- **Squash & stretch has no scale** on R6. Substitute: squash = body dip 0.2–0.6 studs +
-  legs splayed + torso pitched + arms in; stretch = body rise + legs together/straight +
-  arms overhead. Exaggerate the speed contrast between them. [derived][default]
+- **Squash & stretch has no scale** on R6. Substitute: squash = body dip 0.2–0.6 studs
+  (plant + negative `up`: legs slide into the torso; or splayed legs + ground) + torso
+  pitched + arms in; stretch = body rise + legs straight + arms overhead + limbs `reach`ing
+  0.1–0.3 out of their sockets for 1–3 frames. Exaggerate the speed contrast. [derived][default]
 
 ## 2. Timing and spacing
 
@@ -128,12 +137,14 @@ follow-through, recovery) [community][transfer]:
 5. Recovery to stance: 10–15 frames, `inout`. Show effort (slower than the strike).
 
 Type-specific notes [default]:
-- **Jab/cross**: straight line from shoulder; the *rear* hand cross needs more torso
-  rotation (+40 → −18 twist) and a forward weight shift; the non-striking hand pulls back
-  to the chin (opposition).
-- **Hook**: arm stays horizontal (forward ~85–90) and sweeps from `out` +40..+50 to about
-  −10; the torso unwinds hard (+40 → −30). Don't push the arm more inward — the torso
-  rotation does the "across".
+- **Jab (lead/left)**: guard twist +25 → load +20 with the arm pulled in (`reach` −0.35) →
+  contact twist +32, arm forward 90, `reach` +0.2, body forward 0.2. Small twist, big reach.
+- **Cross (rear/right)**: more rotation (+40 → −18) and a forward weight shift; the lead hand
+  pulls back to the chin (opposition).
+- **Hook (lead/left)**: arm stays horizontal (forward ~85–90) with the elbow wide (`out` +50)
+  on the load while the chest turns left (+10), then the chest whips right (+48..+54) and the
+  arm sweeps to `out` ≈ −8. A right hook mirrors this (twist goes down). Don't push the arm
+  more inward — the torso rotation does the "across".
 - **Uppercut / launcher**: deep crouch (splayed legs + `ground`), explosive rise (body
   `up` +0.3–0.4, key `airborne`), arm forward 160–175, lean back −10, head up. Hang at the
   top briefly so the knockback reads.

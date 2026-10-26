@@ -124,6 +124,22 @@
       }
     },
     {
+      "f": 24,
+      "name": "recover_breakdown",
+      "from": "toolhold",
+      "plant": true,
+      "Torso": {
+        "twist": -12,
+        "lean": 7,
+        "tilt": 2
+      },
+      "RightArm": {
+        "forward": 70,
+        "out": -6,
+        "twist": -8
+      }
+    },
+    {
       "f": 30,
       "name": "recover",
       "from": "toolhold",

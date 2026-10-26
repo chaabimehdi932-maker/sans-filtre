@@ -1,33 +1,125 @@
 {
   "name": "Hit_React",
-  "note": "Hit from the front, 0.45s, Action2 so it overrides attacks. Play with fadeTime 0 (snap): frame 0 is already the impact pose. Fast reaction (4 frames of overshoot), slow settle. Head lags the torso (overlap). Ends at rest so the fade-out back to idle/guard is clean.",
+  "note": "Hit from the front, 0.45s, Action2 so it overrides attacks. Play with fadeTime 0 (snap): frame 0 is already the impact pose. Fast reaction (4 frames of overshoot), slow settle. Head lags the torso (overlap). Feet stay planted (plant): the torso, head and arms do the reacting. Ends near rest so the fade-out back to idle/guard is clean.",
   "loop": false,
   "priority": "Action2",
   "fps": 60,
   "ground": true,
   "keyframes": [
-    {"f": 0, "name": "impact", "plant": true, "ease": "out",
-     "Torso": {"lean": -16, "twist": 10, "tilt": 3, "forward": -0.25},
-     "Head": {"nod": -12, "tilt": 6},
-     "RightArm": {"forward": 30, "out": 30},
-     "LeftArm": {"forward": 40, "out": 26},
-     "RightLeg": {"forward": 10, "out": 6},
-     "LeftLeg": {"forward": -12, "out": 6}},
-    {"f": 4, "name": "overshoot", "plant": true, "ease": "inout",
-     "Torso": {"lean": -22, "twist": 14, "tilt": 4, "forward": -0.35},
-     "Head": {"nod": -24, "tilt": 9, "turn": 6},
-     "RightArm": {"forward": 42, "out": 38},
-     "LeftArm": {"forward": 52, "out": 32},
-     "RightLeg": {"forward": 14, "out": 6},
-     "LeftLeg": {"forward": -14, "out": 6}},
-    {"f": 13, "name": "settle", "plant": true, "ease": "inout",
-     "Torso": {"lean": -6, "twist": 6, "tilt": 1, "forward": -0.15},
-     "Head": {"nod": -8, "tilt": 4, "turn": 3},
-     "RightArm": {"forward": 18, "out": 16},
-     "LeftArm": {"forward": 22, "out": 14},
-     "RightLeg": {"forward": 8, "out": 4},
-     "LeftLeg": {"forward": -8, "out": 4}},
-    {"f": 27, "name": "rest", "plant": true,
-     "Torso": {}, "Head": {}, "RightArm": {}, "LeftArm": {}, "RightLeg": {}, "LeftLeg": {}}
+    {
+      "f": 0,
+      "name": "impact",
+      "plant": true,
+      "ease": "out",
+      "Torso": {
+        "lean": -16,
+        "twist": 10,
+        "tilt": 3,
+        "forward": -0.25
+      },
+      "Head": {
+        "nod": -12,
+        "tilt": 6
+      },
+      "RightArm": {
+        "forward": 30,
+        "out": 30
+      },
+      "LeftArm": {
+        "forward": 40,
+        "out": 26
+      },
+      "RightLeg": {
+        "forward": 6,
+        "out": 5
+      },
+      "LeftLeg": {
+        "forward": -6,
+        "out": 5
+      }
+    },
+    {
+      "f": 4,
+      "name": "overshoot",
+      "plant": true,
+      "ease": "inout",
+      "Torso": {
+        "lean": -22,
+        "twist": 14,
+        "tilt": 4,
+        "forward": -0.35
+      },
+      "Head": {
+        "nod": -24,
+        "tilt": 9,
+        "turn": 6
+      },
+      "RightArm": {
+        "forward": 42,
+        "out": 38
+      },
+      "LeftArm": {
+        "forward": 52,
+        "out": 32
+      },
+      "RightLeg": {
+        "forward": 6,
+        "out": 5
+      },
+      "LeftLeg": {
+        "forward": -6,
+        "out": 5
+      }
+    },
+    {
+      "f": 13,
+      "name": "settle",
+      "plant": true,
+      "ease": "inout",
+      "Torso": {
+        "lean": -6,
+        "twist": 6,
+        "tilt": 1,
+        "forward": -0.15
+      },
+      "Head": {
+        "nod": -8,
+        "tilt": 4,
+        "turn": 3
+      },
+      "RightArm": {
+        "forward": 18,
+        "out": 16
+      },
+      "LeftArm": {
+        "forward": 22,
+        "out": 14
+      },
+      "RightLeg": {
+        "forward": 6,
+        "out": 5
+      },
+      "LeftLeg": {
+        "forward": -6,
+        "out": 5
+      }
+    },
+    {
+      "f": 27,
+      "name": "rest",
+      "plant": true,
+      "Torso": {},
+      "Head": {},
+      "RightArm": {},
+      "LeftArm": {},
+      "RightLeg": {
+        "forward": 6,
+        "out": 5
+      },
+      "LeftLeg": {
+        "forward": -6,
+        "out": 5
+      }
+    }
   ]
 }

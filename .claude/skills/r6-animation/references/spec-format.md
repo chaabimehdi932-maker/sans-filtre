@@ -34,9 +34,9 @@ produces the exact `Pose.CFrame` (= `Motor6D.Transform`) for R6's rotated joint 
 ## Keyframes
 
 ```json
-{"f": 6, "name": "contact", "ease": "out", "plant": true,
- "Torso": {"twist": 8, "lean": 11, "forward": 0.15},
- "LeftArm": {"forward": 92, "out": -14, "twist": -20}}
+{"f": 6, "name": "contact", "ease": "linear", "plant": true,
+ "Torso": {"twist": 32, "lean": 10, "forward": 0.2},
+ "LeftArm": {"forward": 90, "out": -6, "twist": -25, "reach": 0.2}}
 ```
 
 - Time: `"t"` in seconds or `"f"` in frames at the spec's `fps`. First keyframe must be at 0.
@@ -66,12 +66,19 @@ so `"out": 30` spreads either arm away from the body.
 | `Head` | Neck | `nod` | look **down** | -60..70 |
 | | | `turn` | look to the character's **right** | -85..85 |
 | | | `tilt` | ear toward the **right** shoulder | -45..45 |
+| | | `offset_right/up/forward` | head slides (studs; rare: bobs, stretch) | -1..1 |
 | `RightArm` / `LeftArm` | R/L Shoulder | `forward` | arm swings **forward/up** (90 = pointing ahead, 180 = straight up) | -100..200 |
 | | | `out` | arm raises **sideways away** from the body (90 = T-pose) | -40..180 |
 | | | `twist` | arm rolls **outward** about its own length | -120..120 |
 | `RightLeg` / `LeftLeg` | R/L Hip | `forward` | leg swings **forward** (kick) | -70..130 |
 | | | `out` | leg spreads **sideways away** | -25..90 |
 | | | `twist` | toes turn **outward** | -60..60 |
+| arms & legs | | `reach` | limb slides **along its own length** out of the socket (studs); negative slides it into the body | arm -0.8..0.6, leg -1..0.3 |
+| | | `offset_right/up/forward` | limb slides in the torso's axes (studs) | -1..1 |
+
+`reach` is how R6 fakes the joints it doesn't have: a straight punch pulls the arm into the
+shoulder (`reach` −0.3) on the wind-up and shoots it out (+0.2) on contact; legs slide up
+into the torso (negative `reach`) to fake a knee bend. `plant` sets leg `reach` for you.
 
 Rotation order (matters only when several channels are large at once):
 - Limbs: swing `forward` first, then `out` in the swung frame, then `twist` about the limb.
@@ -112,14 +119,19 @@ Avoid `bounce.inout` (Roblox's runtime curve differs from the standard one).
 - **`"hold": true`** = `from` the previous keyframe. Combine with small overrides for a
   *moving hold* (drift 2–5% so a held pose stays alive).
 - **`"poses": {"guard": {...joints...}}`** at top level: a reusable pose library.
-- **`"plant": true`** on a keyframe: Torso rotations pivot at the **hips** and the legs keep
-  their world angles, so leaning/twisting the torso doesn't swing the feet. Leg channels
-  in that key are then world-relative (as if the torso were upright). Use it on almost
-  every grounded key that rotates the Torso.
-- **`"ground": true`** on a keyframe (or the whole spec): after everything else, slide the
-  body up/down so the lowest point of either leg touches the floor. This is how you get
-  R6 "squash": splay the legs (`forward`/`out`) and ground drops the body for you.
-  Rigid legs swung by A° lift the foot 2·(1−cos A) studs — ground does that math.
+- **`"plant": true`** on a keyframe — **feet locked to the floor**. The leg channels (as if
+  the torso were upright) decide where each foot stands; then the Torso rotates about the
+  **hips** and shifts by its `right/forward`, and each leg re-aims at its foot and slides
+  along its length (`reach`) to reach it. On plant keys Torso `up` is **relative to the
+  natural standing height** for those leg angles, so `"up": -0.4` = crouch 0.4 studs with
+  the legs sliding into the torso (the R6 "fake knee"). The body is lowered automatically if
+  a tilt would make a leg stretch. Put it on every grounded key of anything that isn't
+  locomotion; feet then only move where you change the leg angles (a step). On `airborne`
+  keys plant just keeps the legs' world angles.
+- **`"ground": true`** on a keyframe (or the whole spec): slide the body up/down so the
+  lowest point of either leg touches the floor (plant keys already do this). Use it on
+  locomotion keys and anything not planted. Rigid legs swung by A° lift the foot
+  2·(1−cos A) studs — ground does that math, so splayed legs drop the body.
 - **`"airborne": true`**: this key is in the air (jumps, flight phase of a run, bounces);
   ground snapping and the floor lint skip it. `from` copies it.
 - **`"derive"`** (cycles): `{"joint": "LeftLeg", "from": "RightLeg", "phase": 0.5}` copies
@@ -142,10 +154,10 @@ Avoid `bounce.inout` (Roblox's runtime curve differs from the standard one).
   "keyframes": [
     {"f": 0,  "name": "guard", "from": "guard", "plant": true, "ease": "out"},
     {"f": 3,  "name": "anticipation", "from": "guard", "plant": true, "ease": "in",
-     "Torso": {"twist": 32, "lean": 4}, "LeftArm": {"forward": 68, "out": 6}},
+     "Torso": {"twist": 20, "lean": 5}, "LeftArm": {"forward": 80, "out": 0, "reach": -0.35}},
     {"f": 6,  "name": "contact", "from": "guard", "plant": true, "ease": "linear",
-     "Torso": {"twist": 8, "lean": 11, "forward": 0.15}, "LeftArm": {"forward": 92, "out": -14, "twist": -20}},
-    {"f": 10, "name": "hold", "from": "contact", "LeftArm": {"forward": 90, "out": -13, "twist": -20}},
+     "Torso": {"twist": 32, "lean": 10, "forward": 0.2}, "LeftArm": {"forward": 90, "out": -6, "twist": -25, "reach": 0.2}},
+    {"f": 10, "name": "hold", "from": "contact", "LeftArm": {"forward": 89, "out": -6, "twist": -25, "reach": 0.22}},
     {"f": 21, "name": "recover", "from": "guard", "plant": true}
   ],
   "markers": [{"f": 6, "name": "Hit"}]

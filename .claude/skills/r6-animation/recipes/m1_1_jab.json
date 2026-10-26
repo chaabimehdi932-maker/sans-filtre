@@ -1,24 +1,123 @@
 {
   "name": "M1_1_Jab",
-  "note": "Combo hit 1: lead (left) jab, 0.35s. guard -> 3f anticipation (pull back + twist away) -> 3f snap to contact -> 4f moving hold -> settle back to guard. Hit marker on contact. Chain into M1_2 from about 0.2s.",
+  "note": "Combo hit 1: lead (left) jab, 0.35s. guard -> 3f anticipation (small load: chest turns left, fist drops back) -> 3f snap to contact as the chest turns RIGHT (twist up) driving the left shoulder forward while the arm shoots out of the shoulder (reach -0.35 -> +0.2: no elbow, so the extension is faked) -> 4f moving hold -> settle back to guard. Left-hand strikes twist +, right-hand strikes twist -. Feet stay planted (plant). Hit marker on contact. Chain into M1_2 from about 0.2s.",
   "loop": false,
   "priority": "Action",
   "fps": 60,
   "ground": true,
-  "poses": {"guard": {"Torso": {"twist": 25, "lean": 6}, "Head": {"turn": -20, "nod": 4}, "LeftArm": {"forward": 80, "out": -8, "twist": -10}, "RightArm": {"forward": 62, "out": -14, "twist": -10}, "LeftLeg": {"forward": 18, "out": 4}, "RightLeg": {"forward": -14, "out": 6}}},
+  "poses": {
+    "guard": {
+      "Torso": {
+        "twist": 25,
+        "lean": 6
+      },
+      "Head": {
+        "turn": -20,
+        "nod": 4
+      },
+      "LeftArm": {
+        "forward": 80,
+        "out": -8,
+        "twist": -10
+      },
+      "RightArm": {
+        "forward": 62,
+        "out": -14,
+        "twist": -10
+      },
+      "LeftLeg": {
+        "forward": 18,
+        "out": 4
+      },
+      "RightLeg": {
+        "forward": -14,
+        "out": 6
+      }
+    }
+  },
   "keyframes": [
-    {"f": 0, "name": "guard", "from": "guard", "plant": true, "ease": "out"},
-    {"f": 3, "name": "anticipation", "from": "guard", "plant": true, "ease": "in",
-     "Torso": {"twist": 32, "lean": 4},
-     "LeftArm": {"forward": 68, "out": 6}},
-    {"f": 6, "name": "contact", "from": "guard", "plant": true, "ease": "linear",
-     "Torso": {"twist": 8, "lean": 11, "forward": 0.15},
-     "Head": {"turn": -6, "nod": 6},
-     "LeftArm": {"forward": 92, "out": -14, "twist": -20},
-     "RightArm": {"forward": 66, "out": -16}},
-    {"f": 10, "name": "hold", "from": "contact", "ease": "inout",
-     "LeftArm": {"forward": 90, "out": -13, "twist": -20}},
-    {"f": 21, "name": "recover", "from": "guard", "plant": true}
+    {
+      "f": 0,
+      "name": "guard",
+      "from": "guard",
+      "plant": true,
+      "ease": "out"
+    },
+    {
+      "f": 3,
+      "name": "anticipation",
+      "from": "guard",
+      "plant": true,
+      "ease": "in",
+      "Torso": {
+        "twist": 20,
+        "lean": 5,
+        "up": -0.04
+      },
+      "LeftArm": {
+        "forward": 80,
+        "out": 0,
+        "twist": -10,
+        "reach": -0.35
+      }
+    },
+    {
+      "f": 6,
+      "name": "contact",
+      "from": "guard",
+      "plant": true,
+      "ease": "linear",
+      "Torso": {
+        "twist": 32,
+        "lean": 10,
+        "forward": 0.2,
+        "up": -0.08
+      },
+      "Head": {
+        "turn": -26,
+        "nod": 6
+      },
+      "LeftArm": {
+        "forward": 90,
+        "out": -6,
+        "twist": -25,
+        "reach": 0.2
+      },
+      "RightArm": {
+        "forward": 66,
+        "out": -16,
+        "twist": -10
+      }
+    },
+    {
+      "f": 10,
+      "name": "hold",
+      "from": "contact",
+      "ease": "inout",
+      "Torso": {
+        "twist": 33,
+        "lean": 10,
+        "forward": 0.22,
+        "up": -0.08
+      },
+      "LeftArm": {
+        "forward": 89,
+        "out": -6,
+        "twist": -25,
+        "reach": 0.22
+      }
+    },
+    {
+      "f": 21,
+      "name": "recover",
+      "from": "guard",
+      "plant": true
+    }
   ],
-  "markers": [{"f": 6, "name": "Hit"}]
+  "markers": [
+    {
+      "f": 6,
+      "name": "Hit"
+    }
+  ]
 }

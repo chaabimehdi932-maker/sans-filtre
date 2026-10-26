@@ -221,6 +221,11 @@ class Joint:
 
 
 _ROOT_ROT = (-1, 0, 0, 0, 0, 1, 0, 1, 0)
+# Translations (studs). Limbs: 'reach' slides the limb along its own length (+ out of the
+# socket = stretch/smear, - into the body = R6 "fake knee" leg retraction); offset_* move it
+# in the torso's axes. Animators use these sparingly; 'plant' sets leg reach for you.
+OFFSETS = ("offset_right", "offset_up", "offset_forward")
+LIMB_CHANNELS = ("forward", "out", "twist", "reach") + OFFSETS
 _R_ROT = (0, 0, 1, 0, 1, 0, -1, 0, 0)
 _L_ROT = (0, 0, -1, 0, 1, 0, 1, 0, 0)
 
@@ -232,19 +237,19 @@ JOINTS = [
           ("lean", "twist", "tilt", "right", "up", "forward")),
     Joint("Head", "Neck", "Torso", "Head",
           CF(0, 1, 0, _ROOT_ROT), CF(0, -0.5, 0, _ROOT_ROT),
-          ("nod", "turn", "tilt")),
+          ("nod", "turn", "tilt") + OFFSETS),
     Joint("RightArm", "Right Shoulder", "Torso", "Right Arm",
           CF(1, 0.5, 0, _R_ROT), CF(-0.5, 0.5, 0, _R_ROT),
-          ("forward", "out", "twist")),
+          LIMB_CHANNELS),
     Joint("LeftArm", "Left Shoulder", "Torso", "Left Arm",
           CF(-1, 0.5, 0, _L_ROT), CF(0.5, 0.5, 0, _L_ROT),
-          ("forward", "out", "twist")),
+          LIMB_CHANNELS),
     Joint("RightLeg", "Right Hip", "Torso", "Right Leg",
           CF(1, -1, 0, _R_ROT), CF(0.5, 1, 0, _R_ROT),
-          ("forward", "out", "twist")),
+          LIMB_CHANNELS),
     Joint("LeftLeg", "Left Hip", "Torso", "Left Leg",
           CF(-1, -1, 0, _L_ROT), CF(-0.5, 1, 0, _L_ROT),
-          ("forward", "out", "twist")),
+          LIMB_CHANNELS),
 ]
 JOINT = {j.key: j for j in JOINTS}
 JOINT_KEYS = [j.key for j in JOINTS]
@@ -265,7 +270,8 @@ CHANNEL_ALIASES = {
               "roll": "tilt", "side": "tilt", "x": "right", "y": "up"},
     "Head": {"pitch": "nod", "yaw": "turn", "twist": "turn", "roll": "tilt"},
     "limb": {"raise": "forward", "swing": "forward", "pitch": "forward", "flex": "forward",
-             "abduct": "out", "spread": "out", "side": "out", "roll": "twist", "rotate": "twist"},
+             "abduct": "out", "spread": "out", "side": "out", "roll": "twist", "rotate": "twist",
+             "extend": "reach", "stretch": "reach"},
 }
 
 # Sensible ranges (degrees / studs). Outside = probably a mistake or a broken-looking pose.
@@ -273,14 +279,16 @@ RANGES = {
     "Torso": {"lean": (-95, 95), "twist": (-90, 90), "tilt": (-60, 60),  # +-90 lean = lying down
               "right": (-3.5, 3.5), "up": (-2.6, 4), "forward": (-3.5, 3.5)},
     "Head": {"nod": (-60, 70), "turn": (-85, 85), "tilt": (-45, 45)},
-    "arm": {"forward": (-100, 200), "out": (-40, 180), "twist": (-120, 120)},
-    "leg": {"forward": (-70, 130), "out": (-25, 90), "twist": (-60, 60)},
+    "arm": {"forward": (-100, 200), "out": (-40, 180), "twist": (-120, 120), "reach": (-0.8, 0.6)},
+    "leg": {"forward": (-70, 130), "out": (-25, 90), "twist": (-60, 60), "reach": (-1.0, 0.3)},
 }
 
 PRIORITIES = ("Core", "Idle", "Movement", "Action", "Action2", "Action3", "Action4")
 
 
 def range_for(joint: str, channel: str):
+    if channel in OFFSETS:
+        return (-1.0, 1.0)
     if joint in ("Torso", "Head"):
         return RANGES[joint][channel]
     return RANGES["arm" if joint.endswith("Arm") else "leg"][channel]
@@ -317,10 +325,13 @@ def body_cf(joint: str, ch: dict) -> CF:
     if joint == "Torso":
         rot = ry(-d(g("twist"))) * rx(-d(g("lean"))) * rz(-d(g("tilt")))
         return CF(g("right"), g("up"), -g("forward")) * rot
+    off = (g("offset_right"), g("offset_up"), -g("offset_forward"))
     if joint == "Head":
-        return ry(-d(g("turn"))) * rx(-d(g("nod"))) * rz(-d(g("tilt")))
+        return CF(*off) * ry(-d(g("turn"))) * rx(-d(g("nod"))) * rz(-d(g("tilt")))
     s = side_of(joint)
-    return rx(d(g("forward"))) * rz(s * d(g("out"))) * ry(-s * d(g("twist")))
+    rot = rx(d(g("forward"))) * rz(s * d(g("out"))) * ry(-s * d(g("twist")))
+    ax = rot.vector((0, -g("reach"), 0))
+    return CF(ax[0] + off[0], ax[1] + off[1], ax[2] + off[2]) * rot
 
 
 def body_to_transform(joint: str, body: CF) -> CF:
@@ -351,14 +362,20 @@ def body_to_channels(joint: str, body: CF) -> dict:
             out = {"lean": -deg(b), "twist": -deg(a), "tilt": -deg(c),
                    "right": body.x, "up": body.y, "forward": -body.z}
         else:
-            out = {"nod": -deg(b), "turn": -deg(a), "tilt": -deg(c)}
+            out = {"nod": -deg(b), "turn": -deg(a), "tilt": -deg(c),
+                   "offset_right": body.x, "offset_up": body.y, "offset_forward": -body.z}
     else:
-        # R = Rx(f) Rz(s*o) Ry(-s*t)
+        # R = Rx(f) Rz(s*o) Ry(-s*t); translation = reach along the limb + offsets
         s = side_of(joint)
         o = math.asin(clamp(-m[1]))
         f = math.atan2(m[7], m[4])
         t = math.atan2(m[2], m[0])
         out = {"forward": deg(f), "out": s * deg(o), "twist": -s * deg(t)}
+        axis = (-m[1], -m[4], -m[7])  # limb's down direction
+        dvec = body.pos
+        reach = sum(p * q for p, q in zip(dvec, axis))
+        rem = tuple(p - q * reach for p, q in zip(dvec, axis))
+        out.update({"reach": reach, "offset_right": rem[0], "offset_up": rem[1], "offset_forward": -rem[2]})
     return {k: round(v, 3) + 0.0 for k, v in out.items() if abs(v) > 1e-4}
 
 
@@ -667,7 +684,9 @@ def _derive(keys, d, loop, where, fps):
         shift = float(d["shiftFrames"]) / fps
     else:
         shift = float(d.get("phase", 0.5)) * L
-    negate = MIRROR_NEGATE.get(dst, ()) if d.get("mirror") else ()
+    opposite_limbs = src != dst and src[:-3] in ("Right", "Left") and dst[:-3] in ("Right", "Left") \
+        and src[-3:] == dst[-3:] and src != dst
+    negate = MIRROR_NEGATE.get(dst, ()) if (d.get("mirror") or opposite_limbs) else ()
 
     def conv(ch):
         return {c: (-v if c in negate else v) for c, v in ch.items()}
@@ -704,20 +723,89 @@ def _derive(keys, d, loop, where, fps):
 HIP_MID = (0.0, -1.0, 0.0)  # midpoint between the two hip pivots, in Torso space
 
 
+LEGS = ("RightLeg", "LeftLeg")
+
+
+def axis_angle(axis, angle) -> CF:
+    n = math.sqrt(sum(a * a for a in axis))
+    if n < 1e-12 or abs(angle) < 1e-12:
+        return CF()
+    x, y, z = (a / n for a in axis)
+    c, s_, t = math.cos(angle), math.sin(angle), 1 - math.cos(angle)
+    return CF(0, 0, 0, (t * x * x + c, t * x * y - s_ * z, t * x * z + s_ * y,
+                        t * x * y + s_ * z, t * y * y + c, t * y * z - s_ * x,
+                        t * x * z - s_ * y, t * y * z + s_ * x, t * z * z + c))
+
+
+def _align(u, v) -> CF:
+    """Shortest rotation taking direction u onto direction v."""
+    nu = math.sqrt(sum(a * a for a in u)); nv = math.sqrt(sum(a * a for a in v))
+    u = tuple(a / nu for a in u); v = tuple(a / nv for a in v)
+    dot = max(-1.0, min(1.0, sum(a * b for a, b in zip(u, v))))
+    axis = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+    return axis_angle(axis, math.acos(dot))
+
+
+def _foot_vec(leg, reach=0.0):
+    """Hip pivot -> sole centre in the (unrotated) leg frame: the hip pivots at the leg's
+    top outer corner, so this is (-+0.5, -2, 0), lengthened by reach along the leg."""
+    pivot = JOINT[leg].c1.pos
+    return (0 - pivot[0], -1 - pivot[1] - reach, 0 - pivot[2])
+
+
 def _solve_key(key: Key):
     """Channels -> body CFs -> Transforms. Applies 'plant'."""
     bodies = {j: body_cf(j, c) for j, c in key.channels.items()}
     if key.plant:
-        # Torso rotations pivot at the hips; legs keep their world angles -> feet stay put.
         tch = key.channels.setdefault("Torso", {})
         tb = body_cf("Torso", tch)
         rot = tb.rotation()
+        legs_user = {leg: body_cf(leg, key.channels.setdefault(leg, {})) for leg in LEGS}
+        # The torso pivots at the hips (bending "at the waist"), not at its own centre.
         mid_rot = rot.vector(HIP_MID)
         shift = tuple(m - mr for m, mr in zip(HIP_MID, mid_rot))
-        bodies["Torso"] = CF(tb.x + shift[0], tb.y + shift[1], tb.z + shift[2], rot.r)
-        for leg in ("RightLeg", "LeftLeg"):
-            lb = body_cf(leg, key.channels.setdefault(leg, {}))
-            bodies[leg] = rot.inverse() * lb
+        if key.airborne:
+            # In the air: legs just keep their world angles.
+            bodies["Torso"] = CF(tb.x + shift[0], tb.y + shift[1], tb.z + shift[2], rot.r)
+            for leg in LEGS:
+                bodies[leg] = rot.inverse() * legs_user[leg]
+        else:
+            # On the ground: lock the feet where these leg angles would stand with an upright
+            # torso, then aim each leg at its foot and slide it along its length to reach it.
+            ref = forward_kinematics({leg: body_to_transform(leg, legs_user[leg]) for leg in LEGS})
+            low = min(p[1] for leg in ("Right Leg", "Left Leg") for p in box_corners(ref[leg], PART_SIZE[leg]))
+            feet = {leg: limb_tip(ref, JOINT[leg].part1) for leg in LEGS}
+            feet = {leg: (f[0], f[1] - low, f[2]) for leg, f in feet.items()}
+            y = tb.y + shift[1] - low
+            for _ in range(4):  # legs can't stretch: if a hip rose too far (tilt), lower the body
+                torso = CF(tb.x + shift[0], y, tb.z + shift[2], rot.r)
+                torso_world = CF(0, HRP_HEIGHT, 0) * torso
+                need = {}
+                for leg in LEGS:
+                    hip = torso_world.point(JOINT[leg].c0.pos)
+                    target = tuple(f - h for f, h in zip(feet[leg], hip))
+                    need[leg] = (target, math.sqrt(max(sum(t * t for t in target) - 0.25, 0.0)) - 2.0)
+                worst = max(r for _, r in need.values())
+                if worst <= 0.02:
+                    break
+                y -= worst
+            bodies["Torso"] = torso
+            for leg in LEGS:
+                target, reach = need[leg]
+                reach = max(-0.9, min(0.02, reach))
+                user_world = legs_user[leg].rotation()
+                cur = user_world.vector(_foot_vec(leg, reach))
+                world_rot = _align(cur, target) * user_world
+                rel = rot.inverse() * world_rot
+                d = rel.vector((0, -reach, 0))
+                bodies[leg] = CF(d[0], d[1], d[2], rel.r)
+                # A tilted leg block dips a corner below its sole centre: stand on that corner.
+                part = forward_kinematics({"Torso": body_to_transform("Torso", torso),
+                                           leg: body_to_transform(leg, bodies[leg])})[JOINT[leg].part1]
+                dip = min(p[1] for p in box_corners(part, PART_SIZE[JOINT[leg].part1]))
+                if dip < -1e-4:
+                    d = rel.vector((0, -(reach + dip), 0))
+                    bodies[leg] = CF(d[0], d[1], d[2], rel.r)
     key.bodies = bodies
     key.transforms = {j: body_to_transform(j, b) for j, b in bodies.items()}
 
@@ -728,8 +816,8 @@ def _apply_ground(keys):
     probe = Anim("probe", False, "Action", keys, [], 60, None, True, {})
     tracks = probe.tracks()
     for key in keys:
-        if not key.ground:
-            continue
+        if not key.ground or (key.plant and not key.airborne):
+            continue  # planted keys already stand on the floor
         tfs = {j: transform_at(tracks[j], key.time) for j in JOINT_KEYS}
         tb = key.bodies.get("Torso") or body_cf("Torso", key.channels.setdefault("Torso", {}))
         tfs.update({j: key.transforms[j] for j in key.transforms})
@@ -790,7 +878,9 @@ def sample_times(anim: Anim, fps: float = 60.0):
 # --------------------------------------------------------------------- mirror
 
 
-MIRROR_NEGATE = {"Torso": ("twist", "tilt", "right"), "Head": ("turn", "tilt")}
+MIRROR_NEGATE = {"Torso": ("twist", "tilt", "right"), "Head": ("turn", "tilt", "offset_right"),
+                 "RightArm": ("offset_right",), "LeftArm": ("offset_right",),
+                 "RightLeg": ("offset_right",), "LeftLeg": ("offset_right",)}
 SWAP = {"RightArm": "LeftArm", "LeftArm": "RightArm", "RightLeg": "LeftLeg", "LeftLeg": "RightLeg"}
 
 

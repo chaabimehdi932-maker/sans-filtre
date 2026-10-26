@@ -220,6 +220,51 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
                         f"{_ranges([t for t, _ in sinks])}). Use \"ground\": true, or an in-between key: a leg "
                         "swung A degrees lifts its foot 2*(1-cos A) studs")
 
+    # ---- planted feet must not skate (one-shots / anything without a locomotion speed)
+    if anim.grounded and not anim.speed:
+        worst = (0.0, None, None)
+        for leg in ("Right Leg", "Left Leg"):
+            start = None
+            for t, parts in zip(times, frames):
+                tip = limb_tip(parts, leg)
+                if tip[1] < 0.12 and not _in_air(anim, t):
+                    if start is None:
+                        start = (t, tip)
+                    d = math.hypot(tip[0] - start[1][0], tip[2] - start[1][2])
+                    if d > worst[0]:
+                        worst = (d, leg, (start[0], t))
+                else:
+                    start = None
+        if worst[0] > 0.25:
+            d, leg, (t0, t1) = worst
+            add("WARN", f"{leg}'s foot skates {d:.2f} studs while on the floor ({t0:.2f}-{t1:.2f}s). "
+                        "Put \"plant\": true on the grounded keys (it locks the feet and re-aims the legs), "
+                        "or move the foot deliberately with a step (lift it: airborne leg key)")
+
+    # ---- strikes: where does the hitting hand travel into each marker?
+    for m in anim.markers:
+        if m.time <= 0:
+            continue
+        t0 = max(0.0, m.time - 0.07)
+        p0 = forward_kinematics(sample(anim, t0, tracks))
+        p1 = forward_kinematics(sample(anim, m.time, tracks))
+        moves = {arm: [b - a for a, b in zip(limb_tip(p0, arm), limb_tip(p1, arm))] for arm in ("Right Arm", "Left Arm")}
+        arm = max(moves, key=lambda k: math.hypot(*moves[k]))
+        dx, dy, dz = moves[arm]
+        dist = math.hypot(dx, dy, dz)
+        if dist < 0.2:
+            continue
+        tip = limb_tip(p1, arm)
+        msg = (f"marker '{m.name}' @{m.time:.3f}s: {arm.split()[0].lower()} hand travels {dist:.2f} studs in the last "
+               f"{m.time - t0:.2f}s (forward {-dz:+.2f}, right {dx:+.2f}, up {dy:+.2f}); at contact it is "
+               f"{-(tip[2] - p1['Torso'].z):.2f} studs in front of the torso")
+        striking = any(w in m.name.lower() for w in ("hit", "strike", "impact", "contact", "punch", "slash"))
+        if striking and -dz < -0.3 and dy < 0.5:
+            add("WARN", msg + ". The fist is moving AWAY from the front: check the torso twist direction "
+                              "(left-hand strikes twist +, right-hand strikes twist -)")
+        else:
+            add("INFO", msg)
+
     if anim.loop and anim.grounded:
         scrapes = []
         for i in range(1, len(times)):
@@ -237,6 +282,14 @@ def lint(anim: Anim) -> list[tuple[str, str]]:
     if anim.speed and anim.loop:
         f.extend(_foot_slide(anim, times, frames))
     return f
+
+
+def _in_air(anim: Anim, t: float) -> bool:
+    """True inside a segment that starts or ends on an airborne key."""
+    kt = [k.time for k in anim.keys]
+    i = max(n for n, x in enumerate(kt) if x <= t + 1e-9)
+    nxt = min(i + 1, len(kt) - 1)
+    return anim.keys[i].airborne or (abs(kt[i] - t) > 1e-6 and anim.keys[nxt].airborne)
 
 
 def _same(a: dict, b: dict) -> bool:

@@ -1,6 +1,6 @@
 {
   "name": "M1_3_Hook",
-  "note": "Combo hit 3: lead (left) hook, 0.4s. The arm stays horizontal and sweeps from out +50 to about -10 while the torso unwinds hard (+42 -> -34 twist) - the body rotation does the 'across' part; pushing the arm further inward only sinks the upper arm into the torso.",
+  "note": "Combo hit 3: lead (left) hook, 0.4s. Load by turning the chest LEFT with the elbow wide (out +50), then the chest whips RIGHT (twist +12 -> +50) carrying the horizontal arm across (out -> about -8). The body rotation does the 'across' part; pushing the arm further inward only sinks the upper arm into the torso. Feet stay planted.",
   "loop": false,
   "priority": "Action",
   "fps": 60,
@@ -50,12 +50,17 @@
       "plant": true,
       "ease": "in",
       "Torso": {
-        "twist": 42,
-        "lean": 5,
-        "tilt": 4
+        "twist": 10,
+        "lean": 6,
+        "tilt": -5,
+        "up": -0.06
+      },
+      "Head": {
+        "turn": -10,
+        "nod": 4
       },
       "LeftArm": {
-        "forward": 82,
+        "forward": 84,
         "out": 50,
         "twist": -30
       }
@@ -67,27 +72,24 @@
       "plant": true,
       "ease": "out",
       "Torso": {
-        "twist": -26,
+        "twist": 48,
         "lean": 10,
-        "tilt": -3,
-        "forward": 0.15
+        "tilt": 4,
+        "forward": 0.15,
+        "up": -0.1
       },
       "Head": {
-        "turn": 8,
+        "turn": -36,
         "nod": 5
       },
       "LeftArm": {
         "forward": 88,
-        "out": -10,
+        "out": -6,
         "twist": -35
       },
       "RightArm": {
-        "forward": 70,
-        "out": -18
-      },
-      "LeftLeg": {
-        "forward": 18,
-        "out": 4,
+        "forward": 68,
+        "out": -18,
         "twist": -10
       }
     },
@@ -97,14 +99,15 @@
       "from": "contact",
       "ease": "inout",
       "Torso": {
-        "twist": -34,
+        "twist": 54,
         "lean": 10,
-        "tilt": -3,
-        "forward": 0.15
+        "tilt": 4,
+        "forward": 0.15,
+        "up": -0.1
       },
       "LeftArm": {
         "forward": 86,
-        "out": -14,
+        "out": -10,
         "twist": -35
       }
     },

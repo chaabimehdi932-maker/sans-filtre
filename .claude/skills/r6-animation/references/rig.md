@@ -81,10 +81,13 @@ These are geometry facts of the default rig, and every R6 animator works around 
 4. **Hip pivot is at the leg's outer top corner** (x = ±1, y = −1). Forward/back swings are
    clean; spreading (`out`) rotates around the outer edge. Raising a leg ~90° sinks its top
    into the torso slightly — normal.
-5. **Rigid legs can't shorten.** A leg at angle A from vertical has its foot 2·(1−cos A)
+5. **Rigid legs can't bend.** A leg at angle A from vertical has its foot 2·(1−cos A)
    studs higher. To keep feet on the floor the body must drop at contact (0.12 studs at
-   ±20°, 0.27 at ±30°, 0.59 at ±45°). This is the R6 walk "bob" and also the only way to
-   crouch: **splay legs + drop the body** (spec: `ground: true`).
+   ±20°, 0.27 at ±30°, 0.59 at ±45°). This is the R6 walk "bob". Two ways to crouch: **splay
+   the legs and drop the body** (`ground: true`), or **slide the legs up into the torso**
+   (Pose translation along the leg — spec `reach` < 0, which `plant` + negative Torso `up`
+   does for you). The torso hides the top of the legs, so retraction reads as bent knees;
+   modern R6 combat uses it a lot.
 6. **The swing leg can't clear the floor.** At passing, a straight swinging leg reaches
    below the floor when the stance leg is angled. Accept it (floors hide it) or add
    5–10° of `out` to the swing leg around passing.

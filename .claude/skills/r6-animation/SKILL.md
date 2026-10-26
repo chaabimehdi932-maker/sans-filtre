@@ -52,7 +52,8 @@ left/right version of any spec.
 {"name": "Jab_L", "priority": "Action", "fps": 60, "ground": true,
  "keyframes": [
    {"f": 0, "plant": true, "ease": "out", "Torso": {"twist": 25}, "LeftArm": {"forward": 80}},
-   {"f": 6, "plant": true, "ease": "linear", "Torso": {"twist": 8, "lean": 11}, "LeftArm": {"forward": 92, "out": -14}},
+   {"f": 3, "plant": true, "ease": "in", "Torso": {"twist": 20}, "LeftArm": {"forward": 80, "reach": -0.35}},
+   {"f": 6, "plant": true, "ease": "linear", "Torso": {"twist": 32, "lean": 10, "forward": 0.2}, "LeftArm": {"forward": 90, "out": -6, "reach": 0.2}},
    {"f": 21, "from": 0}],
  "markers": [{"f": 6, "name": "Hit"}]}
 ```
@@ -60,13 +61,14 @@ left/right version of any spec.
 - Joints: `Torso` (lean fwd+, twist right+, tilt right+, up/forward/right in **studs** —
   moves the *whole* body), `Head` (nod down+, turn right+, tilt right+), `RightArm`/`LeftArm`
   and `RightLeg`/`LeftLeg` (forward+, out = away from body+, twist = outward+; same meaning
-  on both sides). Degrees. 0 = default standing pose.
+  on both sides; `reach` slides the limb along its length in studs). Degrees. 0 = default
+  standing pose.
 - Only listed joints are keyed at a keyframe; a keyed joint's missing channels are 0.
 - `ease` shapes the segment *to the next key*: `inout` (default), `out` (decelerate into
   next), `in` (accelerate into next), `linear`, `constant` (hold then snap), `elastic.out`,
   `bounce.out`. TweenService meanings; the exporter handles Roblox's quirks.
 - Helpers: `from` (start from a key/pose and override), `hold`, `poses` library,
-  `plant` (torso rotates around the hips, feet stay), `ground` (auto-drop body so a foot
+  `plant` (feet locked; legs re-aim and retract), `ground` (auto-drop body so a foot
   touches the floor), `airborne`, `derive` (other leg = this leg half a cycle later),
   `markers`, `speed` (foot-slide check).
 
@@ -75,9 +77,13 @@ left/right version of any spec.
 - **Never hand-write Pose CFrames.** R6 frames are rotated; the converter is verified
   against the real rig. If you must write Luau that touches Poses, generate the numbers
   with `r6anim.py pose` or the exporter.
-- **Torso moves the whole body.** There's no waist; leaning or twisting the Torso swings
-  the legs. Put `"plant": true` on grounded keys that rotate the Torso, and `"ground": true`
-  on the spec so feet stay on the floor. Crouch = splay legs + ground (R6 has no knees).
+- **Torso moves the whole body.** There's no waist; leaning, twisting or shifting the Torso
+  drags the legs. Put `"plant": true` on every grounded key of non-locomotion animations: it
+  locks the feet and re-aims the legs. Crouch = plant + negative Torso `up` (legs slide into
+  the torso, the R6 fake knee). Feet only move where you change leg angles.
+- **Strikes twist toward the far side**: left-hand strikes drive Torso twist up (+), right-
+  hand strikes down (−); straight punches also slide the arm out (`reach` −0.3 → +0.2). Read
+  the lint's strike line ("hand travels … forward +x") — the fist must travel into the target.
 - **Raise arms overhead with `forward` (160–180), not `out`.** The shoulder pivots at the
   arm's inner edge, so a sideways overhead raise swings into the head. Keep inward `out`
   ≥ −15° (more sinks the upper arm into the torso) and let torso twist carry "across".

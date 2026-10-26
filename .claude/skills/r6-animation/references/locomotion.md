@@ -78,6 +78,6 @@ height. [D]
 - **Fall** (loop ~0.8 s): arms up and out (forward ~140–150, out 35–45) with a slow
   asymmetric flail; legs slowly cycling. Not a frozen pose.
 - **Land** (0.3–0.45 s, Action priority, played on Landed): impact pose is the squash —
-  legs splayed (forward ±25–40, out 10–15) with `ground` dropping the body, torso lean
-  15–22 with the head following through (nod +10–15), arms out for balance; deepest 3–5
-  frames after impact; recover with `inout`.
+  `plant` with Torso `up` −0.45..−0.6 (legs slide into the torso) or splayed legs + `ground`,
+  torso lean 15–22 with the head following through (nod +10–15), arms out for balance;
+  deepest 3–5 frames after impact; recover with `inout`, feet never moving.
