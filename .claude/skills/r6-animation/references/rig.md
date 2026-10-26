@@ -88,7 +88,10 @@ These are geometry facts of the default rig, and every R6 animator works around 
 6. **The swing leg can't clear the floor.** At passing, a straight swinging leg reaches
    below the floor when the stance leg is angled. Accept it (floors hide it) or add
    5–10° of `out` to the swing leg around passing.
-7. **HumanoidRootPart is not animated.** Dashes, lunges and knockbacks need the script to
+7. **A fully raised arm only reaches the top of the head** (hand at shoulder + 1.5 = 5.0 studs, head top
+   ≈ 5.1 with the mesh). "Punch the sky" poses read through arm angle, chin up and body rise, not
+   through the hand clearing the head.
+8. **HumanoidRootPart is not animated.** Dashes, lunges and knockbacks need the script to
    move the character; the animation only moves the body relative to the HRP
    (Torso `forward/up/right`, a few studs at most).
 
