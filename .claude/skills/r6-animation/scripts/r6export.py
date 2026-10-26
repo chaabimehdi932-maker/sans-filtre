@@ -167,11 +167,13 @@ def _luau_str(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
 
 
-def to_luau(anim: Anim) -> str:
-    """Command Bar script: builds the KeyframeSequence into the selected rig's Animation Editor saves."""
-    tracks = anim.tracks()
+def to_luau(anims) -> str:
+    """Command Bar script that builds one or more KeyframeSequences into the selected rig's
+    Animation Editor saves. Pass an Anim or a list of Anims (one paste installs them all)."""
+    anims = [anims] if isinstance(anims, Anim) else list(anims)
+    names = ", ".join(a.name for a in anims)
     lines = [
-        f"-- {anim.name}: generated R6 KeyframeSequence ({anim.length:.3f}s, {len(anim.keys)} keys).",
+        f"-- Generated R6 KeyframeSequence(s): {names}.",
         "-- Select your R6 rig in Studio, then paste this into the Command Bar (View > Command Bar).",
         "-- Then Animation Editor > select the rig > ... > Load. Publish from the editor to get an asset id.",
         "local E, D = Enum.PoseEasingStyle, Enum.PoseEasingDirection",
@@ -185,50 +187,57 @@ def to_luau(anim: Anim) -> str:
         "\tp.Parent = parent",
         "\treturn p",
         "end",
-        "local kfs = Instance.new(\"KeyframeSequence\")",
-        f"kfs.Name = {_luau_str(anim.name)}",
-        f"kfs.Loop = {'true' if anim.loop else 'false'}",
-        f"kfs.Priority = Enum.AnimationPriority.{anim.priority}",
+        "local built = {}",
     ]
     style_names = {0: "Linear", 1: "Constant", 2: "Elastic", 3: "Cubic", 4: "Bounce", 5: "CubicV2"}
     dir_names = {0: "In", 1: "Out", 2: "InOut"}
 
-    def emit(node, parent_var, depth):
+    def emit(node, parent_var, depth, out):
         part, tf, weight, ease, kids = node
         st, di = ease_to_enums(ease)
         var = f"p{depth}"
         nums = ", ".join(fmt_num(v) for v in tf.components())
-        lines.append(f"local {var} = P({parent_var}, {_luau_str(part)}, {fmt_num(weight)}, "
-                     f"E.{style_names[st]}, D.{dir_names[di]}, {nums})")
+        out.append(f"local {var} = P({parent_var}, {_luau_str(part)}, {fmt_num(weight)}, "
+                   f"E.{style_names[st]}, D.{dir_names[di]}, {nums})")
         for k in kids:
-            emit(k, var, depth + 1)
+            emit(k, var, depth + 1, out)
 
-    for i, (time, name, key, markers) in enumerate(_keyframe_list(anim)):
-        lines.append("do")
-        lines.append("\tlocal k = Instance.new(\"Keyframe\")")
-        lines.append(f"\tk.Name = {_luau_str(name)}")
-        lines.append(f"\tk.Time = {fmt_num(time)}")
-        tree = _pose_tree(anim, key, tracks) if key else None
-        if tree:
-            start = len(lines)
-            emit(tree, "k", 0)
-            for j in range(start, len(lines)):
-                lines[j] = "\t" + lines[j]
-        for m in markers:
-            lines.append("\tlocal m = Instance.new(\"KeyframeMarker\")")
-            lines.append(f"\tm.Name = {_luau_str(m.name)}")
-            lines.append(f"\tm.Value = {_luau_str(m.value)}")
-            lines.append("\tm.Parent = k")
-        lines.append("\tk.Parent = kfs")
-        lines.append("end")
+    for anim in anims:
+        tracks = anim.tracks()
+        body = [
+            f"-- {anim.name}: {anim.length:.3f}s, {len(anim.keys)} keys",
+            "local kfs = Instance.new(\"KeyframeSequence\")",
+            f"kfs.Name = {_luau_str(anim.name)}",
+            f"kfs.Loop = {'true' if anim.loop else 'false'}",
+            f"kfs.Priority = Enum.AnimationPriority.{anim.priority}",
+        ]
+        for time, name, key, markers in _keyframe_list(anim):
+            block = ["local k = Instance.new(\"Keyframe\")", f"k.Name = {_luau_str(name)}", f"k.Time = {fmt_num(time)}"]
+            tree = _pose_tree(anim, key, tracks) if key else None
+            if tree:
+                emit(tree, "k", 0, block)
+            for m in markers:
+                block += ["local m = Instance.new(\"KeyframeMarker\")", f"m.Name = {_luau_str(m.name)}",
+                          f"m.Value = {_luau_str(m.value)}", "m.Parent = k"]
+            block.append("k.Parent = kfs")
+            body += ["do"] + ["\t" + b for b in block] + ["end"]
+        body.append("table.insert(built, kfs)")
+        lines += ["do"] + ["\t" + b for b in body] + ["end"]
     lines += [
-        "-- Where to put it: if an R6 rig is selected, into the rig's Animation Editor saves",
-        "-- (ServerStorage.RBX_ANIMSAVES.<Rig>, linked from rig.AnimSaves) so Editor > ... > Load lists it.",
+        "-- Where to put them: if an R6 rig is selected (or anything inside it / its saves), into the",
+        "-- rig's Animation Editor saves (ServerStorage.RBX_ANIMSAVES.<Rig>, linked from rig.AnimSaves).",
         "local ss = game:GetService(\"ServerStorage\")",
-        "local sel = game:GetService(\"Selection\"):Get()[1]",
-        "local rig = sel and (sel:IsA(\"Model\") and sel or sel:FindFirstAncestorOfClass(\"Model\"))",
+        "local Selection = game:GetService(\"Selection\")",
+        "local function findRig(sel)",
+        "\tlocal m = sel and (sel:IsA(\"Model\") and sel or sel:FindFirstAncestorOfClass(\"Model\"))",
+        "\tif m and m:FindFirstChildOfClass(\"Humanoid\") then return m end",
+        "\tlocal holder = sel and (sel:IsA(\"ObjectValue\") and sel or sel:FindFirstAncestorOfClass(\"ObjectValue\"))",
+        "\tif holder and holder.Value and holder.Value:IsA(\"Model\") then return holder.Value end",
+        "\treturn nil",
+        "end",
+        "local rig = findRig(Selection:Get()[1])",
         "local folder",
-        "if rig and rig:FindFirstChildOfClass(\"Humanoid\") then",
+        "if rig then",
         "\tlocal ref = rig:FindFirstChild(\"AnimSaves\")",
         "\tif ref and not ref:IsA(\"ObjectValue\") then",
         "\t\tfolder = ref -- legacy AnimSaves folder: the editor still reads it",
@@ -256,11 +265,14 @@ def to_luau(anim: Anim) -> str:
         "\tfolder.Parent = ss",
         "\twarn(\"No R6 rig selected: saved to ServerStorage.R6Generated. Select a rig and re-run to load it in the Animation Editor.\")",
         "end",
-        "local old = folder:FindFirstChild(kfs.Name)",
-        "if old then old:Destroy() end",
-        "kfs.Parent = folder",
-        "game:GetService(\"Selection\"):Set({ kfs })",
-        "print(\"Built \" .. kfs:GetFullName() .. \" - Animation Editor: select the rig, ... > Load > \" .. kfs.Name)",
+        "for _, kfs in ipairs(built) do",
+        "\tlocal old = folder:FindFirstChild(kfs.Name)",
+        "\tif old then old:Destroy() end",
+        "\tkfs.Parent = folder",
+        "\tprint(\"Built \" .. kfs:GetFullName())",
+        "end",
+        "Selection:Set({ rig or built[1] }) -- keep the rig selected so the next paste lands in the same place",
+        "print(\"Animation Editor: select the rig, ... > Load > pick the animation\")",
     ]
     return "\n".join(lines) + "\n"
 

@@ -168,6 +168,7 @@ Avoid `bounce.inout` (Roblox's runtime curve differs from the standard one).
 
 ```bash
 python scripts/r6anim.py build spec.json -o out/     # lint + previews + .rbxmx + .luau (use this)
+python scripts/r6anim.py build a.json b.json c.json -o out/   # a set: also InstallAll.luau (one paste)
 python scripts/r6anim.py lint spec.json              # findings only
 python scripts/r6anim.py render spec.json --every 0.05 --views side,front   # denser contact sheet
 python scripts/r6anim.py mirror punch_R.json -o punch_L.json

@@ -2,7 +2,8 @@
 """
 r6anim - one CLI for the whole R6 keyframe workflow.
 
-  python r6anim.py build  spec.json [-o outdir]   lint + previews + .rbxmx + .luau (the usual command)
+  python r6anim.py build  spec.json [more.json …] [-o outdir]   lint + previews + .rbxmx + .luau
+                                                  (several specs also write InstallAll.luau)
   python r6anim.py lint   spec.json               findings only
   python r6anim.py render spec.json [-o outdir] [--views front,side] [--every 0.05] [--no-gif]
   python r6anim.py export spec.json [-o outdir]   .rbxmx + .luau only
@@ -84,26 +85,45 @@ def cmd_render(args):
     return 0
 
 
+def _bundle(anims, d, name):
+    """One Command Bar script that installs several animations at once."""
+    from r6export import to_luau
+    path = os.path.join(d, _slug(name) + ".luau")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(to_luau(anims))
+    return path
+
+
 def cmd_export(args):
-    anim = _load(args.spec)
-    for p in _export(anim, _outdir(args, args.spec)):
-        print("wrote", p)
+    anims = [_load(p) for p in args.spec]
+    d = _outdir(args, args.spec[0])
+    for anim in anims:
+        for p in _export(anim, d):
+            print("wrote", p)
+    if len(anims) > 1:
+        print("wrote", _bundle(anims, d, args.bundle), f"(installs all {len(anims)} in one paste)")
     return 0
 
 
 def cmd_build(args):
     from r6lint import lint, report
-    anim = _load(args.spec)
-    d = _outdir(args, args.spec)
-    print(report(anim))
-    print()
-    made = _export(anim, d)
-    if not args.no_render:
-        made += _render(anim, d, args)
-    for p in made:
-        print("wrote", p)
-    print("\nLook at the *_sheet.png and *_onion.png before calling it done.")
-    return 1 if any(l == "ERROR" for l, _ in lint(anim)) else 0
+    anims = [_load(p) for p in args.spec]
+    d = _outdir(args, args.spec[0])
+    errors = False
+    for anim in anims:
+        print(report(anim))
+        print()
+        made = _export(anim, d)
+        if not args.no_render:
+            made += _render(anim, d, args)
+        for p in made:
+            print("wrote", p)
+        print()
+        errors |= any(l == "ERROR" for l, _ in lint(anim))
+    if len(anims) > 1:
+        print("wrote", _bundle(anims, d, args.bundle), f"(installs all {len(anims)} in one paste)")
+    print("Look at the *_sheet.png and *_onion.png before calling it done.")
+    return 1 if errors else 0
 
 
 def cmd_mirror(args):
@@ -156,14 +176,22 @@ def main(argv=None):
         return p
 
     add("lint", cmd_lint)
-    for name, fn in (("build", cmd_build), ("render", cmd_render)):
+    for name, fn in (("build", cmd_build), ("export", cmd_export)):
+        p = sub.add_parser(name)
+        p.add_argument("spec", nargs="+")
+        p.add_argument("-o", "--out")
+        p.add_argument("--bundle", default="InstallAll", help="name of the all-in-one .luau when several specs are given")
+        p.set_defaults(fn=fn)
+        if name == "build":
+            p.add_argument("--views", help="comma list: front,side,back,three_quarter,top")
+            p.add_argument("--every", type=float, help="contact sheet every N seconds instead of every key")
+            p.add_argument("--no-gif", action="store_true")
+            p.add_argument("--no-render", action="store_true")
+    for name, fn in (("render", cmd_render),):
         p = add(name, fn)
         p.add_argument("--views", help="comma list: front,side,back,three_quarter,top")
         p.add_argument("--every", type=float, help="contact sheet every N seconds instead of every key")
         p.add_argument("--no-gif", action="store_true")
-        if name == "build":
-            p.add_argument("--no-render", action="store_true")
-    add("export", cmd_export)
     add("mirror", cmd_mirror)
     p = add("import", cmd_import, spec_arg="file")
     p.add_argument("--fps", type=float, default=60)

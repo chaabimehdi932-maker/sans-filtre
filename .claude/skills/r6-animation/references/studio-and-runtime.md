@@ -20,7 +20,8 @@ replacing default animations, or debugging "my animation doesn't play".
 2. View → Command Bar, paste the generated `<Name>.luau`, Enter.
 3. The KeyframeSequence lands in `ServerStorage.RBX_ANIMSAVES.<RigName>` (linked from
    `rig.AnimSaves`), which is where the Animation Editor looks. Without a selected rig it
-   goes to `ServerStorage.R6Generated`.
+   goes to `ServerStorage.R6Generated`. The script leaves the rig selected, so several
+   scripts can be pasted in a row; for a set, `InstallAll.luau` does it in one paste.
 4. Animation Editor → select the rig → ⋯ → **Load** → pick the name. Tweak if desired.
 
 **B. File (.rbxmx)**: right-click `ServerStorage` (or the rig's `AnimSaves`) → *Insert from

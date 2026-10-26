@@ -31,8 +31,9 @@ does the math, checks the result, draws it so you can *see* it, and exports Stud
    proportions beats starting from zero.
 4. **Write the spec** (`<name>.json`). Block the extremes first, then breakdowns, overlap
    and easing (see craft.md).
-5. **Build**: `python scripts/r6anim.py build <name>.json -o <outdir>`
-   (paths relative to this skill's directory). Fix every ERROR. Read each WARN and fix
+5. **Build**: `python scripts/r6anim.py build <name>.json [more.json …] -o <outdir>`
+   (paths relative to this skill's directory; several specs also produce `InstallAll.luau`,
+   one Command Bar paste that installs them all — use it for combos and move sets). Fix every ERROR. Read each WARN and fix
    it unless it is a deliberate choice you can justify.
 6. **Look at the pictures** — `<Name>_sheet.png` (front/side/three-quarter per keyframe)
    and `<Name>_onion.png` (ghosts + hand/foot trails; dots every 1/30 s: bunched = slow,
@@ -120,7 +121,7 @@ left/right version of any spec.
 ## Delivering
 
 Give the user:
-1. The files: `<Name>.rbxmx`, `<Name>.luau`, and the preview `<Name>_sheet.png` /
+1. The files: `<Name>.rbxmx`, `<Name>.luau` (or `InstallAll.luau` for a set), and the preview `<Name>_sheet.png` /
    `<Name>.gif` so they can see it before opening Studio. Keep the spec JSON too — it's
    the editable source.
 2. How to get it in (short version): select the R6 rig in Studio → paste `<Name>.luau` into
