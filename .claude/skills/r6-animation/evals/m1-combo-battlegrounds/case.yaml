@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: m1-combo-battlegrounds
+expected_outcome: |
+  Three separate R6 punch animations (KeyframeSequence .rbxmx and/or a Studio script that builds them) that each start and end in the same fighting stance so they chain, use Action-or-higher priority, are not looped, contain a KeyframeMarker on the contact frame, show a fast strike with anticipation and a slower recovery, and come with instructions for importing/publishing plus Luau that listens with GetMarkerReachedSignal.

@@ -1,0 +1,100 @@
+{
+  "name": "Wave",
+  "note": "Friendly wave emote, 1.2s loop. The arm is raised by 'forward' (~160) not 'out': raising an R6 arm sideways over the head swings it into the head, because the shoulder pivot is at the arm's inner edge. The wave is 'out' swinging 6<->40 in the frontal plane with the hand leading (twist), body leaning away (tilt) and a head tilt toward the waving side for appeal.",
+  "loop": true,
+  "priority": "Action",
+  "fps": 60,
+  "ground": true,
+  "keyframes": [
+    {
+      "f": 0,
+      "name": "out",
+      "Torso": {
+        "tilt": -4,
+        "twist": -4
+      },
+      "Head": {
+        "tilt": 7,
+        "turn": 4,
+        "nod": -2
+      },
+      "RightArm": {
+        "forward": 160,
+        "out": 40,
+        "twist": -20
+      },
+      "LeftArm": {
+        "forward": 4,
+        "out": 4
+      },
+      "RightLeg": {
+        "out": 4
+      },
+      "LeftLeg": {
+        "out": 3
+      },
+      "ease": "inout"
+    },
+    {
+      "f": 14,
+      "name": "in",
+      "Torso": {
+        "tilt": -3,
+        "twist": -3
+      },
+      "Head": {
+        "tilt": 5,
+        "turn": 3,
+        "nod": -1
+      },
+      "RightArm": {
+        "forward": 165,
+        "out": 6,
+        "twist": 15
+      },
+      "ease": "out"
+    },
+    {
+      "f": 36,
+      "name": "out2",
+      "Torso": {
+        "tilt": -4,
+        "twist": -4
+      },
+      "Head": {
+        "tilt": 7,
+        "turn": 4,
+        "nod": -2
+      },
+      "RightArm": {
+        "forward": 160,
+        "out": 40,
+        "twist": -20
+      },
+      "ease": "inout"
+    },
+    {
+      "f": 50,
+      "name": "in2",
+      "Torso": {
+        "tilt": -3,
+        "twist": -3
+      },
+      "Head": {
+        "tilt": 5,
+        "turn": 3,
+        "nod": -1
+      },
+      "RightArm": {
+        "forward": 165,
+        "out": 6,
+        "twist": 15
+      },
+      "ease": "out"
+    },
+    {
+      "f": 72,
+      "from": 0
+    }
+  ]
+}

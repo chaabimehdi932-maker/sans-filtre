@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: walk-cycle-walkspeed-12
+expected_outcome: |
+  A looped R6 walk KeyframeSequence (Movement priority or a justified alternative) whose stride matches 12 studs/s so the planted foot doesn't slide, with arms opposing legs and a seamless loop, plus correct instructions for replacing the default R6 Animate walk (walk.WalkAnim, not run) and a note that the default Animate does not speed-scale custom walks.

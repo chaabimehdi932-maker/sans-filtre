@@ -1,0 +1,23 @@
+{
+  "name": "Jump",
+  "note": "Takeoff to rise, 0.3s - Roblox's R6 Animate plays 'jump' for ~0.3s then fades into 'fall'. The jump impulse is instant, so there is no time for an anticipation crouch: start already extended (the push-off) and tuck one knee as it rises. Every key is airborne.",
+  "loop": false,
+  "priority": "Movement",
+  "fps": 60,
+  "keyframes": [
+    {"f": 0, "name": "pushoff", "airborne": true, "ease": "out",
+     "Torso": {"lean": -6},
+     "Head": {"nod": -10},
+     "RightArm": {"forward": 140, "out": 20, "twist": -10},
+     "LeftArm": {"forward": 125, "out": 25, "twist": -10},
+     "RightLeg": {"forward": -18},
+     "LeftLeg": {"forward": -8}},
+    {"f": 18, "name": "rise_tuck", "airborne": true,
+     "Torso": {"lean": 4, "up": 0.1},
+     "Head": {"nod": -4},
+     "RightArm": {"forward": 165, "out": 30, "twist": -15},
+     "LeftArm": {"forward": 150, "out": 35, "twist": -15},
+     "RightLeg": {"forward": 45},
+     "LeftLeg": {"forward": -12}}
+  ]
+}

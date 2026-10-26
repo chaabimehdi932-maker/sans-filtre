@@ -1,0 +1,38 @@
+{
+  "name": "Run",
+  "note": "Run matched to WalkSpeed 16 (Roblox's default). Short stance (6 frames per foot) + flight phase, so legs can swing big without foot sliding. The body stays low through stance (feet dip ~0.19 studs into the floor at mid-stance, standing in for the knee bend R6 doesn't have) and rises in flight: one bob per step. Use it as the R6 'walk' replacement - R6 Animate does not speed-scale custom walks.",
+  "loop": true,
+  "priority": "Movement",
+  "fps": 60,
+  "speed": 16,
+  "keyframes": [
+    {"f": 0, "name": "contact_R", "plant": true, "ground": true,
+     "Torso": {"lean": 14, "twist": 8, "tilt": -2},
+     "Head": {"nod": -10, "turn": -6},
+     "RightLeg": {"forward": 25, "ease": "linear"},
+     "RightArm": {"forward": -45, "out": 8, "twist": 0},
+     "LeftArm": {"forward": 60, "out": 5, "twist": -12}},
+    {"f": 6, "name": "toeoff_R", "plant": true, "ground": true,
+     "Torso": {"lean": 14, "twist": 4, "tilt": -1},
+     "RightLeg": {"forward": -25, "ease": "out"}},
+    {"f": 10, "name": "flight_1", "airborne": true, "plant": true, "ease": "in",
+     "Torso": {"lean": 14, "twist": 0, "up": 0.12}},
+    {"f": 11, "name": "kick_R",
+     "RightLeg": {"forward": -65, "ease": "inout"}},
+    {"f": 15, "name": "contact_L", "plant": true, "ground": true,
+     "Torso": {"lean": 14, "twist": -8, "tilt": 2},
+     "Head": {"nod": -10, "turn": 6},
+     "RightArm": {"forward": 60, "out": 5, "twist": -12},
+     "LeftArm": {"forward": -45, "out": 8, "twist": 0}},
+    {"f": 21, "name": "toeoff_L", "plant": true, "ground": true,
+     "Torso": {"lean": 14, "twist": -4, "tilt": 1}},
+    {"f": 23, "name": "reach_R",
+     "RightLeg": {"forward": 55, "ease": "in"}},
+    {"f": 25, "name": "flight_2", "airborne": true, "plant": true, "ease": "in",
+     "Torso": {"lean": 14, "twist": 0, "up": 0.12}},
+    {"f": 30, "name": "contact_R_loop", "from": 0}
+  ],
+  "derive": [
+    {"joint": "LeftLeg", "from": "RightLeg", "phase": 0.5}
+  ]
+}

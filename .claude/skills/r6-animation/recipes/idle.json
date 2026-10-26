@@ -1,0 +1,24 @@
+{
+  "name": "Idle",
+  "note": "Breathing idle, 3.2s loop. Chest rises (Torso up + slight lean back) on the inhale; arms and head follow 0.2-0.5s later (overlap) so it never looks frozen. Feet slightly apart. Keep amplitudes tiny: 0.04 studs and 1-3 degrees read clearly in game.",
+  "loop": true,
+  "priority": "Idle",
+  "fps": 60,
+  "ground": true,
+  "keyframes": [
+    {"f": 0, "name": "exhale",
+     "Torso": {"lean": 1, "up": 0},
+     "Head": {"nod": 2},
+     "RightArm": {"forward": 2, "out": 3},
+     "LeftArm": {"forward": 2, "out": 3, "twist": 2},
+     "RightLeg": {"out": 4, "twist": 4},
+     "LeftLeg": {"out": 3, "forward": 2, "twist": 6}},
+    {"f": 24, "RightArm": {"forward": 2, "out": 3}, "LeftArm": {"forward": 2, "out": 3, "twist": 2}},
+    {"f": 30, "Head": {"nod": 2}},
+    {"f": 90, "name": "inhale",
+     "Torso": {"lean": -1, "up": 0.045, "tilt": 0.5}},
+    {"f": 114, "RightArm": {"forward": 4, "out": 6, "twist": 3}, "LeftArm": {"forward": 3, "out": 6, "twist": 4}},
+    {"f": 120, "Head": {"nod": -1, "tilt": 1}},
+    {"f": 192, "name": "exhale_loop", "from": 0}
+  ]
+}

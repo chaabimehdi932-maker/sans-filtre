@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: victory-emote-overhead
+expected_outcome: |
+  A ~1.2-2 s R6 KeyframeSequence where the body visibly leaves the ground and lands, the right arm points straight up during the punch without clipping into the head, the feet are back on the floor at the end, and the final pose is held; delivered as .rbxmx and/or Studio script with import instructions.

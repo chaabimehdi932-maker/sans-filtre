@@ -1,0 +1,124 @@
+{
+  "name": "M1_3_Hook",
+  "note": "Combo hit 3: lead (left) hook, 0.4s. The arm stays horizontal and sweeps from out +50 to about -10 while the torso unwinds hard (+42 -> -34 twist) - the body rotation does the 'across' part; pushing the arm further inward only sinks the upper arm into the torso.",
+  "loop": false,
+  "priority": "Action",
+  "fps": 60,
+  "ground": true,
+  "poses": {
+    "guard": {
+      "Torso": {
+        "twist": 25,
+        "lean": 6
+      },
+      "Head": {
+        "turn": -20,
+        "nod": 4
+      },
+      "LeftArm": {
+        "forward": 80,
+        "out": -8,
+        "twist": -10
+      },
+      "RightArm": {
+        "forward": 62,
+        "out": -14,
+        "twist": -10
+      },
+      "LeftLeg": {
+        "forward": 18,
+        "out": 4
+      },
+      "RightLeg": {
+        "forward": -14,
+        "out": 6
+      }
+    }
+  },
+  "keyframes": [
+    {
+      "f": 0,
+      "name": "guard",
+      "from": "guard",
+      "plant": true,
+      "ease": "out"
+    },
+    {
+      "f": 4,
+      "name": "anticipation",
+      "from": "guard",
+      "plant": true,
+      "ease": "in",
+      "Torso": {
+        "twist": 42,
+        "lean": 5,
+        "tilt": 4
+      },
+      "LeftArm": {
+        "forward": 82,
+        "out": 50,
+        "twist": -30
+      }
+    },
+    {
+      "f": 8,
+      "name": "contact",
+      "from": "guard",
+      "plant": true,
+      "ease": "out",
+      "Torso": {
+        "twist": -26,
+        "lean": 10,
+        "tilt": -3,
+        "forward": 0.15
+      },
+      "Head": {
+        "turn": 8,
+        "nod": 5
+      },
+      "LeftArm": {
+        "forward": 88,
+        "out": -10,
+        "twist": -35
+      },
+      "RightArm": {
+        "forward": 70,
+        "out": -18
+      },
+      "LeftLeg": {
+        "forward": 18,
+        "out": 4,
+        "twist": -10
+      }
+    },
+    {
+      "f": 12,
+      "name": "followthrough",
+      "from": "contact",
+      "ease": "inout",
+      "Torso": {
+        "twist": -34,
+        "lean": 10,
+        "tilt": -3,
+        "forward": 0.15
+      },
+      "LeftArm": {
+        "forward": 86,
+        "out": -14,
+        "twist": -35
+      }
+    },
+    {
+      "f": 24,
+      "name": "recover",
+      "from": "guard",
+      "plant": true
+    }
+  ],
+  "markers": [
+    {
+      "f": 8,
+      "name": "Hit"
+    }
+  ]
+}

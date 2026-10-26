@@ -1,0 +1,139 @@
+{
+  "name": "Sword_Slash",
+  "note": "One-handed tool slash (right hand), 0.5s. Starts and ends in the R6 tool-hold pose (right arm forward 90). High wind-up over the right shoulder, fast diagonal swing to low-left (3 frames, linear = smear-fast), decelerating follow-through, hold, recover. Hit marker mid-swing. Works with any Tool held in the right hand.",
+  "loop": false,
+  "priority": "Action",
+  "fps": 60,
+  "ground": true,
+  "poses": {
+    "toolhold": {
+      "Torso": {
+        "twist": 5
+      },
+      "RightArm": {
+        "forward": 90
+      },
+      "LeftArm": {
+        "forward": 8,
+        "out": 6
+      },
+      "RightLeg": {
+        "forward": -8,
+        "out": 3
+      },
+      "LeftLeg": {
+        "forward": 10,
+        "out": 3
+      }
+    }
+  },
+  "keyframes": [
+    {
+      "f": 0,
+      "name": "toolhold",
+      "from": "toolhold",
+      "plant": true,
+      "ease": "out"
+    },
+    {
+      "f": 7,
+      "name": "windup",
+      "from": "toolhold",
+      "plant": true,
+      "ease": "in",
+      "Torso": {
+        "twist": 32,
+        "lean": -4,
+        "tilt": -4
+      },
+      "Head": {
+        "turn": -12,
+        "nod": -4
+      },
+      "RightArm": {
+        "forward": 160,
+        "out": 45,
+        "twist": 35
+      },
+      "LeftArm": {
+        "forward": 40,
+        "out": 20
+      }
+    },
+    {
+      "f": 10,
+      "name": "swing_mid",
+      "from": "toolhold",
+      "plant": true,
+      "ease": "linear",
+      "Torso": {
+        "twist": -10,
+        "lean": 8,
+        "tilt": 2
+      },
+      "Head": {
+        "turn": 4,
+        "nod": 4
+      },
+      "RightArm": {
+        "forward": 95,
+        "out": 5,
+        "twist": 5
+      },
+      "LeftArm": {
+        "forward": 15,
+        "out": 30
+      }
+    },
+    {
+      "f": 13,
+      "name": "followthrough",
+      "from": "toolhold",
+      "plant": true,
+      "ease": "out",
+      "Torso": {
+        "twist": -40,
+        "lean": 16,
+        "tilt": 5,
+        "forward": 0.2
+      },
+      "Head": {
+        "turn": 14,
+        "nod": 8
+      },
+      "RightArm": {
+        "forward": 42,
+        "out": -16,
+        "twist": -25
+      },
+      "LeftArm": {
+        "forward": -10,
+        "out": 28
+      }
+    },
+    {
+      "f": 18,
+      "name": "hold",
+      "from": "followthrough",
+      "ease": "inout",
+      "Torso": {
+        "twist": -42,
+        "lean": 17,
+        "tilt": 5,
+        "forward": 0.2
+      }
+    },
+    {
+      "f": 30,
+      "name": "recover",
+      "from": "toolhold",
+      "plant": true
+    }
+  ],
+  "markers": [
+    {
+      "f": 10,
+      "name": "Hit"
+    }
+  ]
+}

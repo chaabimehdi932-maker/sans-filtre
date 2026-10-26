@@ -1,0 +1,76 @@
+{
+  "name": "Block",
+  "note": "Held high guard (loop). Play with a short fade (0.08s) when the block starts and stop with a fade when it ends - the loop is the held pose with a tiny 'moving hold' so it stays alive. Both arms up in front of the face, nearly parallel: crossing them further inward makes the upper arms sink into the torso (R6 shoulders pivot at the arm's inner edge).",
+  "loop": true,
+  "priority": "Action",
+  "fps": 60,
+  "ground": true,
+  "keyframes": [
+    {
+      "f": 0,
+      "name": "block",
+      "plant": true,
+      "Torso": {
+        "twist": 10,
+        "lean": 12
+      },
+      "Head": {
+        "turn": -8,
+        "nod": 14
+      },
+      "LeftArm": {
+        "forward": 118,
+        "out": -10,
+        "twist": -45
+      },
+      "RightArm": {
+        "forward": 104,
+        "out": -12,
+        "twist": -45
+      },
+      "LeftLeg": {
+        "forward": 22,
+        "out": 8
+      },
+      "RightLeg": {
+        "forward": -18,
+        "out": 8
+      }
+    },
+    {
+      "f": 45,
+      "plant": true,
+      "Torso": {
+        "twist": 9,
+        "lean": 13,
+        "up": -0.03
+      },
+      "Head": {
+        "turn": -6,
+        "nod": 17
+      },
+      "LeftArm": {
+        "forward": 115,
+        "out": -9,
+        "twist": -45
+      },
+      "RightArm": {
+        "forward": 101,
+        "out": -11,
+        "twist": -45
+      },
+      "LeftLeg": {
+        "forward": 22,
+        "out": 8
+      },
+      "RightLeg": {
+        "forward": -18,
+        "out": 8
+      }
+    },
+    {
+      "f": 90,
+      "from": 0
+    }
+  ]
+}
